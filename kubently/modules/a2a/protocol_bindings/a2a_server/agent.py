@@ -185,17 +185,39 @@ class KubentlyAgent:
             logger.warning("Continuing without memory persistence")
             self.memory = None
 
-        # Initialize LLM using factory
-        llm_factory = LLMFactory()
-        self.llm = llm_factory.get_llm()
-
-        # Check if using Anthropic and enable prompt caching if configured
+        # Initialize LLM with context management support for Anthropic models
         # https://docs.claude.com/en/docs/build-with-claude/context-editing#how-it-works
-        use_prompt_caching = os.getenv("ANTHROPIC_PROMPT_CACHING", "true").lower() == "true"
-        if use_prompt_caching and hasattr(self.llm, 'model_name') and 'claude' in str(self.llm.model_name).lower():
-            logger.info("Anthropic Claude detected - prompt caching enabled for efficient context management")
-            # Prompt caching is handled automatically by langchain-anthropic with cache_control
-            # This dramatically reduces costs and improves performance for long conversations
+        llm_provider = os.getenv("LLM_PROVIDER", "").lower()
+        enable_context_management = os.getenv("ANTHROPIC_CONTEXT_CLEARING", "true").lower() == "true"
+
+        if "anthropic" in llm_provider or "claude" in llm_provider:
+            # For Anthropic models, use direct initialization to enable context management
+            if enable_context_management:
+                from langchain_anthropic import ChatAnthropic
+
+                # Determine model from environment or use default
+                model_name = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
+
+                self.llm = ChatAnthropic(
+                    model=model_name,
+                    max_tokens=4096,
+                    betas=["context-management-2025-06-27"],
+                    context_management={
+                        "edits": [{"type": "clear_tool_uses_20250919"}]
+                    }
+                )
+                logger.info(f"Anthropic Claude initialized with context management: {model_name}")
+                logger.info("Context management will automatically clear tool results to prevent context overflow")
+            else:
+                # Use standard factory initialization without context management
+                llm_factory = LLMFactory()
+                self.llm = llm_factory.get_llm()
+                logger.info("Anthropic Claude initialized without context management (feature disabled)")
+        else:
+            # For non-Anthropic models, use standard factory initialization
+            llm_factory = LLMFactory()
+            self.llm = llm_factory.get_llm()
+            logger.info(f"LLM initialized: {llm_provider or 'default'}")
 
         # Load system prompt from configuration
         from kubently.modules.config import get_prompt
@@ -551,45 +573,8 @@ class KubentlyAgent:
         actual_thread_id = thread_id or str(uuid.uuid4())
         logger.info(f"Agent.run called with thread_id: {actual_thread_id}, memory enabled: {self.memory is not None}")
 
-        # Check conversation history length and warn user if getting too long
-        # Instead of auto-deleting, we let the user control when to clear with /clear
-        MAX_MESSAGES_WARNING = int(os.getenv("MAX_CONVERSATION_MESSAGES", "15"))
-
-        if self.memory:
-            try:
-                # Get the current checkpoint state to check message count
-                checkpoint_tuple = await self.memory.aget_tuple({"configurable": {"thread_id": actual_thread_id}})
-
-                if checkpoint_tuple and checkpoint_tuple.checkpoint:
-                    # Extract messages from checkpoint
-                    channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
-                    existing_messages = channel_values.get("messages", [])
-                    message_count = len(existing_messages)
-
-                    logger.info(f"Thread {actual_thread_id} has {message_count} messages in history")
-
-                    # If history is getting long, warn the user instead of auto-deleting
-                    # This gives user control and avoids aggressive context loss
-                    if message_count > MAX_MESSAGES_WARNING:
-                        logger.warning(f"History is long ({message_count} messages) for thread {actual_thread_id}, user should consider clearing")
-
-                        # Return early with helpful message asking user to clear
-                        yield {
-                            "type": "message",
-                            "content": (
-                                "⚠️ **Conversation history is getting long**\n\n"
-                                f"This conversation has {message_count} messages and may be approaching token limits.\n\n"
-                                "**Recommended action**: Use `/clear` to start a fresh conversation.\n\n"
-                                "This helps maintain optimal performance and prevents token overflow errors.\n\n"
-                                "*Tip: For complex Kubernetes investigations, break them into focused troubleshooting sessions.*"
-                            ),
-                            "metadata": {"thread_id": actual_thread_id, "requires_clear": True}
-                        }
-                        return  # Don't proceed with agent invocation
-
-            except Exception as e:
-                logger.warning(f"Failed to check conversation history: {e}")
-                # Continue anyway - better to attempt the query than fail
+        # Note: For Anthropic models with context management enabled, tool results are automatically
+        # cleared server-side to prevent context overflow. No manual intervention needed.
 
         config = RunnableConfig(
             configurable={"thread_id": actual_thread_id},
