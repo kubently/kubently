@@ -47,7 +47,7 @@ jobs:
             type=sha,prefix=sha-
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./deployment/docker/api/Dockerfile
@@ -94,7 +94,7 @@ jobs:
             type=sha,prefix=sha-
 
       - name: Build and push executor Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./deployment/docker/executor/Dockerfile
