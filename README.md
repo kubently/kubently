@@ -130,7 +130,6 @@ helm install kubently deployment/helm -f deployment/helm/test-values.yaml
 - **[Development Guide](CLAUDE.md)** - Guidelines for contributors
 
 ### Troubleshooting
-- **[GKE Deployment Issues](docs/GKE_DEPLOYMENT_ISSUES.md)** - Common issues and fixes
 - **[Getting Started - Common Issues](docs/GETTING_STARTED.md#common-issues)** - Troubleshooting guide
 
 ## Contributing
