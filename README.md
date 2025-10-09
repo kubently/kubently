@@ -13,7 +13,7 @@ Kubently - Troubleshooting Kubernetes Agentically
 
 ## Overview
 
-Kubently is an intelligent Kubernetes troubleshooting system that leverages LLMs to diagnose and resolve cluster issues through natural language conversations. It implements the [A2A (Agent-to-Agent) protocol](https://a2a-protocol.org/latest/) for seamless multi-agent system communication.
+Kubently (*Kubernetes + Agentically*) enables AI agents to troubleshoot Kubernetes clusters through natural language conversations. By implementing the [A2A (Agent-to-Agent) protocol](https://a2a-protocol.org/latest/), Kubently allows multiple agents to collaborate in diagnosing and resolving cluster issues autonomously.
 
 ## Key Features
 

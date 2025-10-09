@@ -18,8 +18,8 @@ A clear and concise description of any alternative solutions or features you've 
 
 **Use Case**
 Describe your use case and how this feature would benefit you and others:
-- What Kubernetes debugging challenge does this solve?
-- How would this improve your workflow?
+- What Kubernetes troubleshooting challenge does this solve?
+- How would this improve agentic workflows?
 - Who else might benefit from this feature?
 
 **Proposed Implementation (optional)**
