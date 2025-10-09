@@ -189,6 +189,14 @@ class KubentlyAgent:
         llm_factory = LLMFactory()
         self.llm = llm_factory.get_llm()
 
+        # Check if using Anthropic and enable prompt caching if configured
+        # https://docs.claude.com/en/docs/build-with-claude/context-editing#how-it-works
+        use_prompt_caching = os.getenv("ANTHROPIC_PROMPT_CACHING", "true").lower() == "true"
+        if use_prompt_caching and hasattr(self.llm, 'model_name') and 'claude' in str(self.llm.model_name).lower():
+            logger.info("Anthropic Claude detected - prompt caching enabled for efficient context management")
+            # Prompt caching is handled automatically by langchain-anthropic with cache_control
+            # This dramatically reduces costs and improves performance for long conversations
+
         # Load system prompt from configuration
         from kubently.modules.config import get_prompt
 
@@ -543,48 +551,45 @@ class KubentlyAgent:
         actual_thread_id = thread_id or str(uuid.uuid4())
         logger.info(f"Agent.run called with thread_id: {actual_thread_id}, memory enabled: {self.memory is not None}")
 
-        # Implement conversation history management to prevent token overflow
-        # Maximum number of recent messages to keep (including tool calls)
-        # This prevents the "prompt is too long" error after /clear
-        # Note: Each message can include large tool outputs (kubectl JSON, logs, etc.)
-        # which can be 10K+ tokens each, so we keep this conservative
-        MAX_MESSAGES = 10  # Keep last 10 messages (approximately 3-5 conversation turns with tools)
+        # Check conversation history length and warn user if getting too long
+        # Instead of auto-deleting, we let the user control when to clear with /clear
+        MAX_MESSAGES_WARNING = int(os.getenv("MAX_CONVERSATION_MESSAGES", "15"))
 
-        # If we have a checkpointer, we need to manage history size
-        # The checkpointer automatically loads ALL history, which can exceed token limits
         if self.memory:
             try:
-                # Get the current checkpoint state
+                # Get the current checkpoint state to check message count
                 checkpoint_tuple = await self.memory.aget_tuple({"configurable": {"thread_id": actual_thread_id}})
 
                 if checkpoint_tuple and checkpoint_tuple.checkpoint:
                     # Extract messages from checkpoint
                     channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
                     existing_messages = channel_values.get("messages", [])
-
                     message_count = len(existing_messages)
+
                     logger.info(f"Thread {actual_thread_id} has {message_count} messages in history")
 
-                    # If history is too long, delete the checkpoint to start fresh
-                    # This is the most reliable way to prevent token overflow
-                    if message_count > MAX_MESSAGES:
-                        logger.warning(f"History too long ({message_count} messages), clearing checkpoint for thread {actual_thread_id}")
+                    # If history is getting long, warn the user instead of auto-deleting
+                    # This gives user control and avoids aggressive context loss
+                    if message_count > MAX_MESSAGES_WARNING:
+                        logger.warning(f"History is long ({message_count} messages) for thread {actual_thread_id}, user should consider clearing")
 
-                        # Delete all checkpoints for this thread to start fresh
-                        # This simulates what /clear should do
-                        redis_key_pattern = f"{actual_thread_id}*"
-                        keys_deleted = 0
-
-                        # Use scan_iter to find and delete all keys for this thread
-                        async for key in self.redis_client.scan_iter(match=redis_key_pattern):
-                            await self.redis_client.delete(key)
-                            keys_deleted += 1
-
-                        logger.info(f"Cleared {keys_deleted} checkpoint keys for thread {actual_thread_id}")
+                        # Return early with helpful message asking user to clear
+                        yield {
+                            "type": "message",
+                            "content": (
+                                "⚠️ **Conversation history is getting long**\n\n"
+                                f"This conversation has {message_count} messages and may be approaching token limits.\n\n"
+                                "**Recommended action**: Use `/clear` to start a fresh conversation.\n\n"
+                                "This helps maintain optimal performance and prevents token overflow errors.\n\n"
+                                "*Tip: For complex Kubernetes investigations, break them into focused troubleshooting sessions.*"
+                            ),
+                            "metadata": {"thread_id": actual_thread_id, "requires_clear": True}
+                        }
+                        return  # Don't proceed with agent invocation
 
             except Exception as e:
-                logger.warning(f"Failed to manage conversation history: {e}")
-                # Continue anyway - better to have long history than crash
+                logger.warning(f"Failed to check conversation history: {e}")
+                # Continue anyway - better to attempt the query than fail
 
         config = RunnableConfig(
             configurable={"thread_id": actual_thread_id},
