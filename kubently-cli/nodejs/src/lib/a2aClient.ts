@@ -41,9 +41,9 @@ export class KubentlyA2ASession {
   private config: Config;
 
   constructor(apiUrl: string, apiKey?: string, clusterId?: string, insecure: boolean = false) {
-    // Add http:// prefix if no protocol specified
+    // Default to https:// if no protocol specified
     if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
-      apiUrl = 'http://' + apiUrl;
+      apiUrl = 'https://' + apiUrl;
     }
 
     this.sessionId = uuidv4();
