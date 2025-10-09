@@ -6,18 +6,12 @@ import { Config } from '../lib/config.js';
 import { KubentlyA2ASession } from '../lib/a2aClient.js';
 
 function printWelcome() {
-  const boxWidth = 61;
-  const contentWidth = boxWidth - 2; // 59 (excluding ║ borders)
-
   console.log(chalk.cyan('\n╔═══════════════════════════════════════════════════════════╗'));
-  // Emoji takes 2 display columns but counts as 1 char in string length
-  // "           🚀 Kubently Debug Session" = 36 chars, 37 display columns
-  // Need 59 display columns, so 59 - 37 = 22 spaces → padEnd(58)
-  console.log(chalk.cyan('║') + chalk.white('           🚀 Kubently Debug Session'.padEnd(contentWidth - 1)) + chalk.cyan('║'));
+  console.log(chalk.cyan('║') + chalk.white('           🚀 Kubently Debug Session                       ') + chalk.cyan('║'));
   console.log(chalk.cyan('╠═══════════════════════════════════════════════════════════╣'));
-  console.log(chalk.cyan('║ ') + chalk.white('Mode:       ') + chalk.green('Agent Chat (A2A Protocol)'.padEnd(contentWidth - 14)) + chalk.cyan(' ║'));
+  console.log(chalk.cyan('║ ') + chalk.white('Mode:       ') + chalk.green('Agent Chat (A2A Protocol)'.padEnd(45)) + chalk.cyan(' ║'));
   console.log(chalk.cyan('╠═══════════════════════════════════════════════════════════╣'));
-  console.log(chalk.cyan('║ ') + chalk.gray('Type "help" for commands, "exit" to quit'.padEnd(contentWidth - 2)) + chalk.cyan(' ║'));
+  console.log(chalk.cyan('║ ') + chalk.gray('Type "help" for commands, "exit" to quit'.padEnd(57)) + chalk.cyan(' ║'));
   console.log(chalk.cyan('╚═══════════════════════════════════════════════════════════╝'));
   console.log();
 }
