@@ -239,6 +239,10 @@ async def executor_stream(cluster_id: str = Depends(verify_executor_auth)):
 
     logger.info(f"Executor {cluster_id} connecting via SSE")
 
+    # Mark cluster as active when executor connects
+    cluster_active_key = f"cluster:active:{cluster_id}"
+    await redis_client.setex(cluster_active_key, 300, "1")  # 5 min TTL, renewed by keepalive
+
     async def event_generator() -> AsyncGenerator:
         """Generate SSE events from Redis pub/sub."""
         # Create a separate Redis connection for pub/sub
@@ -266,6 +270,8 @@ async def executor_stream(cluster_id: str = Depends(verify_executor_auth)):
                         yield {"event": "command", "data": command_data}
 
                 # Send periodic keepalive to detect disconnections
+                # Also renew cluster active status
+                await redis_client.setex(cluster_active_key, 300, "1")
                 yield {
                     "event": "keepalive",
                     "data": json.dumps({"timestamp": asyncio.get_event_loop().time()}),
@@ -276,6 +282,9 @@ async def executor_stream(cluster_id: str = Depends(verify_executor_auth)):
         finally:
             await pubsub.unsubscribe(channel)
             await pubsub.close()
+            # Remove cluster active marker on disconnect
+            await redis_client.delete(cluster_active_key)
+            logger.info(f"Executor {cluster_id} marked as inactive")
 
     return EventSourceResponse(event_generator())
 
