@@ -546,7 +546,9 @@ class KubentlyAgent:
         # Implement conversation history management to prevent token overflow
         # Maximum number of recent messages to keep (including tool calls)
         # This prevents the "prompt is too long" error after /clear
-        MAX_MESSAGES = 30  # Keep last 30 messages (approximately 10-15 conversation turns with tools)
+        # Note: Each message can include large tool outputs (kubectl JSON, logs, etc.)
+        # which can be 10K+ tokens each, so we keep this conservative
+        MAX_MESSAGES = 10  # Keep last 10 messages (approximately 3-5 conversation turns with tools)
 
         # If we have a checkpointer, we need to manage history size
         # The checkpointer automatically loads ALL history, which can exceed token limits
