@@ -87,17 +87,24 @@ api:
 executor:
   enabled: true
   replicaCount: 1
-  
+
   image:
     repository: kubently/executor
     tag: latest
     pullPolicy: IfNotPresent
-  
+
   # Cluster ID for the executor
   clusterId: "kind"
-  
-  # Token for executor authentication
+
+  # Token for executor authentication (FOR TESTING ONLY)
+  # WARNING: For production, use existingSecret instead of embedding tokens here
   token: "37d34f63b1d4a7420fceefc6eceb2c89d7124153f2a26578bcd2bc8082b538f0"
+
+  # Reference an existing secret (recommended for production)
+  # Create secret first: kubectl create secret generic my-executor-token --from-literal=token=<secure-token>
+  # Then uncomment these lines and remove the token above:
+  # existingSecret: "my-executor-token"
+  # existingSecretKey: "token"  # Optional, defaults to "token"
   
   env:
     LOG_LEVEL: "INFO"

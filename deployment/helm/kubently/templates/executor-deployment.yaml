@@ -65,8 +65,13 @@ spec:
         - name: KUBENTLY_TOKEN
           valueFrom:
             secretKeyRef:
+              {{- if .Values.executor.existingSecret }}
+              name: {{ .Values.executor.existingSecret }}
+              key: {{ .Values.executor.existingSecretKey | default "token" }}
+              {{- else }}
               name: {{ include "kubently.fullname" . }}-executor-token
               key: token
+              {{- end }}
         {{- if .Values.kubentlyExecutor.commandWhitelist.enabled }}
         - name: ENABLE_DYNAMIC_WHITELIST
           value: "true"
