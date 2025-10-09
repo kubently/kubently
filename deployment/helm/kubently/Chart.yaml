@@ -1,0 +1,21 @@
+apiVersion: v2
+name: kubently
+description: Kubently - Troubleshooting Kubernetes Agentically
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+home: https://github.com/kubently/kubently
+maintainers:
+  - name: Kubently Team
+    email: team@kubently.com
+keywords:
+  - kubernetes
+  - debugging
+  - ai
+  - troubleshooting
+# dependencies:
+#   - name: redis
+#     version: 21.2.14
+#     repository: https://charts.bitnami.com/bitnami
+#     condition: redis.enabled
+# Note: Using custom Redis Stack deployment instead for RediSearch module support

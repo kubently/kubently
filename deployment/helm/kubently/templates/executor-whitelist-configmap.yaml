@@ -1,0 +1,222 @@
+{{- if .Values.kubentlyExecutor.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubently.fullname" . }}-executor-whitelist
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubently.labels" . | nindent 4 }}
+    component: executor-whitelist
+data:
+  whitelist.yaml: |
+    # Security mode for command validation
+    mode: {{ .Values.kubentlyExecutor.securityMode | quote }}
+    
+    # Command configuration
+    commands:
+      # Allowed kubectl verbs
+      allowedVerbs:
+        {{- if eq .Values.kubentlyExecutor.securityMode "readOnly" }}
+        # Read-only mode: Safe operations only
+        - get
+        - describe
+        - logs
+        - top
+        - explain
+        - api-resources
+        - api-versions
+        - events
+        - version
+        {{- else if eq .Values.kubentlyExecutor.securityMode "extendedReadOnly" }}
+        # Extended read-only mode: Includes debugging tools
+        - get
+        - describe
+        - logs
+        - top
+        - explain
+        - api-resources
+        - api-versions
+        - events
+        - version
+        - port-forward
+        - exec
+        {{- else if eq .Values.kubentlyExecutor.securityMode "fullAccess" }}
+          {{- if not .Values.fullAccessAcknowledged }}
+          {{- fail "fullAccess mode requires fullAccessAcknowledged: true in values" }}
+          {{- end }}
+        # Full access mode: Advanced operations (use with caution)
+        - get
+        - describe
+        - logs
+        - top
+        - explain
+        - api-resources
+        - api-versions
+        - events
+        - version
+        - port-forward
+        - exec
+        - cp
+        - proxy
+        - attach
+        - run
+        {{- end }}
+        
+        # Custom verbs from values
+        {{- range .Values.kubentlyExecutor.commandWhitelist.customVerbs }}
+        - {{ . }}
+        {{- end }}
+        
+      # Resource restrictions
+      restrictedResources:
+        {{- if eq .Values.kubentlyExecutor.securityMode "readOnly" }}
+        - secrets
+        - configmaps
+        {{- else if eq .Values.kubentlyExecutor.securityMode "extendedReadOnly" }}
+        - secrets
+        {{- end }}
+        {{- range .Values.kubentlyExecutor.commandWhitelist.restrictedResources }}
+        - {{ . }}
+        {{- end }}
+        
+      # Allowed flags/arguments
+      allowedFlags:
+        {{- if eq .Values.kubentlyExecutor.securityMode "readOnly" }}
+        # Basic flags for read operations
+        - "--namespace"
+        - "-n"
+        - "--all-namespaces"
+        - "-A"
+        - "--selector"
+        - "-l"
+        - "--show-labels"
+        - "--watch"
+        - "-w"
+        - "--follow"
+        - "-f"
+        - "--previous"
+        - "-p"
+        - "--output"
+        - "-o"
+        - "--tail"
+        - "--since"
+        - "--timestamps"
+        - "--no-headers"
+        - "--sort-by"
+        {{- else if eq .Values.kubentlyExecutor.securityMode "extendedReadOnly" }}
+        # Extended flags for debugging
+        - "--namespace"
+        - "-n"
+        - "--all-namespaces"
+        - "-A"
+        - "--selector"
+        - "-l"
+        - "--show-labels"
+        - "--watch"
+        - "-w"
+        - "--follow"
+        - "-f"
+        - "--previous"
+        - "-p"
+        - "--output"
+        - "-o"
+        - "--tail"
+        - "--since"
+        - "--timestamps"
+        - "--no-headers"
+        - "--sort-by"
+        # Port-forward flags
+        - "--port"
+        - "--address"
+        # Exec flags
+        - "--stdin"
+        - "-i"
+        - "--tty"
+        - "-t"
+        - "--container"
+        - "-c"
+        {{- else if eq .Values.kubentlyExecutor.securityMode "fullAccess" }}
+        # Full set of flags
+        - "--namespace"
+        - "-n"
+        - "--all-namespaces"
+        - "-A"
+        - "--selector"
+        - "-l"
+        - "--show-labels"
+        - "--watch"
+        - "-w"
+        - "--follow"
+        - "-f"
+        - "--previous"
+        - "-p"
+        - "--output"
+        - "-o"
+        - "--tail"
+        - "--since"
+        - "--timestamps"
+        - "--no-headers"
+        - "--sort-by"
+        - "--port"
+        - "--address"
+        - "--stdin"
+        - "-i"
+        - "--tty"
+        - "-t"
+        - "--container"
+        - "-c"
+        - "--server-print"
+        - "--server-version"
+        - "--recursive"
+        - "-R"
+        {{- end }}
+        
+        # Extra flags from values
+        {{- range .Values.kubentlyExecutor.commandWhitelist.extraFlags }}
+        - {{ . }}
+        {{- end }}
+        
+      # Always forbidden patterns (immutable baseline)
+      forbiddenPatterns:
+        # Authentication bypass attempts
+        - "--token"
+        - "--kubeconfig"
+        - "--server"
+        - "--insecure"
+        - "--username"
+        - "--password"
+        - "--client-key"
+        - "--client-certificate"
+        # Write operations (always forbidden)
+        - "delete"
+        - "apply"
+        - "create"
+        - "patch"
+        - "replace"
+        - "edit"
+        - "scale"
+        # Shell injection risks
+        - "&&"
+        - "||"
+        - ";"
+        - "|"
+        - "`"
+        - "$("
+        - "${"
+        # File system access
+        - "/etc/kubernetes"
+        - "--token-file"
+        
+        # Extra forbidden patterns from values
+        {{- range .Values.kubentlyExecutor.commandWhitelist.extraForbiddenPatterns }}
+        - {{ . }}
+        {{- end }}
+        
+    # Runtime limits
+    limits:
+      maxArguments: {{ .Values.kubentlyExecutor.commandWhitelist.maxArguments | default 20 }}
+      timeoutSeconds: {{ .Values.kubentlyExecutor.commandWhitelist.timeoutSeconds | default 30 }}
+      
+    # Configuration reload interval
+    reloadIntervalSeconds: {{ .Values.kubentlyExecutor.commandWhitelist.reloadInterval | default 30 }}
+{{- end }}

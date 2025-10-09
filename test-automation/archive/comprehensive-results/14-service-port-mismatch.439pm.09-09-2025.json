@@ -1,0 +1,55 @@
+{
+  "scenario": {
+    "name": "14-service-port-mismatch",
+    "path": "scenarios/14-service-port-mismatch.sh",
+    "expected_fix": "Align Service port with container port",
+    "namespace": "test-scenario-14",
+    "query_template": "In cluster kind, we can't connect to the service in namespace {namespace}. Please debug the connectivity issue.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-09T16:38:46.948200",
+    "query": "In cluster kind, we can't connect to the service in namespace test-scenario-14. Please debug the connectivity issue.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [],
+    "errors": [],
+    "duration_seconds": 13.7532479763031,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-09T16:39:00.703216",
+    "root_cause_analysis": {
+      "identified_correctly": false,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 13.7532479763031
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 3,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": [
+      "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+      "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-14), use it in all kubectl commands'"
+    ]
+  },
+  "cleanup_success": false,
+  "overall_success": false,
+  "recommendations": [
+    "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-14), use it in all kubectl commands'"
+  ]
+}

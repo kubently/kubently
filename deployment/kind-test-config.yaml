@@ -1,0 +1,19 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: kubently-test
+nodes:
+- role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "cluster=test"
+  # Use different ports to avoid conflicts with the first cluster
+  extraPortMappings:
+  - containerPort: 30080
+    hostPort: 18080
+    protocol: TCP
+  - containerPort: 30443
+    hostPort: 15443
+    protocol: TCP

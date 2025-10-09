@@ -1,0 +1,51 @@
+{
+  "scenario": {
+    "name": "16-network-policy-deny-egress",
+    "path": "scenarios/16-network-policy-deny-egress.sh",
+    "expected_fix": "Add appropriate NetworkPolicy egress rules",
+    "namespace": "test-scenario-16",
+    "query_template": "In cluster kind, the application in namespace {namespace} can't connect to external services. Please diagnose and fix.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-08T14:47:45.361103",
+    "query": "In cluster kind, the application in namespace test-scenario-16 can't connect to external services. Please diagnose and fix.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "The `internet-client` pod in the `test-scenario-16` namespace is in a `Pending` state due to a scheduling issue. Here's what I found:\n\n- **Pod Scheduling Issue:** The pod is not scheduled because there are no available nodes that can accommodate it. The specific reason is an untolerated taint `{app: critical}` on the node(s).\n\n### Recommendations:\n1. **Node Taints and Tolerations:**\n   - Check the node taints and consider adding a toleration to the pod if it should run on nodes with the `{app: critical}` taint.\n   - Alternatively, if the taint is not necessary, consider removing it from the node.\n\n2. **Network Configuration:**\n   - Since there are no services in the namespace, ensure that the pod's network configuration allows it to reach external services directly. This might involve checking network policies or configuring a service if needed.\n\nWould you like to proceed with checking the node taints or any other specific action?"
+    ],
+    "errors": [],
+    "duration_seconds": 15.262991189956665,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-08T14:48:00.625510",
+    "root_cause_analysis": {
+      "identified_correctly": false,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 15.262991189956665
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 3,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": []
+  },
+  "cleanup_success": true,
+  "overall_success": false,
+  "recommendations": []
+}

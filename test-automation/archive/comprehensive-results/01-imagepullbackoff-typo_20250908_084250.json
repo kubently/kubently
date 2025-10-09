@@ -1,0 +1,43 @@
+{
+  "scenario": {
+    "name": "01-imagepullbackoff-typo",
+    "path": "/Users/adickinson/repos/kubently/test-scenarios/01-imagepullbackoff-typo.sh",
+    "expected_fix": "Correct the image name from 'busyboxx:latest' to 'busybox:latest'",
+    "namespace": "test-scenario-01",
+    "query_template": "Debug the ImagePullBackOff issue in namespace {namespace}. Find and fix the root cause.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-08T08:42:36.183377",
+    "query": "Debug the ImagePullBackOff issue in namespace test-scenario-01. Find and fix the root cause.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "I can help identify the root cause of the ImagePullBackOff issue, but I won't be able to fix it directly as I operate in a read-only mode. Let's start by identifying the failing resources in the `test-scenario-01` namespace.\n\nFirst, I need to know which cluster you're referring to. If you haven't specified a cluster yet, I'll list the available clusters for you to choose from. Could you please specify the cluster, or should I list the available clusters?"
+    ],
+    "errors": [],
+    "duration_seconds": 3.834670066833496,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "basic_analyzer",
+    "timestamp": "2025-09-08T08:42:40.018867",
+    "root_cause_analysis": {
+      "identified_correctly": true,
+      "confidence": 0.5
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 0.0,
+      "response_time": 3.834670066833496
+    },
+    "bottlenecks": []
+  },
+  "cleanup_success": true,
+  "overall_success": true,
+  "recommendations": []
+}

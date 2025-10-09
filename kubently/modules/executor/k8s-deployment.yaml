@@ -1,0 +1,132 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubently
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubently-executor
+  namespace: kubently
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubently-executor-readonly
+rules:
+- apiGroups: ["*"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["*"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubently-executor-readonly
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubently-executor-readonly
+subjects:
+- kind: ServiceAccount
+  name: kubently-executor
+  namespace: kubently
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kubently-executor-token
+  namespace: kubently
+type: Opaque
+data:
+  # Replace with base64-encoded token
+  # Example: echo -n "your-secure-token" | base64
+  token: Y2hhbmdlLW1lLXRvLWEtc2VjdXJlLXRva2Vu
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubently-ca-cert
+  namespace: kubently
+data:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    # Your CA certificate here - replace with actual certificate content
+    # For Let's Encrypt, this would be the intermediate CA certificate
+    # For internal CA, use your organization's root or intermediate CA
+    -----END CERTIFICATE-----
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubently-executor
+  namespace: kubently
+  labels:
+    app: kubently-executor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kubently-executor
+  template:
+    metadata:
+      labels:
+        app: kubently-executor
+    spec:
+      serviceAccountName: kubently-executor
+      containers:
+      - name: executor
+        image: kubently/executor:latest
+        imagePullPolicy: Always
+        env:
+        - name: KUBENTLY_API_URL
+          value: "https://api.kubently.com"  # HTTPS by default
+        - name: CLUSTER_ID
+          value: "production-cluster-1"      # Change to your cluster ID
+        - name: KUBENTLY_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: kubently-executor-token
+              key: token
+        - name: KUBENTLY_SSL_VERIFY
+          value: "true"  # Enforce certificate validation
+        - name: KUBENTLY_CA_CERT
+          value: "/etc/kubently/ca/ca.crt"
+        - name: POLL_INTERVAL
+          value: "10"
+        - name: FAST_POLL_INTERVAL
+          value: "0.5"
+        - name: LOG_LEVEL
+          value: "INFO"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        volumeMounts:
+        - name: ca-cert
+          mountPath: /etc/kubently/ca
+          readOnly: true
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: ca-cert
+        configMap:
+          name: kubently-ca-cert

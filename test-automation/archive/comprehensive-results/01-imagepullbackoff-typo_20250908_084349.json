@@ -1,0 +1,43 @@
+{
+  "scenario": {
+    "name": "01-imagepullbackoff-typo",
+    "path": "/Users/adickinson/repos/kubently/test-scenarios/01-imagepullbackoff-typo.sh",
+    "expected_fix": "Correct the image name from 'busyboxx:latest' to 'busybox:latest'",
+    "namespace": "test-scenario-01",
+    "query_template": "In cluster 'local', debug the ImagePullBackOff issue in namespace {namespace}. The pod is failing to pull its container image. Identify the exact root cause and provide the fix.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-08T08:43:33.882400",
+    "query": "In cluster 'local', debug the ImagePullBackOff issue in namespace test-scenario-01. The pod is failing to pull its container image. Identify the exact root cause and provide the fix.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "It seems that the cluster 'local' is not listed among the available clusters. I can access the clusters 'kind' and 'kubently'. Could you please confirm if 'local' is an alias for one of these clusters, or if you would like me to proceed with one of the available clusters?"
+    ],
+    "errors": [],
+    "duration_seconds": 4.852701902389526,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "basic_analyzer",
+    "timestamp": "2025-09-08T08:43:38.735544",
+    "root_cause_analysis": {
+      "identified_correctly": false,
+      "confidence": 0.5
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 0.0,
+      "response_time": 4.852701902389526
+    },
+    "bottlenecks": []
+  },
+  "cleanup_success": true,
+  "overall_success": false,
+  "recommendations": []
+}

@@ -1,0 +1,51 @@
+{
+  "scenario": {
+    "name": "08-failing-liveness-probe",
+    "path": "scenarios/08-failing-liveness-probe.sh",
+    "expected_fix": "Fix the liveness probe configuration or application health endpoint",
+    "namespace": "test-scenario-08",
+    "query_template": "In cluster kind, a pod in namespace {namespace} keeps getting restarted. Please find out why and fix it.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-08T16:49:59.392981",
+    "query": "In cluster kind, a pod in namespace test-scenario-08 keeps getting restarted. Please find out why and fix it.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "It appears that there are currently no pods in the `test-scenario-08` namespace of the `kind` cluster. This could mean that the pod has been removed or the namespace is empty at the moment.\n\nIf the pod was recently deleted or if there's a specific time when the issue occurs, please let me know. Otherwise, you might want to check if the pod or namespace has been recreated or if there are any other changes in the cluster. If you have more details or if the pod reappears, feel free to reach out for further assistance."
+    ],
+    "errors": [],
+    "duration_seconds": 9.242012739181519,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-08T16:50:08.635631",
+    "root_cause_analysis": {
+      "identified_correctly": false,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 9.242012739181519
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 3,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": []
+  },
+  "cleanup_success": false,
+  "overall_success": false,
+  "recommendations": []
+}

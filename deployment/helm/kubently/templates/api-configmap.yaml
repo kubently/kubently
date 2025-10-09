@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubently.fullname" . }}-api-config
+  labels:
+    {{- include "kubently.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+data:
+  {{- range $key, $value := .Values.api.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

@@ -1,0 +1,48 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubently-executor-readonly
+  labels:
+    app: kubently-executor
+    component: executor
+rules:
+# Core resources
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints", "nodes", "namespaces", "configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+# Apps resources  
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "daemonsets", "statefulsets"]
+  verbs: ["get", "list", "watch"]
+# Batch resources
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["get", "list", "watch"]
+# Networking resources
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses", "networkpolicies"]
+  verbs: ["get", "list", "watch"]
+# Pod logs and events
+- apiGroups: [""]
+  resources: ["pods/log", "events"]
+  verbs: ["get", "list"]
+# Metrics
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubently-executor-readonly
+  labels:
+    app: kubently-executor
+    component: executor
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubently-executor-readonly
+subjects:
+- kind: ServiceAccount
+  name: kubently-executor
+  namespace: kubently

@@ -1,0 +1,109 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubently
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubently-agent
+  namespace: kubently
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubently-agent
+rules:
+- apiGroups: ["*"]
+  resources: ["*"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubently-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubently-agent
+subjects:
+- kind: ServiceAccount
+  name: kubently-agent
+  namespace: kubently
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kubently-agent-token
+  namespace: kubently
+type: Opaque
+stringData:
+  token: token-test-cluster-1757262896927
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubently-agent
+  namespace: kubently
+  labels:
+    app: kubently-agent
+    cluster: test-cluster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kubently-agent
+  template:
+    metadata:
+      labels:
+        app: kubently-agent
+        cluster: test-cluster
+    spec:
+      serviceAccountName: kubently-agent
+      containers:
+      - name: agent
+        image: kubently/agent:latest
+        imagePullPolicy: Always
+        env:
+        - name: KUBENTLY_API_URL
+          value: http://localhost:8000
+        - name: KUBENTLY_CLUSTER_ID
+          value: test-cluster
+        - name: KUBENTLY_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: kubently-agent-token
+              key: token
+        - name: KUBENTLY_DEBUG
+          value: "false"
+        - name: KUBENTLY_RECONNECT_INTERVAL
+          value: "30"
+        - name: KUBENTLY_MAX_RECONNECTS
+          value: "10"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP

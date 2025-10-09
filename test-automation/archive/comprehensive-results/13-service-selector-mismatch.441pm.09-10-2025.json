@@ -1,0 +1,59 @@
+{
+  "scenario": {
+    "name": "13-service-selector-mismatch",
+    "path": "scenarios/13-service-selector-mismatch.sh",
+    "expected_fix": "Fix the Service selector to match pod labels",
+    "namespace": "test-scenario-13",
+    "query_template": "In cluster kind, the service in namespace {namespace} doesn't seem to be working. Traffic isn't reaching the pods. Please investigate.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-10T16:40:45.644043",
+    "query": "In cluster kind, the service in namespace test-scenario-13 doesn't seem to be working. Traffic isn't reaching the pods. Please investigate.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "The pods in the `test-scenario-13` namespace are running and ready, but they have the label `app=my-app`, which does not match the service's selector `app=my-service`. This mismatch is why the service has no endpoints and traffic isn't reaching the pods.\n\nTo resolve this, you need to update either the service's selector to match the pods' labels or update the pods' labels to match the service's selector. Since I operate in a read-only mode, you will need to make this change manually."
+    ],
+    "errors": [],
+    "duration_seconds": 28.86475706100464,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-10T16:41:14.509998",
+    "root_cause_analysis": {
+      "identified_correctly": true,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 28.86475706100464
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 7,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": [
+      "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+      "Add to system prompt: 'Focus on diagnosis and recommendations without mentioning read-only limitations'",
+      "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-13), use it in all kubectl commands'"
+    ]
+  },
+  "cleanup_success": true,
+  "overall_success": true,
+  "recommendations": [
+    "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+    "Add to system prompt: 'Focus on diagnosis and recommendations without mentioning read-only limitations'",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-13), use it in all kubectl commands'"
+  ]
+}

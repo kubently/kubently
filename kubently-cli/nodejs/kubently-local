@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# Local Kubently CLI runner
+# This script runs the Node.js CLI without conflicting with the Python version
+
+# Set the directory of this script
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Export environment variables if not set
+export KUBENTLY_API_URL="${KUBENTLY_API_URL:-http://localhost:8000}"
+export KUBENTLY_API_KEY="${KUBENTLY_API_KEY:-testkey123}"
+
+# Run the CLI with all arguments passed through
+exec node "$DIR/dist/index.js" "$@"

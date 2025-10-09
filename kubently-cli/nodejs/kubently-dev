@@ -1,0 +1,37 @@
+#!/usr/bin/env node
+
+/**
+ * Development runner for Kubently CLI
+ * This ensures proper TTY handling for interactive commands
+ */
+
+const { spawn } = require('child_process');
+const path = require('path');
+
+// Get command line arguments
+const args = process.argv.slice(2);
+
+// Determine which script to run
+const useTypescript = !require('fs').existsSync(path.join(__dirname, 'dist'));
+const script = useTypescript ? 'src/index.ts' : 'dist/index.js';
+const runner = useTypescript ? 'ts-node' : 'node';
+
+console.log(`Running Kubently CLI (${useTypescript ? 'TypeScript' : 'JavaScript'})...`);
+
+// Spawn the process with inherited stdio for proper TTY handling
+const child = spawn(runner, [script, ...args], {
+  stdio: 'inherit',
+  shell: false,
+  env: process.env
+});
+
+// Handle exit
+child.on('exit', (code) => {
+  process.exit(code);
+});
+
+// Handle errors
+child.on('error', (err) => {
+  console.error('Failed to start Kubently CLI:', err);
+  process.exit(1);
+});

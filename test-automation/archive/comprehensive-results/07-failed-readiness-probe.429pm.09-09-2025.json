@@ -1,0 +1,57 @@
+{
+  "scenario": {
+    "name": "07-failed-readiness-probe",
+    "path": "scenarios/07-failed-readiness-probe.sh",
+    "expected_fix": "Fix the readiness probe configuration or application endpoint",
+    "namespace": "test-scenario-07",
+    "query_template": "In cluster kind, there's a pod in namespace {namespace} that's running but not ready. Please investigate and resolve.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-09T16:28:52.591573",
+    "query": "In cluster kind, there's a pod in namespace test-scenario-07 that's running but not ready. Please investigate and resolve.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "The pod `readiness-failure-deployment-8ddf69f95-9mwkl` in the `test-scenario-07` namespace is experiencing readiness probe failures. The readiness probe is configured to check the `/ready` endpoint on port 80, but this endpoint is returning a 404 status code, indicating it does not exist.\n\nTo resolve this issue:\n1. Ensure that the application is configured to serve a readiness endpoint at `/ready`. If not, update the application configuration.\n2. If the application uses a different endpoint for readiness checks, update the readiness probe configuration in the deployment to match the correct endpoint.\n\nThese steps should help resolve the readiness issue."
+    ],
+    "errors": [],
+    "duration_seconds": 22.115742921829224,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-09T16:29:14.709620",
+    "root_cause_analysis": {
+      "identified_correctly": true,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 22.115742921829224
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 7,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": [
+      "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+      "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-07), use it in all kubectl commands'"
+    ]
+  },
+  "cleanup_success": true,
+  "overall_success": true,
+  "recommendations": [
+    "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-07), use it in all kubectl commands'"
+  ]
+}

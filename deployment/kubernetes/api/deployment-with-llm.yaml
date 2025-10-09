@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubently-api
+  namespace: kubently
+  labels:
+    app: kubently-api
+    component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kubently-api
+  template:
+    metadata:
+      labels:
+        app: kubently-api
+        component: api
+    spec:
+      containers:
+      - name: api
+        image: kubently-api:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8080
+          name: http
+        envFrom:
+        - configMapRef:
+            name: kubently-env
+        - secretRef:
+            name: kubently-secrets
+        env:
+        - name: REDIS_HOST
+          value: redis
+        - name: REDIS_PORT
+          value: "6379"
+        - name: API_PORT
+          value: "8080"
+        - name: LOG_LEVEL
+          value: "INFO"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 20
+          periodSeconds: 5
+          timeoutSeconds: 3

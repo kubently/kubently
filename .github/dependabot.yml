@@ -1,0 +1,63 @@
+version: 2
+updates:
+  # Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "adickinson"
+    labels:
+      - "dependencies"
+      - "python"
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+
+  # Node.js dependencies for CLI
+  - package-ecosystem: "npm"
+    directory: "/kubently-cli/nodejs"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "adickinson"
+    labels:
+      - "dependencies"
+      - "nodejs"
+    groups:
+      nodejs-dependencies:
+        patterns:
+          - "*"
+
+  # Docker dependencies
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    reviewers:
+      - "adickinson"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    reviewers:
+      - "adickinson"
+    labels:
+      - "dependencies"
+      - "github-actions"

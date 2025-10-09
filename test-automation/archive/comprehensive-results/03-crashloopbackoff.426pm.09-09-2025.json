@@ -1,0 +1,57 @@
+{
+  "scenario": {
+    "name": "03-crashloopbackoff",
+    "path": "scenarios/03-crashloopbackoff.sh",
+    "expected_fix": "Fix the invalid command or add proper error handling",
+    "namespace": "test-scenario-03",
+    "query_template": "In cluster kind, there's a pod in namespace {namespace} that keeps restarting. Please investigate why it's failing and provide a solution.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-09T16:26:06.317546",
+    "query": "In cluster kind, there's a pod in namespace test-scenario-03 that keeps restarting. Please investigate why it's failing and provide a solution.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "The pod `crash-loop-deployment-5b6868bffb-4kvtf` in the `test-scenario-03` namespace is experiencing a crash loop due to the following command in its container:\n\n```sh\nsh -c \"echo 'I am failing' && exit 1\"\n```\n\n### Issue:\n- The container is explicitly set to fail by executing a command that exits with a status code of 1, which causes the pod to restart repeatedly.\n\n### Solution:\n- Modify the container's command to prevent it from exiting with a non-zero status. For example, you can change the command to a long-running process or a command that exits successfully.\n\n### Example Fix:\nIf the intention is to keep the container running, you might replace the command with something like:\n```yaml\ncommand: [\"sh\", \"-c\", \"while true; do echo 'Running...'; sleep 30; done\"]\n```\n\nThis change will keep the container running indefinitely by printing \"Running...\" every 30 seconds. Adjust the command according to the actual application logic you want to implement."
+    ],
+    "errors": [],
+    "duration_seconds": 16.910701990127563,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-09T16:26:23.229693",
+    "root_cause_analysis": {
+      "identified_correctly": true,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 16.910701990127563
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 7,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": [
+      "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+      "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-03), use it in all kubectl commands'"
+    ]
+  },
+  "cleanup_success": true,
+  "overall_success": true,
+  "recommendations": [
+    "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-03), use it in all kubectl commands'"
+  ]
+}

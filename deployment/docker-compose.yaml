@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # TLS termination proxy for local development
+  nginx:
+    image: nginx:alpine
+    container_name: kubently-nginx
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./dev-certs:/etc/nginx/certs:ro
+      - ./nginx-dev.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+    networks:
+      - kubently-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: kubently-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - kubently-network
+
+  api:
+    build:
+      context: ..
+      dockerfile: deployment/docker/api/Dockerfile
+    container_name: kubently-api
+    # No longer expose port directly - go through nginx
+    expose:
+      - "8080"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - API_KEYS=test-key-1,test-key-2
+      - LOG_LEVEL=DEBUG
+      - MAX_COMMANDS_PER_FETCH=10
+      - COMMAND_TIMEOUT=30
+      - SESSION_TTL=300
+      - PORT=8080
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../kubently:/app/kubently:ro  # For development (read-only)
+    networks:
+      - kubently-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  agent:
+    build:
+      context: ..
+      dockerfile: deployment/docker/agent/Dockerfile
+    container_name: kubently-agent
+    environment:
+      - KUBENTLY_API_URL=https://nginx  # Use HTTPS even locally
+      - KUBENTLY_SSL_VERIFY=false  # Accept self-signed for dev
+      - CLUSTER_ID=local-test
+      - KUBENTLY_TOKEN=test-token
+      - LOG_LEVEL=DEBUG
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ~/.kube:/home/kubently/.kube:ro  # Mount kubeconfig (read-only)
+    networks:
+      - kubently-network
+
+volumes:
+  redis-data:
+    driver: local
+
+networks:
+  kubently-network:
+    driver: bridge
