@@ -250,7 +250,9 @@ class KubentlyAgent:
                     )
                     if response.status_code == 200:
                         result = response.json()
+                        logger.info(f"list_clusters API response: {result}")
                         clusters = result.get("clusters", [])
+                        logger.info(f"Available clusters: {clusters}")
                         debug_print(f"Available clusters: {clusters}")
                         if clusters:
                             output = f"Available clusters: {', '.join(clusters)}. Please specify which cluster you want to use."
