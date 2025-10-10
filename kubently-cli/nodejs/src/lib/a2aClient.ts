@@ -150,14 +150,34 @@ export class KubentlyA2ASession {
     } catch (error) {
       if (axios.isAxiosError(error)) {
         if (error.response) {
-          return {
-            success: false,
-            error: `HTTP ${error.response.status}: ${error.response.statusText}`,
-          };
+          const status = error.response.status;
+
+          // Provide specific error messages for authentication failures
+          if (status === 401) {
+            return {
+              success: false,
+              error: 'Authentication failed: Invalid or missing API key',
+            };
+          } else if (status === 403) {
+            return {
+              success: false,
+              error: 'Access denied: API key does not have permission for this operation',
+            };
+          } else if (status === 404) {
+            return {
+              success: false,
+              error: 'Endpoint not found: Check that the API URL is correct (should end with /a2a/)',
+            };
+          } else {
+            return {
+              success: false,
+              error: `HTTP ${status}: ${error.response.statusText}`,
+            };
+          }
         } else if (error.request) {
           return {
             success: false,
-            error: 'No response from server',
+            error: 'No response from server - check that the API URL is correct and the server is running',
           };
         }
       }
