@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { Config } from './config.js';
+import https from 'https';
 
 export interface A2AMessage {
   messageId: string;
@@ -39,32 +40,42 @@ export class KubentlyA2ASession {
   private requestId: number;
   private config: Config;
 
-  constructor(apiUrl: string, apiKey?: string, clusterId?: string) {
+  constructor(apiUrl: string, apiKey?: string, clusterId?: string, insecure: boolean = false) {
     // Add http:// prefix if no protocol specified
     if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
       apiUrl = 'http://' + apiUrl;
     }
-    
+
     this.sessionId = uuidv4();
     this.requestId = 0;
     this.config = new Config();
-    
+
     // Build headers based on authentication method
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'User-Agent': 'Kubently-CLI/2.0.0',
     };
-    
+
     // If API key is explicitly provided, use it (legacy mode)
     if (apiKey) {
       headers['X-API-Key'] = apiKey;
     }
-    
-    this.client = axios.create({
+
+    // Configure axios with optional insecure mode for SSL
+    const axiosConfig: any = {
       baseURL: apiUrl, // Keep trailing slash as-is
       timeout: 60000,
       headers,
-    });
+    };
+
+    // Disable SSL certificate verification in insecure mode (for testing only)
+    if (insecure) {
+      axiosConfig.httpsAgent = new https.Agent({
+        rejectUnauthorized: false,
+      });
+    }
+
+    this.client = axios.create(axiosConfig);
     
     // Add request interceptor to add auth headers dynamically
     this.client.interceptors.request.use(async (config) => {

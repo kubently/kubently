@@ -35,9 +35,10 @@ function printHelp() {
 export async function runDebugSession(
   apiUrl: string,
   apiKey?: string,
-  clusterId?: string
+  clusterId?: string,
+  insecure: boolean = false
 ): Promise<void> {
-  const session = new KubentlyA2ASession(apiUrl, apiKey, clusterId);
+  const session = new KubentlyA2ASession(apiUrl, apiKey, clusterId, insecure);
   let pendingOperation = false;
   let isClosing = false;
   
@@ -172,6 +173,7 @@ export function debugCommand(config: Config): Command {
   cmd
     .description('🐛 Start interactive debugging session (A2A protocol)')
     .argument('[cluster-id]', 'Cluster ID to debug (optional)')
+    .option('--insecure', 'Disable SSL certificate verification (for testing only)')
     .action(async (clusterId?: string, options?: any) => {
       const apiUrl = config.getApiUrl();
       
@@ -208,8 +210,12 @@ export function debugCommand(config: Config): Command {
       try {
         const a2aPath = config.getA2aPath() || '/a2a';
         const debugApiUrl = apiUrl.replace(/\/$/, '') + a2aPath + '/';
-        
-        await runDebugSession(debugApiUrl, apiKey, clusterId);
+
+        if (options?.insecure) {
+          console.log(chalk.yellow('⚠️  Warning: SSL certificate verification disabled (insecure mode)'));
+        }
+
+        await runDebugSession(debugApiUrl, apiKey, clusterId, options?.insecure || false);
         console.log(chalk.green('\n✓ Session ended'));
       } catch (error) {
         console.log(chalk.red(`✗ Failed to start debug session: ${error instanceof Error ? error.message : 'Unknown error'}`));
