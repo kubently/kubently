@@ -516,7 +516,7 @@ class KubentlyAgent:
     ) -> AsyncIterable[dict]:
         """Run the agent and stream responses."""
         await self.initialize()
-        
+
         # Store thread ID for tool call tracking
         self._current_thread_id = thread_id
 
@@ -531,7 +531,7 @@ class KubentlyAgent:
                     p.get("text", "") for p in content if p.get("type") == "text"
                 ]
                 content = " ".join(text_parts)
-            
+
             if role == "user":
                 lc_messages.append(HumanMessage(content=content))
             elif role == "assistant":
@@ -542,7 +542,48 @@ class KubentlyAgent:
         # Use thread_id for memory if available
         actual_thread_id = thread_id or str(uuid.uuid4())
         logger.info(f"Agent.run called with thread_id: {actual_thread_id}, memory enabled: {self.memory is not None}")
-        
+
+        # Implement conversation history management to prevent token overflow
+        # Maximum number of recent messages to keep (including tool calls)
+        # This prevents the "prompt is too long" error after /clear
+        MAX_MESSAGES = 30  # Keep last 30 messages (approximately 10-15 conversation turns with tools)
+
+        # If we have a checkpointer, we need to manage history size
+        # The checkpointer automatically loads ALL history, which can exceed token limits
+        if self.memory:
+            try:
+                # Get the current checkpoint state
+                checkpoint_tuple = await self.memory.aget_tuple({"configurable": {"thread_id": actual_thread_id}})
+
+                if checkpoint_tuple and checkpoint_tuple.checkpoint:
+                    # Extract messages from checkpoint
+                    channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
+                    existing_messages = channel_values.get("messages", [])
+
+                    message_count = len(existing_messages)
+                    logger.info(f"Thread {actual_thread_id} has {message_count} messages in history")
+
+                    # If history is too long, delete the checkpoint to start fresh
+                    # This is the most reliable way to prevent token overflow
+                    if message_count > MAX_MESSAGES:
+                        logger.warning(f"History too long ({message_count} messages), clearing checkpoint for thread {actual_thread_id}")
+
+                        # Delete all checkpoints for this thread to start fresh
+                        # This simulates what /clear should do
+                        redis_key_pattern = f"{actual_thread_id}*"
+                        keys_deleted = 0
+
+                        # Use scan_iter to find and delete all keys for this thread
+                        async for key in self.redis_client.scan_iter(match=redis_key_pattern):
+                            await self.redis_client.delete(key)
+                            keys_deleted += 1
+
+                        logger.info(f"Cleared {keys_deleted} checkpoint keys for thread {actual_thread_id}")
+
+            except Exception as e:
+                logger.warning(f"Failed to manage conversation history: {e}")
+                # Continue anyway - better to have long history than crash
+
         config = RunnableConfig(
             configurable={"thread_id": actual_thread_id},
             recursion_limit=25,  # Standard recursion limit for single agent
@@ -552,7 +593,8 @@ class KubentlyAgent:
         structured_log({
             "event": "llm_prompt",
             "messages": [{"role": m.__class__.__name__, "content": m.content[:200] if hasattr(m, 'content') else str(m)[:200]} for m in lc_messages],
-            "thread_id": actual_thread_id
+            "thread_id": actual_thread_id,
+            "message_count": len(lc_messages)
         })
 
         try:
