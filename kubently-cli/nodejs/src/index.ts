@@ -32,13 +32,13 @@ function showBanner() {
       })
     )
   );
-  console.log(chalk.green(`  🚀 Interactive Kubernetes Debugging System v${version}\n`));
+  console.log(chalk.green(`  🚀 Troubleshooting Kubernetes Agentically v${version}\n`));
 }
 
 // Main CLI configuration
 program
   .name('kubently')
-  .description('Modern CLI for Kubently - Interactive Kubernetes Debugging System')
+  .description('Kubently - Troubleshooting Kubernetes Agentically')
   .version(version, '-v, --version', 'Display version number')
   .option('--api-url <url>', 'Kubently API URL (overrides config/env)')
   .option('--api-key <key>', 'API key for authentication (overrides config/env)')
