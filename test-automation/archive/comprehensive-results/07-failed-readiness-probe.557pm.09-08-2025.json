@@ -1,0 +1,51 @@
+{
+  "scenario": {
+    "name": "07-failed-readiness-probe",
+    "path": "scenarios/07-failed-readiness-probe.sh",
+    "expected_fix": "Fix the readiness probe configuration or application endpoint",
+    "namespace": "test-scenario-07",
+    "query_template": "In cluster kind, there's a pod in namespace {namespace} that's running but not ready. Please investigate and resolve.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-08T17:57:24.089203",
+    "query": "In cluster kind, there's a pod in namespace test-scenario-07 that's running but not ready. Please investigate and resolve.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "The pod `readiness-failure-deployment-8ddf69f95-wpbq6` in the \"test-scenario-07\" namespace is currently in a \"Pending\" state due to a scheduling issue. Here's what I found:\n\n- **Status:** Pending\n- **Readiness Probe:** Configured with an HTTP GET request to `http://:80/ready`.\n- **Scheduling Issue:** The pod is not scheduled because there are no available nodes that can accommodate it. Specifically, the node has an untolerated taint `{app: critical}`.\n\n### Suggested Actions:\n1. **Check Node Taints:** Review the taints on your nodes. The taint `{app: critical}` is preventing the pod from being scheduled. You may need to add a toleration to the pod spec to allow it to be scheduled on nodes with this taint.\n\n2. **Add Toleration:** If appropriate, modify the pod's deployment to include a toleration for the taint. For example:\n   ```yaml\n   tolerations:\n   - key: \"app\"\n     operator: \"Equal\"\n     value: \"critical\"\n     effect: \"NoSchedule\"\n   ```\n\n3. **Node Availability:** Ensure that there are nodes available that can run the pod. If all nodes are tainted and the pod cannot tolerate them, it will remain unscheduled.\n\nIf you need further assistance with modifying the deployment or understanding taints and tolerations, feel free to ask!"
+    ],
+    "errors": [],
+    "duration_seconds": 10.891324996948242,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-08T17:57:34.981435",
+    "root_cause_analysis": {
+      "identified_correctly": true,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 10.891324996948242
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 7,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": []
+  },
+  "cleanup_success": true,
+  "overall_success": true,
+  "recommendations": []
+}

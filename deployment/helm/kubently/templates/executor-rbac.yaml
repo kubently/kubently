@@ -1,0 +1,35 @@
+{{- if .Values.executor.enabled -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubently.fullname" . }}-executor
+  labels:
+    {{- include "kubently.labels" . | nindent 4 }}
+rules:
+{{- if .Values.executor.rbacRules }}
+  {{- toYaml .Values.executor.rbacRules | nindent 0 }}
+{{- else }}
+# Default rules - generic read access to all APIs
+- apiGroups: ["*"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get", "list"]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubently.fullname" . }}-executor
+  labels:
+    {{- include "kubently.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubently.fullname" . }}-executor
+subjects:
+- kind: ServiceAccount
+  name: {{ include "kubently.fullname" . }}-executor
+  namespace: {{ .Release.Namespace }}
+{{- end -}}

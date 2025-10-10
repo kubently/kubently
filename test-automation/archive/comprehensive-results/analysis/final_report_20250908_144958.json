@@ -1,0 +1,12 @@
+{
+  "timestamp": "2025-09-08T14:49:58.011199",
+  "total_scenarios": 20,
+  "successful": 15,
+  "failed": 5,
+  "average_duration": 12.904568779468537,
+  "total_tool_calls": 0,
+  "common_bottlenecks": [],
+  "top_recommendations": [
+    "Fix scenario setup script (suggested 1 times)"
+  ]
+}

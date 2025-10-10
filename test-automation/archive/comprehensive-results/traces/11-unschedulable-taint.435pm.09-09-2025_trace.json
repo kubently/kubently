@@ -1,0 +1,14 @@
+{
+  "timestamp": "2025-09-09T16:34:21.510108",
+  "query": "In cluster kind, there's a pod in namespace test-scenario-11 that remains in Pending status. Please investigate the scheduling issue.",
+  "thinking_steps": [],
+  "tool_calls": [],
+  "responses": [],
+  "errors": [],
+  "duration_seconds": 30.028470039367676,
+  "token_usage": {
+    "input": 0,
+    "output": 0,
+    "total": 0
+  }
+}

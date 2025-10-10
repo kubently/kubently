@@ -1,0 +1,109 @@
+{{- if .Values.executor.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubently.fullname" . }}-executor
+  labels:
+    {{- include "kubently.labels" . | nindent 4 }}
+    app.kubernetes.io/component: executor
+spec:
+  replicas: {{ .Values.executor.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kubently.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: executor
+  template:
+    metadata:
+      labels:
+        {{- include "kubently.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: executor
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kubently.fullname" . }}-executor
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      volumes:
+      {{- if .Values.kubentlyExecutor.commandWhitelist.enabled }}
+      - name: whitelist-config
+        configMap:
+          name: {{ include "kubently.fullname" . }}-executor-whitelist
+      - name: whitelist-data
+        emptyDir: {}
+      {{- end }}
+      containers:
+      - name: executor
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.executor.image.repository }}:{{ .Values.executor.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.executor.image.pullPolicy }}
+        env:
+        - name: KUBENTLY_API_URL
+          {{- if .Values.executor.apiUrl }}
+          # Custom API URL for executor (useful for cross-cluster deployments)
+          value: {{ .Values.executor.apiUrl | quote }}
+          {{- else if and .Values.tls.enabled (eq .Values.tls.mode "internal") }}
+          # For internal TLS, use HTTP to service (same cluster only)
+          value: "http://{{ include "kubently.fullname" . }}-api:{{ .Values.api.service.port }}"
+          {{- else if and .Values.tls.enabled (eq .Values.tls.mode "external") }}
+          # For external TLS, use public domain (works cross-cluster)
+          value: "https://{{ .Values.tls.external.domain }}"
+          {{- else }}
+          # No TLS, direct HTTP connection
+          value: "http://{{ include "kubently.fullname" . }}-api:{{ .Values.api.service.port }}"
+          {{- end }}
+        - name: CLUSTER_ID
+          {{- if .Values.executor.clusterId }}
+          value: {{ .Values.executor.clusterId }}
+          {{- else }}
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+          {{- end }}
+        - name: KUBENTLY_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "kubently.fullname" . }}-executor-token
+              key: token
+        {{- if .Values.kubentlyExecutor.commandWhitelist.enabled }}
+        - name: ENABLE_DYNAMIC_WHITELIST
+          value: "true"
+        - name: KUBENTLY_WHITELIST_CONFIG
+          value: "/etc/kubently/whitelist.yaml"
+        - name: KUBENTLY_WHITELIST_DB
+          value: "/var/lib/kubently/whitelist.db"
+        {{- end }}
+        {{- if and .Values.tls.enabled (eq .Values.tls.mode "external") }}
+        # Only enable SSL verification for external mode (using public certs)
+        - name: KUBENTLY_SSL_VERIFY
+          value: "true"
+        {{- end }}
+        {{- range $key, $value := .Values.executor.env }}
+        - name: {{ $key }}
+          value: {{ $value | quote }}
+        {{- end }}
+        {{- if .Values.kubentlyExecutor.commandWhitelist.enabled }}
+        volumeMounts:
+        - name: whitelist-config
+          mountPath: /etc/kubently
+          readOnly: true
+        - name: whitelist-data
+          mountPath: /var/lib/kubently
+        {{- end }}
+        resources:
+          {{- toYaml .Values.executor.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end -}}

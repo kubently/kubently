@@ -1,0 +1,218 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+Kubently is an AI-powered Kubernetes troubleshooting system implementing the [A2A (Agent-to-Agent) protocol](https://a2a-protocol.org/latest/) for multi-agent communication. It uses LLMs (Google Gemini, OpenAI, Anthropic) to diagnose and resolve cluster issues through natural language.
+
+## Common Commands
+
+### Development
+
+```bash
+# Install dependencies
+make install-all
+
+# Run locally
+make run-local      # API server
+make run-a2a        # A2A server
+
+# Testing
+make test           # Run unit tests
+make lint           # Run linters
+```
+
+### Deployment & Testing
+
+```bash
+# Deploy to Kind cluster (preferred method)
+./deploy-test.sh              # Deploys + runs automated tests
+RUN_TESTS=false ./deploy-test.sh  # Skip tests
+
+# Test manually
+bash test-a2a.sh              # Basic A2A protocol tests
+
+# Comprehensive test suite with AI analysis
+./test-automation/run_tests.sh test-and-analyze --api-key test-api-key
+./test-automation/run_tests.sh test-and-analyze --scenario 14-service-port-mismatch
+```
+
+### Docker & Helm
+
+```bash
+# Build multi-architecture image
+make docker-build
+docker buildx build --platform linux/amd64 -f deployment/docker/api/Dockerfile -t ghcr.io/kubently/kubently/api:<commit-sha> --push .
+
+# Helm deployment (always use Helm, not kubectl directly)
+helm install kubently ./deployment/helm/kubently -f deployment/helm/test-values.yaml --namespace kubently
+helm upgrade kubently ./deployment/helm/kubently -f deployment/helm/test-values.yaml --namespace kubently
+```
+
+### Git Operations (from global CLAUDE.md)
+
+```bash
+gcob <branch>    # Checkout branch (ensures latest from main)
+gcmwm "message"  # Commit with auto-formatting (auto-prefixes with branch name)
+```
+
+## Architecture
+
+### Black Box Module Design
+
+The codebase follows a **black box** architecture pattern where modules expose minimal interfaces and hide implementation details:
+
+```
+kubently/
+├── modules/
+│   ├── auth/        # Authentication (executor tokens, API keys)
+│   ├── session/     # Session management (Redis-backed)
+│   ├── queue/       # Command queue (Redis pub/sub)
+│   ├── config/      # Configuration loading
+│   └── a2a/         # A2A protocol implementation
+│       └── protocol_bindings/a2a_server/
+│           ├── agent.py           # Core agent + tool implementations
+│           └── agent_executor.py  # A2A protocol executor
+```
+
+**Key Principle**: Each module can be swapped out without affecting others. For example, `AuthModule` can be replaced with OAuth/JWT/external auth without changing API endpoints.
+
+### Core Components
+
+1. **API Server** (`kubently/main.py`)
+   - FastAPI REST API
+   - Thin orchestration layer - business logic is in modules
+   - Admin endpoints: `/admin/agents/{cluster_id}/token` (create/delete executor tokens)
+   - Debug endpoints: `/debug/clusters`, `/debug/session`, `/debug/execute`
+   - Health: `/healthz` (unauthenticated, for K8s probes), `/health` (detailed)
+
+2. **A2A Server** (`kubently/modules/a2a/protocol_bindings/a2a_server/`)
+   - Mounted at `/a2a/` (trailing slash required!)
+   - Uses LangGraph for workflow orchestration
+   - Streams responses via Server-Sent Events (SSE)
+   - `agent.py`: Contains all tool implementations (debug_resource, get_pod_logs, execute_kubectl)
+   - **Tool Call Tracing**: All tools MUST call `interceptor.record_tool_call()` and `interceptor.record_tool_result()`
+
+3. **Authentication**
+   - **Executor tokens**: Stored in Redis as `executor:token:{cluster_id}` = token_value
+   - **API keys**: From `API_KEYS` env var (format: `service:key,service:key` or just `key,key`)
+   - **No backwards compatibility**: No environment variable fallbacks (EXECUTOR_TOKEN_*, AGENT_TOKEN_* removed)
+   - **AuthModule.extract_first_api_key()**: Static utility for internal service-to-service calls
+
+4. **Redis Key Patterns**
+   - `executor:token:{cluster_id}` - Executor authentication tokens
+   - `cluster:active:{cluster_id}` - Active cluster markers
+   - `cluster:session:{cluster_id}` - Session IDs per cluster
+   - `session:{session_id}:*` - Session data
+   - `auth:audit` - Security event log
+
+5. **Test Automation** (`test-automation/`)
+   - 20+ Kubernetes scenarios with AI-powered analysis
+   - Uses Google Gemini to analyze tool calls and effectiveness
+   - Key files: `run_tests.sh`, `test_runner.py`, `analyzer.py`
+
+### A2A Protocol Details
+
+**Critical**: A2A is a formal protocol - see https://a2a-protocol.org/latest/
+
+```bash
+# Endpoint format (trailing slash required!)
+POST http://localhost:8080/a2a/
+
+# Message format
+{
+  "jsonrpc": "2.0",
+  "method": "message/stream",
+  "params": {
+    "message": {
+      "messageId": "msg-123",
+      "role": "user",
+      "parts": [{"partId": "part-1", "text": "Show crashing pods"}]
+    }
+  }
+}
+```
+
+**Testing**: Use `docs/TEST_QUERIES.md` for exact curl commands - format is very specific!
+
+## Critical Development Rules
+
+1. **Deployment**: Always use `./deploy-test.sh` - handles secrets, configuration, and testing correctly
+2. **Helm First**: Update `deployment/helm/test-values.yaml` instead of manual kubectl changes
+3. **Tool Tracing**: All A2A tools must implement interceptor tracing (required for test automation)
+4. **No Ad-Hoc Test Scripts**: Use existing test infrastructure (`test-a2a.sh`, curl, test-automation/). If you create test_*.py files, delete them after use
+5. **Documentation**: Doc files use ALL_CAPS (e.g., `GETTING_STARTED.md`, not `getting-started.md`)
+6. **Security**: No default credentials, no test-api-key defaults in production code
+7. **Changelog**: Maintain a changelog of all changes
+
+## Token Management Workflow
+
+**Admin creates token → deploys to executor cluster:**
+
+```bash
+# 1. Admin creates token via API or CLI
+curl -X POST http://api/admin/agents/prod-cluster/token -H "X-API-Key: admin-key"
+# Returns: {"token": "abc123...", "clusterId": "prod-cluster"}
+
+# 2. Create secret on executor cluster
+kubectl create secret generic kubently-executor-token \
+  --from-literal=token="abc123..." \
+  --namespace kubently
+
+# 3. Deploy executor with Helm
+helm install kubently-executor ./deployment/helm/kubently \
+  --set api.enabled=false \
+  --set redis.enabled=false \
+  --set executor.enabled=true \
+  --set executor.clusterId=prod-cluster \
+  --set executor.apiUrl=https://kubently.company.com
+```
+
+**Executors typically run on REMOTE clusters**, not the same cluster as the API.
+
+## Common Issues
+
+1. **Port-forward lost**: `kubectl port-forward -n kubently svc/kubently-api 8080:8080 &`
+2. **A2A 404**: Check trailing slash `/a2a/` not `/a2a`
+3. **Tool calls not captured**: Verify `interceptor.record_tool_call()` in `agent.py`
+4. **Helm release broken**: Check if using deprecated env vars (AGENT_TOKEN_KUBENTLY removed)
+5. **API keys reset after helm upgrade**: Re-create `kubently-api-keys` secret and restart pods
+
+## Key Files
+
+- `kubently/main.py` - API server entry point (thin orchestration)
+- `kubently/modules/a2a/protocol_bindings/a2a_server/agent.py` - Core agent + all tools
+- `kubently/modules/auth/auth.py` - Authentication module
+- `deployment/helm/test-values.yaml` - Default deployment config
+- `docs/TEST_QUERIES.md` - A2A protocol examples
+- `test-automation/run_tests.sh` - Comprehensive test runner
+
+## Environment Variables
+
+Required:
+- `API_KEYS` - API keys (format: `service:key,key`)
+- `GOOGLE_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` - LLM API key
+
+Optional:
+- `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` - Redis connection
+- `LLM_PROVIDER` - Provider selection (anthropic-claude, openai, google-gemini)
+- `A2A_ENABLED` - Enable A2A server (default: true)
+- `A2A_EXTERNAL_URL` - External A2A endpoint for agent card
+
+See `docs/ENVIRONMENT_VARIABLES.md` for complete reference.
+
+## Testing Workflow
+
+1. Make changes
+2. `./deploy-test.sh` (deploys + runs tests)
+3. `./test-automation/run_tests.sh test-and-analyze --api-key test-api-key` (comprehensive)
+4. Review `test-results-*/analysis/report.md`
+5. Fix issues based on AI recommendations
+
+## Additional Documentation
+
+- **User Guides**: `docs/QUICK_START.md`, `docs/GETTING_STARTED.md`
+- **Architecture**: `docs/ARCHITECTURE.md`, `docs/SYSTEM_DESIGN.md`
+- **Deployment**: `docs/DEPLOYMENT.md`, `docs/GKE_DEPLOYMENT_ISSUES.md`
+- **A2A Protocol**: https://a2a-protocol.org/latest/

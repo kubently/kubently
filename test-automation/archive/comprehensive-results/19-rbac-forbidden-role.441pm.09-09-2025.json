@@ -1,0 +1,55 @@
+{
+  "scenario": {
+    "name": "19-rbac-forbidden-role",
+    "path": "scenarios/19-rbac-forbidden-role.sh",
+    "expected_fix": "Grant appropriate RBAC permissions via Role/RoleBinding",
+    "namespace": "test-scenario-19",
+    "query_template": "In cluster kind, the application in namespace {namespace} is getting permission errors. Please investigate and resolve.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-09T16:40:44.204405",
+    "query": "In cluster kind, the application in namespace test-scenario-19 is getting permission errors. Please investigate and resolve.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [],
+    "errors": [],
+    "duration_seconds": 15.018928050994873,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-09T16:40:59.225436",
+    "root_cause_analysis": {
+      "identified_correctly": false,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 15.018928050994873
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 3,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": [
+      "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+      "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-19), use it in all kubectl commands'"
+    ]
+  },
+  "cleanup_success": true,
+  "overall_success": false,
+  "recommendations": [
+    "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-19), use it in all kubectl commands'"
+  ]
+}

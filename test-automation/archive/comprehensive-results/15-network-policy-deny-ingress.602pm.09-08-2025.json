@@ -1,0 +1,51 @@
+{
+  "scenario": {
+    "name": "15-network-policy-deny-ingress",
+    "path": "scenarios/15-network-policy-deny-ingress.sh",
+    "expected_fix": "Add appropriate NetworkPolicy ingress rules",
+    "namespace": "test-scenario-15",
+    "query_template": "In cluster kind, we're unable to reach the application in namespace {namespace} from outside. Please investigate the connectivity problem.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-08T18:02:10.985081",
+    "query": "In cluster kind, we're unable to reach the application in namespace test-scenario-15 from outside. Please investigate the connectivity problem.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "The service `server-service` in the `test-scenario-15` namespace is of type `ClusterIP`, which means it is only accessible within the cluster and not from outside. To make the application accessible externally, you might consider changing the service type to `NodePort` or `LoadBalancer`, depending on your cluster setup and requirements. \n\nIf you need further assistance or a deeper investigation, please let me know!"
+    ],
+    "errors": [],
+    "duration_seconds": 10.336981058120728,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-08T18:02:21.322796",
+    "root_cause_analysis": {
+      "identified_correctly": false,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 10.336981058120728
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 3,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": []
+  },
+  "cleanup_success": true,
+  "overall_success": false,
+  "recommendations": []
+}

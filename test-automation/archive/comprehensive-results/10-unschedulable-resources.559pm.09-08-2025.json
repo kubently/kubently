@@ -1,0 +1,51 @@
+{
+  "scenario": {
+    "name": "10-unschedulable-resources",
+    "path": "scenarios/10-unschedulable-resources.sh",
+    "expected_fix": "Adjust resource requests to fit available node capacity",
+    "namespace": "test-scenario-10",
+    "query_template": "In cluster kind, a pod in namespace {namespace} is stuck in Pending state. Please diagnose why it can't be scheduled.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-08T17:59:22.670224",
+    "query": "In cluster kind, a pod in namespace test-scenario-10 is stuck in Pending state. Please diagnose why it can't be scheduled.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "The pod in the `test-scenario-10` namespace is stuck in the Pending state due to scheduling issues. Here's what I found:\n\n- **Reason for Pending State**: The pod cannot be scheduled because there are no available nodes that can accommodate it. Specifically, the error message indicates that \"0/1 nodes are available: 1 node(s) had untolerated taint {app: critical}.\"\n\n- **Taint Issue**: The node(s) have a taint `{app: critical}` that the pod does not tolerate, preventing it from being scheduled.\n\nTo resolve this issue, you can either:\n1. **Add a Toleration**: Modify the pod's configuration to include a toleration for the taint `{app: critical}`.\n2. **Remove the Taint**: If appropriate, remove the taint from the node(s) to allow the pod to be scheduled.\n\nWould you like more detailed steps on how to apply either of these solutions?"
+    ],
+    "errors": [],
+    "duration_seconds": 5.282124042510986,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-08T17:59:27.953109",
+    "root_cause_analysis": {
+      "identified_correctly": true,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 5.282124042510986
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 7,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": []
+  },
+  "cleanup_success": true,
+  "overall_success": true,
+  "recommendations": []
+}

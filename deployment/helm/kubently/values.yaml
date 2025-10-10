@@ -1,0 +1,270 @@
+# Kubently Helm Chart Values
+
+# TLS Configuration
+tls:
+  enabled: true  # Enable TLS by default for security
+  mode: "internal"  # Options: "internal", "external", or "none"
+  
+  # Internal mode configuration (self-signed certificates)
+  internal:
+    issuer: "self-signed-issuer"
+    serviceName: "kubently-api.kubently.svc.cluster.local"
+    duration: "8760h"  # 1 year for development certificates
+    renewBefore: "720h"  # Renew 30 days before expiry
+  
+  # External mode configuration (public certificates)
+  external:
+    domain: ""  # Must be set when using external mode (e.g., "api.kubently.com")
+    issuer: "letsencrypt-prod"  # ClusterIssuer to use for public certificates
+    duration: "2160h"  # 90 days (Let's Encrypt default)
+    renewBefore: "720h"  # Renew 30 days before expiry
+
+# API Configuration (includes A2A server)
+api:
+  replicaCount: 3  # Can scale horizontally with connection registry
+  
+  image:
+    repository: kubently/api
+    pullPolicy: IfNotPresent
+    tag: "latest"
+  
+  service:
+    type: ClusterIP
+    port: 8080      # Changed from 5000 to match container port
+    targetPort: 8080
+  
+  resources:
+    requests:
+      cpu: 250m  # Slightly increased for A2A
+      memory: 384Mi  # Increased to handle both servers
+    limits:
+      cpu: 1000m
+      memory: 768Mi
+  
+  # API Keys for authentication
+  # Format: "service:key" (e.g., "cli-user:abc123...")
+  # The service name identifies the client, the key is the authentication token
+  # Example: apiKeys: ["cli-user:da4f779eaaf81b37...", "admin:8a3f9c2d..."]
+  apiKeys: []
+    # - "service-name:key-value"
+  
+  env:
+    LOG_LEVEL: "INFO"
+    MAX_COMMANDS_PER_FETCH: "10"
+    COMMAND_TIMEOUT: "30"
+    SESSION_TTL: "300"
+    PORT: "8080"
+    API_PORT: "8080"
+
+# Executor Configuration
+executor:
+  enabled: true
+  replicaCount: 1
+  
+  image:
+    repository: kubently/executor
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  
+  # Cluster ID for the executor
+  clusterId: ""  # If empty, uses namespace name
+  
+  # Token for executor authentication
+  token: ""  # Generated if not provided
+  
+  # Custom API URL for executor (optional)
+  # Use this for cross-cluster deployments or custom networking
+  # If not set, URL is determined by TLS mode
+  apiUrl: ""  # e.g., "https://api.kubently.internal.company.com"
+  
+  env:
+    LOG_LEVEL: "INFO"
+  
+  # RBAC rules for the executor ClusterRole
+  # If not specified, uses default rules with generic read access
+  rbacRules: []
+  # Example custom rules:
+  # rbacRules:
+  # - apiGroups: [""]
+  #   resources: ["pods", "services", "endpoints"]
+  #   verbs: ["get", "list", "watch"]
+  # - apiGroups: ["apps"]
+  #   resources: ["deployments", "replicasets"]
+  #   verbs: ["get", "list", "watch"]
+
+# Kubently Executor Configuration (new dynamic whitelist settings)
+kubentlyExecutor:
+  enabled: true
+  
+  # Security mode for command whitelist
+  # Options: readOnly | extendedReadOnly | fullAccess
+  securityMode: "readOnly"
+  
+  # Dynamic command whitelist configuration
+  commandWhitelist:
+    # Enable dynamic whitelist (set to false to use static whitelist)
+    enabled: true
+    
+    # Custom verbs to add (in addition to mode defaults)
+    customVerbs: []
+    # Example:
+    # - auth
+    # - certificate
+    
+    # Extra allowed flags (appended to mode defaults)
+    extraFlags: []
+    # Example:
+    # - "--raw"
+    # - "--field-selector"
+    
+    # Extra forbidden patterns (appended to baseline)
+    extraForbiddenPatterns: []
+    # Example:
+    # - "rm"
+    # - "sudo"
+    
+    # Additional restricted resources
+    restrictedResources: []
+    # Example:
+    # - serviceaccounts
+    # - roles
+    
+    # Runtime limits
+    maxArguments: 20
+    timeoutSeconds: 30
+    
+    # Configuration reload interval (seconds)
+    reloadInterval: 30
+  
+  # Per-cluster overrides (optional)
+  # Use this to have different settings per environment
+  clusterOverrides: {}
+  # Example:
+  # production:
+  #   securityMode: "readOnly"
+  #   commandWhitelist:
+  #     customVerbs: ["auth"]
+  # staging:
+  #   securityMode: "extendedReadOnly"
+  #   commandWhitelist:
+  #     extraFlags: ["--watch"]
+  # development:
+  #   securityMode: "fullAccess"
+  #   commandWhitelist:
+  #     extraForbiddenPatterns: ["rm", "sudo"]
+
+# Emergency/Admin override
+# MUST be set to true to enable fullAccess mode
+fullAccessAcknowledged: false
+
+# Redis Configuration
+redis:
+  enabled: true
+  auth:
+    enabled: true  # CRITICAL: Enable authentication for production
+    password: ""   # Auto-generated if empty, or set via --set redis.auth.password=<secure-password>
+  architecture: standalone
+  master:
+    persistence:
+      enabled: true  # Uses StatefulSet volumeClaimTemplates for persistent storage
+      size: 2Gi      # PersistentVolume size - stores executor tokens, sessions, cluster state
+      storageClass: ""  # Uses cluster default StorageClass if empty
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# Ingress Configuration
+ingress:
+  enabled: false
+  className: nginx
+  annotations:
+    # Cert-manager for automatic certificate management
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    
+    # Force HTTPS redirect and secure TLS configuration
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
+    nginx.ingress.kubernetes.io/ssl-ciphers: "HIGH:!aNULL:!MD5"
+    
+    # Security headers (note: configuration-snippet is often disabled for security)
+    # To enable these headers, either:
+    # 1. Enable snippets in nginx controller (not recommended)
+    # 2. Use server-snippet at controller level
+    # 3. Configure headers via ConfigMap
+    
+    # Standard proxy settings
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+  hosts:
+    - host: api.kubently.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: kubently-tls
+      hosts:
+        - api.kubently.local
+
+# Autoscaling Configuration
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Service Account
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use
+  name: ""
+
+# Pod Security Context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Security Context
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# Node Selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Network Policy
+networkPolicy:
+  enabled: false
+  
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1

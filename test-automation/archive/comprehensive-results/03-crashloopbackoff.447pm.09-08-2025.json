@@ -1,0 +1,51 @@
+{
+  "scenario": {
+    "name": "03-crashloopbackoff",
+    "path": "scenarios/03-crashloopbackoff.sh",
+    "expected_fix": "Fix the invalid command or add proper error handling",
+    "namespace": "test-scenario-03",
+    "query_template": "In cluster kind, there's a pod in namespace {namespace} that keeps restarting. Please investigate why it's failing and provide a solution.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-08T16:47:23.910992",
+    "query": "In cluster kind, there's a pod in namespace test-scenario-03 that keeps restarting. Please investigate why it's failing and provide a solution.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "It seems that there are no failing pods currently in the `test-scenario-03` namespace of the `kind` cluster. It's possible that the pod has stabilized or been removed. If the issue persists, please check if the pod is still present or provide more details, and I can investigate further."
+    ],
+    "errors": [],
+    "duration_seconds": 4.4297850131988525,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-08T16:47:28.341475",
+    "root_cause_analysis": {
+      "identified_correctly": false,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 4.4297850131988525
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 3,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": []
+  },
+  "cleanup_success": false,
+  "overall_success": false,
+  "recommendations": []
+}

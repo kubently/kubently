@@ -1,0 +1,55 @@
+{
+  "scenario": {
+    "name": "12-pvc-unbound",
+    "path": "scenarios/12-pvc-unbound.sh",
+    "expected_fix": "Create matching PV or fix PVC specifications",
+    "namespace": "test-scenario-12",
+    "query_template": "In cluster kind, there's a storage-related issue in namespace {namespace}. The application can't access its storage. Please fix it.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-09T16:35:49.918927",
+    "query": "In cluster kind, there's a storage-related issue in namespace test-scenario-12. The application can't access its storage. Please fix it.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [],
+    "errors": [],
+    "duration_seconds": 30.063997983932495,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-09T16:36:19.983797",
+    "root_cause_analysis": {
+      "identified_correctly": false,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 30.063997983932495
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 3,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": [
+      "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+      "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-12), use it in all kubectl commands'"
+    ]
+  },
+  "cleanup_success": false,
+  "overall_success": false,
+  "recommendations": [
+    "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-12), use it in all kubectl commands'"
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "scenario": {
+    "name": "01-imagepullbackoff-typo",
+    "path": "scenarios/01-imagepullbackoff-typo.sh",
+    "expected_fix": "Correct the image name from 'busyboxx:latest' to 'busybox:latest'",
+    "namespace": "test-scenario-01",
+    "query_template": "In cluster kind, there's an issue with a pod in namespace {namespace}. The pod is showing ImagePullBackOff status. Please investigate and fix the issue.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-11T15:40:08.586992",
+    "query": "In cluster kind, there's an issue with a pod in namespace test-scenario-01. The pod is showing ImagePullBackOff status. Please investigate and fix the issue.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "The pod `typo-image-deployment-7dc6b74dcd-lz7dh` in namespace `test-scenario-01` on cluster `kind` is in an `ErrImagePull` state.\n\nThe `describe` command output shows that the container `busybox` is trying to pull the image `busyboxx:latest`. The `Events` section confirms the `Back-off pulling image \"busyboxx:latest\"` and `Error: ImagePullBackOff`.\n\nThis indicates that the image name `busyboxx:latest` is incorrect. It should likely be `busybox:latest`.\n\nAs a read-only debugging agent, I cannot directly fix the issue. To resolve this, you will need to update the deployment to use the correct image name (`busybox:latest`)."
+    ],
+    "errors": [],
+    "duration_seconds": 7.75556206703186,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-11T15:40:16.343519",
+    "root_cause_analysis": {
+      "identified_correctly": true,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 7.75556206703186
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 7,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": [
+      "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+      "Add to system prompt: 'Focus on diagnosis and recommendations without mentioning read-only limitations'",
+      "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-01), use it in all kubectl commands'"
+    ]
+  },
+  "cleanup_success": true,
+  "overall_success": true,
+  "recommendations": [
+    "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+    "Add to system prompt: 'Focus on diagnosis and recommendations without mentioning read-only limitations'",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-01), use it in all kubectl commands'"
+  ]
+}

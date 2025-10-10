@@ -1,0 +1,470 @@
+{
+  "summary": {
+    "total_tests": 17,
+    "successful_root_cause": 8,
+    "success_rate": "47.1%"
+  },
+  "common_issues": {
+    "no_tool_usage": 17
+  },
+  "prompt_gaps": {
+    "namespace_not_used": 17
+  },
+  "performance_issues": [
+    "03-crashloopbackoff: 16.9s",
+    "04-runcontainer-missing-configmap: 13.2s",
+    "05-runcontainer-missing-secret-key: 12.6s",
+    "06-oomkilled: 16.6s",
+    "07-failed-readiness-probe: 22.1s",
+    "08-failing-liveness-probe: 25.0s",
+    "09-mismatched-labels: 21.9s",
+    "10-unschedulable-resources: 120.0s",
+    "11-unschedulable-taint: 30.0s",
+    "12-pvc-unbound: 30.1s",
+    "13-service-selector-mismatch: 30.0s",
+    "14-service-port-mismatch: 13.8s",
+    "17-cross-namespace-block: 15.0s",
+    "19-rbac-forbidden-role: 15.0s",
+    "20-rbac-forbidden-clusterrole: 15.0s"
+  ],
+  "recommendations": {
+    "diagnostician_prompt": [
+      "Add: 'Always use kubectl commands to gather diagnostic information. Do not provide theoretical analysis without first examining the actual cluster state.'",
+      "Add: 'Extract and use any namespace mentioned in the query. Format: kubectl [command] -n [namespace] for all commands when a namespace is specified.'"
+    ],
+    "judge_prompt": [
+      "Add: 'Synthesize findings from the Diagnostician into a clear, concise root cause analysis. Structure your response as: 1) Root Cause, 2) Evidence, 3) Recommended Fix (if applicable).'"
+    ],
+    "system_wide": [
+      "Consider adding more explicit patterns for common Kubernetes issues to help both nodes recognize and diagnose problems more effectively.",
+      "Optimize the diagnostic flow to reduce latency. Consider batching kubectl commands or implementing early-exit conditions for obvious issues."
+    ]
+  },
+  "detailed_analyses": [
+    {
+      "file": "01-imagepullbackoff-typo.425pm.09-09-2025.json",
+      "scenario": "01-imagepullbackoff-typo",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": true,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "slow"
+        },
+        "quality_assessment": {
+          "overall_score": 7
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    },
+    {
+      "file": "02-imagepullbackoff-private.425pm.09-09-2025.json",
+      "scenario": "02-imagepullbackoff-private",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": true,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "fast"
+        },
+        "quality_assessment": {
+          "overall_score": 7
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    },
+    {
+      "file": "03-crashloopbackoff.426pm.09-09-2025.json",
+      "scenario": "03-crashloopbackoff",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": true,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "slow"
+        },
+        "quality_assessment": {
+          "overall_score": 7
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    },
+    {
+      "file": "04-runcontainer-missing-configmap.427pm.09-09-2025.json",
+      "scenario": "04-runcontainer-missing-configmap",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": true,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "slow"
+        },
+        "quality_assessment": {
+          "overall_score": 7
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    },
+    {
+      "file": "05-runcontainer-missing-secret-key.427pm.09-09-2025.json",
+      "scenario": "05-runcontainer-missing-secret-key",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": true,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "slow"
+        },
+        "quality_assessment": {
+          "overall_score": 7
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    },
+    {
+      "file": "06-oomkilled.428pm.09-09-2025.json",
+      "scenario": "06-oomkilled",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": true,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "slow"
+        },
+        "quality_assessment": {
+          "overall_score": 7
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    },
+    {
+      "file": "07-failed-readiness-probe.429pm.09-09-2025.json",
+      "scenario": "07-failed-readiness-probe",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": true,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "slow"
+        },
+        "quality_assessment": {
+          "overall_score": 7
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    },
+    {
+      "file": "08-failing-liveness-probe.430pm.09-09-2025.json",
+      "scenario": "08-failing-liveness-probe",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": true,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "slow"
+        },
+        "quality_assessment": {
+          "overall_score": 7
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    },
+    {
+      "file": "09-mismatched-labels.431pm.09-09-2025.json",
+      "scenario": "09-mismatched-labels",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": false,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "slow"
+        },
+        "quality_assessment": {
+          "overall_score": 3
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    },
+    {
+      "file": "10-unschedulable-resources.433pm.09-09-2025.json",
+      "scenario": "10-unschedulable-resources",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": false,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "slow"
+        },
+        "quality_assessment": {
+          "overall_score": 3
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    },
+    {
+      "file": "11-unschedulable-taint.435pm.09-09-2025.json",
+      "scenario": "11-unschedulable-taint",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": false,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "slow"
+        },
+        "quality_assessment": {
+          "overall_score": 3
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    },
+    {
+      "file": "12-pvc-unbound.436pm.09-09-2025.json",
+      "scenario": "12-pvc-unbound",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": false,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "slow"
+        },
+        "quality_assessment": {
+          "overall_score": 3
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    },
+    {
+      "file": "13-service-selector-mismatch.437pm.09-09-2025.json",
+      "scenario": "13-service-selector-mismatch",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": false,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "slow"
+        },
+        "quality_assessment": {
+          "overall_score": 3
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    },
+    {
+      "file": "14-service-port-mismatch.439pm.09-09-2025.json",
+      "scenario": "14-service-port-mismatch",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": false,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "slow"
+        },
+        "quality_assessment": {
+          "overall_score": 3
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    },
+    {
+      "file": "17-cross-namespace-block.440pm.09-09-2025.json",
+      "scenario": "17-cross-namespace-block",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": false,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "slow"
+        },
+        "quality_assessment": {
+          "overall_score": 3
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    },
+    {
+      "file": "19-rbac-forbidden-role.441pm.09-09-2025.json",
+      "scenario": "19-rbac-forbidden-role",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": false,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "slow"
+        },
+        "quality_assessment": {
+          "overall_score": 3
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    },
+    {
+      "file": "20-rbac-forbidden-clusterrole.442pm.09-09-2025.json",
+      "scenario": "20-rbac-forbidden-clusterrole",
+      "analysis": {
+        "model": "heuristic",
+        "root_cause_analysis": {
+          "identified_correctly": false,
+          "confidence": 0.5,
+          "explanation": "Basic keyword matching"
+        },
+        "efficiency_analysis": {
+          "score": 10,
+          "response_time_assessment": "slow"
+        },
+        "quality_assessment": {
+          "overall_score": 3
+        },
+        "bottlenecks": [
+          "No obvious bottlenecks"
+        ],
+        "recommendations": [
+          "Use Gemini for better analysis"
+        ]
+      }
+    }
+  ]
+}

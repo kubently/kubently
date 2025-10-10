@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubently-api-config
+  namespace: kubently
+  labels:
+    app: kubently-api
+    component: api
+data:
+  LOG_LEVEL: "INFO"
+  MAX_COMMANDS_PER_FETCH: "10"
+  COMMAND_TIMEOUT: "30"
+  SESSION_TTL: "300"

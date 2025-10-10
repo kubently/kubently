@@ -1,0 +1,51 @@
+{
+  "scenario": {
+    "name": "04-runcontainer-missing-configmap",
+    "path": "scenarios/04-runcontainer-missing-configmap.sh",
+    "expected_fix": "Create the missing ConfigMap or fix the reference",
+    "namespace": "test-scenario-04",
+    "query_template": "In cluster kind, a pod in namespace {namespace} is failing to start. Please investigate what's preventing it from running.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-08T16:47:45.289800",
+    "query": "In cluster kind, a pod in namespace test-scenario-04 is failing to start. Please investigate what's preventing it from running.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "It seems that there are no failing pods currently in the `test-scenario-04` namespace of the `kind` cluster. Could you please verify if the pod is still present or provide more details about the issue?"
+    ],
+    "errors": [],
+    "duration_seconds": 3.584594964981079,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-08T16:47:48.875273",
+    "root_cause_analysis": {
+      "identified_correctly": false,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 3.584594964981079
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 3,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": []
+  },
+  "cleanup_success": false,
+  "overall_success": false,
+  "recommendations": []
+}

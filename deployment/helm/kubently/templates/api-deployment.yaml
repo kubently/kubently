@@ -1,0 +1,197 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubently.fullname" . }}-api
+  labels:
+    {{- include "kubently.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kubently.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/api-configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "kubently.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kubently.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+      - name: sync-executor-tokens
+        image: redis:7-alpine
+        command:
+        - sh
+        - -c
+        - |
+          echo "Syncing executor tokens to Redis..."
+
+          # Wait for Redis to be ready with timeout
+          timeout=60
+          retries=$((timeout / 2))
+          count=0
+          {{- if .Values.redis.auth.enabled }}
+          until redis-cli -h ${REDIS_HOST} -p ${REDIS_PORT} -a ${REDIS_PASSWORD} ping | grep -q PONG; do
+            count=$((count + 1))
+            if [ $count -gt $retries ]; then
+              echo "Error: Timed out waiting for Redis after ${timeout}s"
+              exit 1
+            fi
+            echo "Waiting for Redis... (attempt $count/$retries)"
+            sleep 2
+          done
+          {{- else }}
+          until redis-cli -h ${REDIS_HOST} -p ${REDIS_PORT} ping | grep -q PONG; do
+            count=$((count + 1))
+            if [ $count -gt $retries ]; then
+              echo "Error: Timed out waiting for Redis after ${timeout}s"
+              exit 1
+            fi
+            echo "Waiting for Redis... (attempt $count/$retries)"
+            sleep 2
+          done
+          {{- end }}
+
+          # Sync executor tokens from secrets to Redis
+          {{- if .Values.executor.enabled }}
+          EXECUTOR_TOKEN="${EXECUTOR_TOKEN}"
+          CLUSTER_ID="${CLUSTER_ID}"
+          if [ -n "$EXECUTOR_TOKEN" ] && [ -n "$CLUSTER_ID" ]; then
+            echo "Registering executor token for cluster: ${CLUSTER_ID}"
+            {{- if .Values.redis.auth.enabled }}
+            redis-cli -h ${REDIS_HOST} -p ${REDIS_PORT} -a ${REDIS_PASSWORD} SET "executor:token:${CLUSTER_ID}" "${EXECUTOR_TOKEN}"
+            {{- else }}
+            redis-cli -h ${REDIS_HOST} -p ${REDIS_PORT} SET "executor:token:${CLUSTER_ID}" "${EXECUTOR_TOKEN}"
+            {{- end }}
+            echo "✓ Token registered for ${CLUSTER_ID}"
+          fi
+          {{- end }}
+
+          echo "Token sync complete"
+        env:
+        - name: REDIS_HOST
+          value: {{ .Release.Name }}-redis-master
+        - name: REDIS_PORT
+          value: "6379"
+        {{- if .Values.redis.auth.enabled }}
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: kubently-redis-password
+              key: password
+        {{- end }}
+        {{- if .Values.executor.enabled }}
+        - name: EXECUTOR_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "kubently.fullname" . }}-executor-token
+              key: token
+        - name: CLUSTER_ID
+          value: {{ .Values.executor.clusterId | default .Release.Namespace }}
+        {{- end }}
+      containers:
+      - name: api
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        env:
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name  # Pod name for routing
+        - name: REDIS_URL
+          value: {{ include "kubently.redisUrl" . }}
+        - name: REDIS_HOST
+          value: {{ .Release.Name }}-redis-master
+        - name: REDIS_PORT
+          value: "6379"
+        - name: REDIS_DB
+          value: "0"
+        {{- if .Values.redis.auth.enabled }}
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: kubently-redis-password
+              key: password
+        {{- end }}
+        - name: API_KEYS
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "kubently.fullname" . }}-api-keys
+              key: keys
+        - name: GOOGLE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kubently-llm-secrets
+              key: GOOGLE_API_KEY
+              optional: true
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kubently-llm-secrets
+              key: OPENAI_API_KEY
+              optional: true
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kubently-llm-secrets
+              key: ANTHROPIC_API_KEY
+              optional: true
+        {{- range $key, $value := .Values.api.env }}
+        - name: {{ $key }}
+          value: {{ $value | quote }}
+        {{- end }}
+        - name: KUBENTLY_A2A_PROMPT_FILE
+          value: "/etc/kubently/prompts/system.prompt.yaml"
+        volumeMounts:
+        - name: prompt-config
+          mountPath: /etc/kubently/prompts
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          {{- toYaml .Values.api.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+      - name: prompt-config
+        configMap:
+          name: {{ include "kubently.fullname" . }}-prompt

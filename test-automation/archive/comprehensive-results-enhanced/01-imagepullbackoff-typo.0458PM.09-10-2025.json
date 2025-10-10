@@ -1,0 +1,65 @@
+{
+  "scenario": {
+    "name": "01-imagepullbackoff-typo",
+    "path": "scenarios/01-imagepullbackoff-typo.sh",
+    "expected_fix": "Unknown",
+    "namespace": "test-scenario-01-imagepullbackoff-typo",
+    "query_template": "In cluster kind, there's an issue with a pod in namespace {namespace}. The pod is showing ImagePullBackOff status. Please investigate and fix the issue.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-10T16:57:53.559946",
+    "query": "In cluster kind, there's an issue with a pod in namespace test-scenario-01-imagepullbackoff-typo. The pod is showing ImagePullBackOff status. Please investigate and fix the issue.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "I encountered an error while processing your request: Recursion limit of 25 reached without hitting a stop condition. You can increase the limit by setting the `recursion_limit` config key.\nFor troubleshooting, visit: https://python.langchain.com/docs/troubleshooting/errors/GRAPH_RECURSION_LIMIT"
+    ],
+    "errors": [],
+    "duration_seconds": 57.079046964645386,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    },
+    "structured_tool_calls": [],
+    "structured_thinking": [],
+    "diagnostician_rounds": [],
+    "judge_decisions": [],
+    "llm_prompts": [],
+    "total_rounds": 0
+  },
+  "analysis": {
+    "model": "enhanced_heuristic",
+    "timestamp": "2025-09-10T16:58:50.639069",
+    "root_cause_analysis": {
+      "identified_correctly": false,
+      "confidence": 0.3,
+      "explanation": "Keywords not found"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 57.079046964645386,
+      "total_tool_calls": 0,
+      "total_rounds": 0,
+      "tool_patterns": {}
+    },
+    "bottlenecks": [],
+    "improvements": [
+      "No tool calls detected - ensure agent is using kubectl commands",
+      "Always check events as part of initial investigation"
+    ],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 4,
+      "justification": "Enhanced analysis with full trace data"
+    }
+  },
+  "cleanup_success": true,
+  "overall_success": false,
+  "recommendations": [
+    "No tool calls detected - ensure agent is using kubectl commands",
+    "Always check events as part of initial investigation"
+  ]
+}

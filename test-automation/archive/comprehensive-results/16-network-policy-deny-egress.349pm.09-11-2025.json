@@ -1,0 +1,57 @@
+{
+  "scenario": {
+    "name": "16-network-policy-deny-egress",
+    "path": "scenarios/16-network-policy-deny-egress.sh",
+    "expected_fix": "Add appropriate NetworkPolicy egress rules",
+    "namespace": "test-scenario-16",
+    "query_template": "In cluster kind, the application in namespace {namespace} can't connect to external services. Please diagnose and make recommendations.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-11T15:49:19.604571",
+    "query": "In cluster kind, the application in namespace test-scenario-16 can't connect to external services. Please diagnose and make recommendations.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "I encountered an error while processing your request: 1 validation error for TextPart\ntext\n  Input should be a valid string [type=string_type, input_value=[\"The `internet-client` p...stics would be needed.'], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.11/v/string_type"
+    ],
+    "errors": [],
+    "duration_seconds": 9.184545040130615,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-11T15:49:28.790754",
+    "root_cause_analysis": {
+      "identified_correctly": false,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 9.184545040130615
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 3,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": [
+      "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+      "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-16), use it in all kubectl commands'"
+    ]
+  },
+  "cleanup_success": true,
+  "overall_success": false,
+  "recommendations": [
+    "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-16), use it in all kubectl commands'"
+  ]
+}

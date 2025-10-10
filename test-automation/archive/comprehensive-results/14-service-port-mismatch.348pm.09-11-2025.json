@@ -1,0 +1,57 @@
+{
+  "scenario": {
+    "name": "14-service-port-mismatch",
+    "path": "scenarios/14-service-port-mismatch.sh",
+    "expected_fix": "Align Service port with container port",
+    "namespace": "test-scenario-14",
+    "query_template": "In cluster kind, we can't connect to the service in namespace {namespace}. Please debug the connectivity issue.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-11T15:47:54.007203",
+    "query": "In cluster kind, we can't connect to the service in namespace test-scenario-14. Please debug the connectivity issue.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "It appears that the `web-service` in the `test-scenario-14` namespace has no active endpoints, meaning there are no pods backing the service. This is the most likely cause of the connectivity issue.\n\nThe service is configured to select pods with the label `app=web`. I will now check for pods with this label in the `test-scenario-14` namespace to see if they exist and are running."
+    ],
+    "errors": [],
+    "duration_seconds": 26.899299144744873,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-11T15:48:20.907418",
+    "root_cause_analysis": {
+      "identified_correctly": true,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 26.899299144744873
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 7,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": [
+      "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+      "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-14), use it in all kubectl commands'"
+    ]
+  },
+  "cleanup_success": true,
+  "overall_success": true,
+  "recommendations": [
+    "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-14), use it in all kubectl commands'"
+  ]
+}

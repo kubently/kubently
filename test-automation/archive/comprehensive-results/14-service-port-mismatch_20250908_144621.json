@@ -1,0 +1,51 @@
+{
+  "scenario": {
+    "name": "14-service-port-mismatch",
+    "path": "scenarios/14-service-port-mismatch.sh",
+    "expected_fix": "Align Service port with container port",
+    "namespace": "test-scenario-14",
+    "query_template": "In cluster kind, we can't connect to the service in namespace {namespace}. Please debug the connectivity issue.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-08T14:45:55.482152",
+    "query": "In cluster kind, we can't connect to the service in namespace test-scenario-14. Please debug the connectivity issue.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "The service `web-service` in the `test-scenario-14` namespace is configured correctly as a `ClusterIP` service, but there are no endpoints available. This typically means that the pods backing the service are not running or not ready.\n\n### Key Findings:\n- **Service Details**: \n  - **ClusterIP**: 10.96.27.96\n  - **Port**: 80/TCP\n  - **TargetPort**: 8080/TCP\n  - **Endpoints**: None (indicating no pods are currently backing this service)\n\n- **Events**:\n  - There are warnings related to failed scheduling due to a node taint (`app: critical`) that is not tolerated by the pods. This is preventing the pods from being scheduled and running.\n\n### Recommendations:\n1. **Check Node Taints**: Review the node taints and ensure that the pods have the necessary tolerations to be scheduled on the nodes.\n2. **Pod Status**: Verify the status of the pods that should be backing this service. They might not be running due to the scheduling issue.\n3. **Tolerations**: If the node taint is intentional, add the necessary tolerations to the pod specifications to allow them to be scheduled.\n\nWould you like me to check the pod status or node taints for further insights?"
+    ],
+    "errors": [],
+    "duration_seconds": 20.165298223495483,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-08T14:46:15.648793",
+    "root_cause_analysis": {
+      "identified_correctly": true,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 20.165298223495483
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 7,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": []
+  },
+  "cleanup_success": true,
+  "overall_success": true,
+  "recommendations": []
+}

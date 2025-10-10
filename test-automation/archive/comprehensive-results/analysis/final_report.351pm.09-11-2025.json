@@ -1,0 +1,21 @@
+{
+  "timestamp": "2025-09-11T15:51:20.443986",
+  "total_scenarios": 20,
+  "successful": 13,
+  "failed": 7,
+  "average_duration": 10.547566795349121,
+  "total_tool_calls": 0,
+  "common_bottlenecks": [],
+  "top_recommendations": [
+    "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information' (suggested 19 times)",
+    "Add to system prompt: 'Focus on diagnosis and recommendations without mentioning read-only limitations' (suggested 5 times)",
+    "Add to system prompt: 'When a namespace is provided (e.g., test-scenario-XX), use it directly without asking for confirmation' (suggested 2 times)",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-01), use it in all kubectl commands' (suggested 1 times)",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-02), use it in all kubectl commands' (suggested 1 times)",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-03), use it in all kubectl commands' (suggested 1 times)",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-04), use it in all kubectl commands' (suggested 1 times)",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-05), use it in all kubectl commands' (suggested 1 times)",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-06), use it in all kubectl commands' (suggested 1 times)",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-07), use it in all kubectl commands' (suggested 1 times)"
+  ]
+}

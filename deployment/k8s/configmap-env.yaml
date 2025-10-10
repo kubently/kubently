@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubently-env
+  namespace: kubently
+data:
+  LLM_PROVIDER: "openai"
+  OPENAI_ENDPOINT: "https://api.openai.com/v1"
+  OPENAI_MODEL_NAME: "gpt-4o"
+  A2A_SERVER_DEBUG: "true"
+  API_PORT: "8080"  # Main API server port
+  # OAuth/OIDC Configuration (optional for human users)
+  OIDC_ENABLED: "true"
+  OIDC_ISSUER: "http://localhost:9000"  # Mock provider for testing
+  OIDC_CLIENT_ID: "kubently-cli"
+  OIDC_AUDIENCE: "kubently-cli"
+  OIDC_JWKS_URI: "http://localhost:9000/jwks"

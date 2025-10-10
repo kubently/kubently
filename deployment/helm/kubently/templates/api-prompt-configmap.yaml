@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubently.fullname" . }}-prompt
+  labels:
+    {{- include "kubently.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+data:
+  system.prompt.yaml: |
+{{ .Files.Get "prompts/system.prompt.yaml" | indent 4 }}

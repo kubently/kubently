@@ -1,0 +1,57 @@
+{
+  "scenario": {
+    "name": "09-mismatched-labels",
+    "path": "scenarios/09-mismatched-labels.sh",
+    "expected_fix": "Align pod labels with selector requirements",
+    "namespace": "test-scenario-09",
+    "query_template": "In cluster kind, there's a deployment in namespace {namespace} but the expected pods aren't showing up correctly. Please investigate.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-09T16:30:52.209247",
+    "query": "In cluster kind, there's a deployment in namespace test-scenario-09 but the expected pods aren't showing up correctly. Please investigate.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "There are no deployments or pods currently present in the `test-scenario-09` namespace of the `kind` cluster. This suggests that the deployment was not created successfully or has been removed. Please verify the deployment creation process or check for any errors during deployment."
+    ],
+    "errors": [],
+    "duration_seconds": 21.888324975967407,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-09T16:31:14.099363",
+    "root_cause_analysis": {
+      "identified_correctly": false,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 21.888324975967407
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 3,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": [
+      "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+      "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-09), use it in all kubectl commands'"
+    ]
+  },
+  "cleanup_success": true,
+  "overall_success": false,
+  "recommendations": [
+    "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-09), use it in all kubectl commands'"
+  ]
+}

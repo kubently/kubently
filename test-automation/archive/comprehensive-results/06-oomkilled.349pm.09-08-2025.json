@@ -1,0 +1,51 @@
+{
+  "scenario": {
+    "name": "06-oomkilled",
+    "path": "scenarios/06-oomkilled.sh",
+    "expected_fix": "Increase memory limits or optimize application memory usage",
+    "namespace": "test-scenario-06",
+    "query_template": "In cluster kind, a pod in namespace {namespace} was terminated unexpectedly. Please investigate what happened and provide a fix.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-08T15:49:12.663702",
+    "query": "In cluster kind, a pod in namespace test-scenario-06 was terminated unexpectedly. Please investigate what happened and provide a fix.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "It seems that the `test-scenario-06` namespace does not exist in the `kind` cluster, which is why I couldn't retrieve any information about the pod. This could mean that the namespace was deleted, or there might have been a typo in the namespace name.\n\nPlease verify the namespace name or check if it has been removed. If you have any additional details or corrections, let me know, and I can assist further."
+    ],
+    "errors": [],
+    "duration_seconds": 6.687694072723389,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-08T15:49:19.352297",
+    "root_cause_analysis": {
+      "identified_correctly": false,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 6.687694072723389
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 3,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": []
+  },
+  "cleanup_success": false,
+  "overall_success": false,
+  "recommendations": []
+}

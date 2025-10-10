@@ -1,0 +1,57 @@
+{
+  "scenario": {
+    "name": "04-runcontainer-missing-configmap",
+    "path": "scenarios/04-runcontainer-missing-configmap.sh",
+    "expected_fix": "Create the missing ConfigMap or fix the reference",
+    "namespace": "test-scenario-04",
+    "query_template": "In cluster kind, a pod in namespace {namespace} is failing to start. Please investigate what's preventing it from running.",
+    "validation_checks": []
+  },
+  "setup_success": true,
+  "debug_trace": {
+    "timestamp": "2025-09-11T15:41:55.942597",
+    "query": "In cluster kind, a pod in namespace test-scenario-04 is failing to start. Please investigate what's preventing it from running.",
+    "thinking_steps": [],
+    "tool_calls": [],
+    "responses": [
+      "I encountered an error while processing your request: 1 validation error for TextPart\ntext\n  Input should be a valid string [type=string_type, input_value=['The pod `missing-config...cenario-04` namespace.\"], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.11/v/string_type"
+    ],
+    "errors": [],
+    "duration_seconds": 11.426023960113525,
+    "token_usage": {
+      "input": 0,
+      "output": 0,
+      "total": 0
+    }
+  },
+  "analysis": {
+    "model": "heuristic",
+    "timestamp": "2025-09-11T15:42:07.370171",
+    "root_cause_analysis": {
+      "identified_correctly": true,
+      "confidence": 0.5,
+      "explanation": "Basic keyword matching analysis"
+    },
+    "efficiency_metrics": {
+      "tool_usage_score": 10,
+      "response_time": 11.426023960113525
+    },
+    "bottlenecks": [],
+    "improvements": [],
+    "missing_capabilities": [],
+    "overall_quality": {
+      "score": 7,
+      "justification": "Heuristic scoring based on root cause detection"
+    },
+    "prompt_suggestions": [
+      "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+      "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-04), use it in all kubectl commands'"
+    ]
+  },
+  "cleanup_success": true,
+  "overall_success": true,
+  "recommendations": [
+    "Add to system prompt: 'For debugging requests, immediately use kubectl commands to investigate - do not ask for permission or more information'",
+    "Add to system prompt: 'When namespace is explicitly mentioned in the query (like test-scenario-04), use it in all kubectl commands'"
+  ]
+}
