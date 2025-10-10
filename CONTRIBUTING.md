@@ -1,6 +1,6 @@
 # Contributing to Kubently
 
-First off, thank you for considering contributing to Kubently! It's people like you that make Kubently such a great tool for the Kubernetes community.
+First off, thank you for considering contributing to Kubently! It's people like you that make Kubently such a great tool for troubleshooting Kubernetes agentically.
 
 ## Project Lead
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Kubently is a real-time Kubernetes debugging system that enables interactive troubleshooting through a conversational interface. It uses Server-Sent Events (SSE) and Redis pub/sub for instant command delivery while supporting horizontal scaling.
+Kubently (*Kubernetes + Agentically*) is a real-time system that enables AI agents to troubleshoot Kubernetes clusters through agentic workflows. It uses Server-Sent Events (SSE) and Redis pub/sub for instant command delivery while supporting horizontal scaling.
 
 ## Architecture
 

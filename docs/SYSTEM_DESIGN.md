@@ -2,11 +2,11 @@
 
 ## Executive Summary
 
-Kubently is an interactive Kubernetes debugging system that enables AI-powered, real-time troubleshooting of Kubernetes clusters through a chat interface. The system prioritizes sub-second latency for debugging sessions while maintaining simplicity, security, and reliability. It is designed to integrate seamlessly with multi-agent systems via Agent-to-Agent (A2A) communication patterns.
+Kubently (*Kubernetes + Agentically*) enables AI agents to troubleshoot Kubernetes clusters in real-time through agentic workflows. The system prioritizes sub-second latency for debugging sessions while maintaining simplicity, security, and reliability. It is designed to integrate seamlessly with multi-agent systems via the Agent-to-Agent (A2A) protocol.
 
 ## Problem Statement
 
-DevOps engineers and SREs need to quickly debug issues in Kubernetes clusters through conversational AI interfaces. Current solutions require manual kubectl commands or complex scripting. Kubently bridges this gap by providing:
+DevOps engineers and SREs need AI agents that can autonomously debug Kubernetes clusters through agentic workflows. Current solutions require manual kubectl commands or complex scripting. Kubently bridges this gap by enabling agents to:
 
 - Real-time command execution in remote clusters
 - Interactive debugging sessions with < 500ms latency

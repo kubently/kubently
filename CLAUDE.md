@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Kubently is an AI-powered Kubernetes troubleshooting system implementing the [A2A (Agent-to-Agent) protocol](https://a2a-protocol.org/latest/) for multi-agent communication. It uses LLMs (Google Gemini, OpenAI, Anthropic) to diagnose and resolve cluster issues through natural language.
+Kubently (*Kubernetes + Agentically*) enables AI agents to troubleshoot Kubernetes clusters through the [A2A (Agent-to-Agent) protocol](https://a2a-protocol.org/latest/). It allows agents powered by LLMs (Google Gemini, OpenAI, Anthropic) to autonomously diagnose and resolve cluster issues through natural language collaboration.
 
 ## Common Commands
 
