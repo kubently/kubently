@@ -171,6 +171,51 @@ helm install kubently-executor ./deployment/helm/kubently \
 
 **Executors typically run on REMOTE clusters**, not the same cluster as the API.
 
+## Secret Management Best Practices
+
+**CRITICAL**: Never commit secrets to version control. Use one of these approaches:
+
+### 1. External Secret (Recommended for Production)
+
+Create secrets manually before Helm deployment:
+
+```bash
+# Generate secure token
+EXECUTOR_TOKEN=$(openssl rand -hex 32)
+
+# Create secret
+kubectl create secret generic my-executor-token \
+  --from-literal=token="${EXECUTOR_TOKEN}" \
+  --namespace kubently
+
+# Deploy with reference to existing secret
+helm install kubently ./deployment/helm/kubently \
+  --set executor.existingSecret=my-executor-token \
+  --set executor.clusterId=prod-cluster
+```
+
+### 2. Values from Secure Store (CI/CD)
+
+Use secret management tools in your deployment pipeline:
+
+```bash
+# Example with cloud provider secret managers
+EXECUTOR_TOKEN=$(aws secretsmanager get-secret-value --secret-id kubently/executor-token --query SecretString --output text)
+
+helm install kubently ./deployment/helm/kubently \
+  --set executor.token="${EXECUTOR_TOKEN}"
+```
+
+### 3. Sealed Secrets / External Secrets Operator
+
+For GitOps workflows, use:
+- [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets) - Encrypt secrets for Git storage
+- [External Secrets Operator](https://external-secrets.io/) - Sync from external secret managers
+
+### Development/Testing Only
+
+`test-values.yaml` contains hardcoded tokens **only for local testing**. Never use this pattern in production.
+
 ## Common Issues
 
 1. **Port-forward lost**: `kubectl port-forward -n kubently svc/kubently-api 8080:8080 &`
