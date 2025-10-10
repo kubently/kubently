@@ -65,6 +65,10 @@ api:
     ANTHROPIC_MODEL_NAME: "claude-sonnet-4-20250514"
     # GOOGLE_MODEL_NAME: "gemini-2.5-flash"  # For our code reference
     # GOOGLE_GEMINI_MODEL_NAME: "gemini-2.5-flash"  # For cnoe-agent-utils library
+
+    # Anthropic Context Management - Automatically clears tool results to prevent context overflow
+    # Requires langchain-anthropic >=0.3.21
+    ANTHROPIC_CONTEXT_CLEARING: "true"
     
     # Agent tokens for cluster access
     AGENT_TOKEN_KIND: "test-api-key"
