@@ -219,6 +219,9 @@ __marimo__/
 test-automation/comprehensive-results/
 test-automation/test-results-*/
 
+# Generated Kubernetes manifests from Helm
+generated-manifests/
+
 # Playwright MCP
 .playwright-mcp/*
 

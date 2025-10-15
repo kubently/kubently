@@ -114,7 +114,7 @@ The Kind cluster maps these ports to localhost:
 - `8000` → kubently-api A2A endpoint (container port 30088)  
 - `6379` → Redis (container port 30379)
 
-These are configured in `deployment/kubernetes/kind-config.yaml`.
+These are configured in `deployment/kind-config.yaml`.
 
 ## Remember
 

@@ -48,6 +48,9 @@ docker buildx build --platform linux/amd64 -f deployment/docker/api/Dockerfile -
 # Helm deployment (always use Helm, not kubectl directly)
 helm install kubently ./deployment/helm/kubently -f deployment/helm/test-values.yaml --namespace kubently
 helm upgrade kubently ./deployment/helm/kubently -f deployment/helm/test-values.yaml --namespace kubently
+
+# Generate raw Kubernetes manifests from Helm (if needed)
+make helm-template  # Generates to generated-manifests/kubently-manifests.yaml
 ```
 
 ### Git Operations (from global CLAUDE.md)

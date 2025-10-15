@@ -91,14 +91,20 @@ export OIDC_CLIENT_ID=your-client-id
 export OIDC_JWKS_URI=https://your-provider.com/jwks
 ```
 
-2. Update Kubernetes deployment:
+2. Update Helm values (`deployment/helm/test-values.yaml`):
 ```yaml
-# deployment/k8s/configmap-env.yaml
-data:
-  OIDC_ENABLED: "true"
-  OIDC_ISSUER: "https://your-provider.com"
-  OIDC_CLIENT_ID: "your-client-id"
-  OIDC_JWKS_URI: "https://your-provider.com/jwks"
+api:
+  env:
+    OIDC_ENABLED: "true"
+    OIDC_ISSUER: "https://your-provider.com"
+    OIDC_CLIENT_ID: "your-client-id"
+    OIDC_JWKS_URI: "https://your-provider.com/jwks"
+```
+
+Or generate raw manifests and update:
+```bash
+make helm-template
+# Edit generated-manifests/kubently-manifests.yaml
 ```
 
 ## Dual Authentication in API
