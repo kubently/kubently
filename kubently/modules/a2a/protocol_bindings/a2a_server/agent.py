@@ -196,7 +196,7 @@ class KubentlyAgent:
                 from langchain_anthropic import ChatAnthropic
 
                 # Determine model from environment or use default
-                model_name = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
+                model_name = os.getenv("ANTHROPIC_MODEL_NAME", "claude-sonnet-4-20250514")
 
                 self.llm = ChatAnthropic(
                     model=model_name,
