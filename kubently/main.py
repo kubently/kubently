@@ -737,8 +737,8 @@ async def list_clusters(
                 if raw.startswith(session_prefix):
                     clusters_set.add(raw[len(session_prefix):])
 
-            # Dynamically created agent tokens: agent:token:<id>
-            token_prefix = "agent:token:"
+            # Executor tokens: executor:token:<id>
+            token_prefix = "executor:token:"
             token_keys = await redis_client.keys(f"{token_prefix}*")
             for key in token_keys:
                 raw = key.decode() if isinstance(key, bytes) else key
