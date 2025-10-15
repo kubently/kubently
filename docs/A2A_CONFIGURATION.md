@@ -56,14 +56,19 @@ helm upgrade --install kubently ./deployment/helm/kubently
 
 ### Using Raw Kubernetes Manifests
 
-1. Update the ConfigMap (`deployment/k8s/configmap-env.yaml`):
+1. Generate manifests from Helm:
+```bash
+make helm-template
+```
+
+2. Update the generated ConfigMap in `generated-manifests/kubently-manifests.yaml`:
 ```yaml
 data:
   A2A_EXTERNAL_URL: "http://your-service:8080/a2a/"
   API_PORT: "8080"
 ```
 
-2. Ensure the API port is exposed in the deployment:
+3. Ensure the API port is exposed in the deployment:
 ```yaml
 ports:
 - containerPort: 8080

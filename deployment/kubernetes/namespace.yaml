@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: kubently
-  labels:
-    app: kubently
-    version: "1.0.0"

@@ -92,7 +92,7 @@ kind-create:
 		echo "Using existing cluster 'kind-kubently'"; \
 	else \
 		echo "Creating new cluster 'kind-kubently'"; \
-		kind create cluster --name kind-kubently --config deployment/kubernetes/kind-config.yaml; \
+		kind create cluster --name kind-kubently --config deployment/kind-config.yaml; \
 	fi
 
 kind-load: docker-build
@@ -104,31 +104,15 @@ kind-load: docker-build
 	kind load docker-image $(IMAGE_NAME):latest --name kind-kubently; \
 	fi
 
-kind-deploy: kind-load
-	@echo "Deploying to Kind cluster with .env configuration..."
-	# Create namespace
-	kubectl create namespace kubently --dry-run=client -o yaml | kubectl apply -f -
-	# Create ConfigMap from .env file
-	./deployment/kubernetes/scripts/generate-configmap-from-env.sh .env kubently
-	# Create/Update prompt ConfigMap
-	kubectl -n kubently create configmap kubently-prompt \
-		--from-file=system.prompt.yaml=prompts/system.prompt.yaml \
-		--dry-run=client -o yaml | kubectl apply -f -
-	# Deploy Redis
-	kubectl apply -f deployment/kubernetes/redis/
-	# Deploy API with environment config
-	kubectl apply -f deployment/kubernetes/api/deployment-with-env.yaml
-	kubectl apply -f deployment/kubernetes/api/service.yaml
-	# Show status
-	@echo ""
-	@echo "Deployment complete! Checking status..."
-	kubectl get pods -n kubently
-	@echo ""
-	@echo "To access the API locally, run:"
-	@echo "  kubectl port-forward -n kubently svc/kubently-api 8080:8080"
+kind-deploy:
+	@echo "WARNING: This target is deprecated. Use './deploy-test.sh' instead."
+	@echo "The deploy-test.sh script uses Helm and handles all configuration properly."
+	@false
 
 kind-deploy-secrets:
-	./deployment/kubernetes/scripts/create-llm-secrets.sh kubently
+	@echo "WARNING: This target is deprecated. Secrets are managed via Helm values."
+	@echo "See deployment/helm/test-values.yaml for secret configuration."
+	@false
 
 kind-delete:
 	@echo "ERROR: This would delete the persistent development cluster!"
@@ -141,26 +125,26 @@ kind-delete:
 kind-logs:
 	kubectl logs -n kubently -l app=kubently-api --tail=100 -f
 
-# Kubernetes production targets
+# Generate raw Kubernetes manifests from Helm chart
+helm-template:
+	@echo "Generating Kubernetes manifests from Helm chart..."
+	@mkdir -p generated-manifests
+	helm template kubently ./deployment/helm/kubently \
+		-f deployment/helm/test-values.yaml \
+		--namespace kubently \
+		> generated-manifests/kubently-manifests.yaml
+	@echo "Manifests generated at: generated-manifests/kubently-manifests.yaml"
+
+# Kubernetes production targets (deprecated - use helm or helm-template)
 k8s-deploy:
-	@echo "Deploying to Kubernetes..."
-	# Create namespace
-	kubectl create namespace kubently --dry-run=client -o yaml | kubectl apply -f -
-	# Create ConfigMap from .env if it exists
-	@if [ -f .env ]; then \
-		./deployment/kubernetes/scripts/generate-configmap-from-env.sh .env kubently; \
-	fi
-	# Create/Update prompt ConfigMap
-	kubectl -n kubently create configmap kubently-prompt \
-		--from-file=system.prompt.yaml=prompts/system.prompt.yaml \
-		--dry-run=client -o yaml | kubectl apply -f -
-	# Deploy Redis
-	kubectl apply -f deployment/kubernetes/redis/
-	# Deploy API
-	kubectl apply -f deployment/kubernetes/api/
+	@echo "WARNING: This target is deprecated. Use 'make helm-deploy' or './deploy-test.sh' instead."
+	@echo "For raw manifests, use 'make helm-template' then 'kubectl apply -f generated-manifests/'"
+	@false
 
 k8s-secrets:
-	./deployment/kubernetes/scripts/create-llm-secrets.sh kubently
+	@echo "WARNING: This target is deprecated. Secrets are managed via Helm values or kubectl."
+	@echo "See deployment/helm/test-values.yaml for secret configuration."
+	@false
 
 k8s-logs:
 	kubectl logs -n kubently -l app=kubently-api --tail=100 -f
