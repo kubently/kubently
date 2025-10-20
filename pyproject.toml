@@ -75,7 +75,7 @@ docs = [
 a2a = [
     # A2A Protocol and LangGraph Dependencies
     "a2a-python==0.0.1",
-    "a2a-sdk==0.2.16",
+    "a2a-sdk==0.3.9",
     "pydantic>=2.0.0",
     "uvicorn>=0.24.0",
     "starlette>=0.31.0",
