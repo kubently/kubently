@@ -250,4 +250,9 @@ export class KubentlyA2ASession {
   getSessionId(): string {
     return this.sessionId;
   }
+
+  resetSession(): void {
+    this.sessionId = uuidv4();
+    this.requestId = 0;
+  }
 }

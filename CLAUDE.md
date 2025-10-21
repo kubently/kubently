@@ -185,25 +185,51 @@ helm install kubently-executor ./deployment/helm/kubently \
 
 ## Secret Management Best Practices
 
-**CRITICAL**: Never commit secrets to version control. Use one of these approaches:
+**CRITICAL**: Never commit secrets to version control. Always create secrets manually and reference them via `existingSecret`.
 
-### 1. External Secret (Recommended for Production)
+### API Keys (Client Authentication)
 
-Create secrets manually before Helm deployment:
+**RECOMMENDED**: Create secret manually, then reference it in Helm values:
+
+```bash
+# Create API key secret (one key per line)
+kubectl create secret generic kubently-api-keys \
+  --from-literal=keys="$(cat <<EOF
+your-api-key-here
+another-key-if-needed
+EOF
+)" \
+  --namespace kubently
+
+# Reference in production-values.yaml
+api:
+  existingSecret: "kubently-api-keys"
+```
+
+**Why this approach?**
+- Prevents Helm from overwriting your manually created secret
+- Keys persist across Helm upgrades
+- Follows Kubernetes best practices for secret management
+
+**Format**: The secret must have a `keys` field containing newline-separated API keys (just the key values, no prefixes).
+
+### Executor Tokens
+
+**RECOMMENDED**: Create secret manually before deployment:
 
 ```bash
 # Generate secure token
 EXECUTOR_TOKEN=$(openssl rand -hex 32)
 
 # Create secret
-kubectl create secret generic my-executor-token \
+kubectl create secret generic kubently-executor-token \
   --from-literal=token="${EXECUTOR_TOKEN}" \
   --namespace kubently
 
-# Deploy with reference to existing secret
-helm install kubently ./deployment/helm/kubently \
-  --set executor.existingSecret=my-executor-token \
-  --set executor.clusterId=prod-cluster
+# Reference in values.yaml
+executor:
+  existingSecret: "kubently-executor-token"
+  clusterId: "prod-cluster"
 ```
 
 ### 2. Values from Secure Store (CI/CD)
@@ -227,6 +253,40 @@ For GitOps workflows, use:
 ### Development/Testing Only
 
 `test-values.yaml` contains hardcoded tokens **only for local testing**. Never use this pattern in production.
+
+## Managing Multiple Executor Clusters
+
+### Adding Executor Tokens via Admin API
+
+If you need to manage multiple executor clusters beyond what's defined in Helm values, use the admin API:
+
+```bash
+# Create a new executor token for a cluster
+curl -X POST http://localhost:8080/admin/agents/kind-kubently/token \
+  -H "X-API-Key: your-admin-key"
+
+# Response: {"token": "abc123...", "clusterId": "kind-kubently"}
+
+# Deploy executor to the remote cluster with this token
+kubectl create secret generic kubently-executor-token \
+  --from-literal=token="abc123..." \
+  --namespace kubently \
+  --context kind-kubently
+
+helm install kubently-executor ./deployment/helm/kubently \
+  --set api.enabled=false \
+  --set redis.enabled=false \
+  --set executor.enabled=true \
+  --set executor.existingSecret=kubently-executor-token \
+  --set executor.clusterId=kind-kubently \
+  --set executor.apiUrl=https://kubently.company.com
+```
+
+**IMPORTANT**: Redis persistence is now properly configured to save to `/data` (PVC-backed storage). Executor tokens created via the admin API will persist across pod restarts and Helm upgrades.
+
+**Fixed in**: Revision 14 (Oct 21, 2025) - Redis now correctly saves to persistent volume
+
+**Before the fix**: Redis was saving to `/var/lib/redis-stack` (ephemeral), causing all tokens added via admin API to disappear on pod restart.
 
 ## Common Issues
 
@@ -256,8 +316,12 @@ Optional:
 - `LLM_PROVIDER` - Provider selection (anthropic-claude, openai, google-gemini)
 - `A2A_ENABLED` - Enable A2A server (default: true)
 - `A2A_EXTERNAL_URL` - External A2A endpoint for agent card
+- `LANGSMITH_TRACING` - Enable production tracing (default: false)
+- `LANGSMITH_API_KEY` - LangSmith API key (via secret)
+- `LANGSMITH_PROJECT` - Project name in LangSmith UI
 
 See `docs/ENVIRONMENT_VARIABLES.md` for complete reference.
+See `docs/LANGSMITH_TRACING.md` for production observability setup.
 
 ## Testing Workflow
 

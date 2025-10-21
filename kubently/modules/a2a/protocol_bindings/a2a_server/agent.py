@@ -312,36 +312,40 @@ class KubentlyAgent:
             to explore, investigate, and verify. You have access to all kubectl commands
             and flags.
 
-            PREFERRED OUTPUT FORMATS:
-            - Use "-o json" for structured data that's easier to parse and analyze
-            - Use "-o yaml" when you need full configuration details
-            - Use "-o wide" for quick overview with more columns
-            - Default output is good for human-readable summaries
+            TOKEN EFFICIENCY FIRST:
+            - Minimize output tokens by using targeted kubectl flags
+            - Use "--field-selector" to filter resources (e.g., "status.phase!=Running")
+            - Use "-o custom-columns" to retrieve only needed fields
+            - Use "-o wide" for quick overview with essential columns
+            - Use "describe" instead of "-o json" for comprehensive resource details
+            - ONLY use "-o json" when you need to parse specific nested fields programmatically
+            - Default output is usually sufficient and most token-efficient
 
-            Examples:
-            - JSON output (PREFERRED): "get pod pod-name -o json"
-            - Get all pods as JSON: "get pods -o json"
-            - With namespace: "get pods -n kube-system -o json"
+            TOKEN-EFFICIENT EXAMPLES:
+            - Find problematic pods: "get pods -A --field-selector status.phase!=Running,status.phase!=Succeeded"
+            - Custom columns: "get pods -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,RESTARTS:.status.containerStatuses[0].restartCount"
             - Wide format: "get pods -o wide"
+            - Describe (comprehensive): "describe pod pod-name"
+            - Events (default output): "get events --sort-by='.lastTimestamp'"
+            - With selectors: "get pods -l app=nginx"
             - Logs: "logs pod-name --tail=50"
-            - Describe: "describe pod pod-name"
-            - Events as JSON: "get events --sort-by='.lastTimestamp' -o json"
-            - Custom columns: "get pods -o custom-columns=NAME:.metadata.name,STATUS:.status.phase"
-            - With labels: "get pods --show-labels"
-            - Selectors: "get pods -l app=nginx -o json"
-            - Endpoints: "get endpoints service-name -o json"
+            - Field extraction: "get pod pod-name -o jsonpath='{.status.phase}'"
 
-            IMPORTANT: Use multiple commands to build complete understanding.
+            AVOID THESE (token-heavy):
+            - ❌ "get pods -A -o json" (dumps full config for every pod - thousands of tokens!)
+            - ❌ "get pods -o yaml" (verbose YAML for all pods)
+            - ❌ "get events -o json" (JSON adds unnecessary overhead)
+
+            IMPORTANT: Use multiple targeted commands to build complete understanding.
             Don't assume - verify everything with additional commands.
-            Prefer JSON output (-o json) for better parsing and analysis.
 
             Common investigation patterns:
-            - kubectl get <resource> -n <namespace> -o json (for structured data)
-            - kubectl describe <resource> <name> -n <namespace> (for detailed events)
-            - kubectl get events -n <namespace> --sort-by='.lastTimestamp' -o json
+            - kubectl get <resource> -n <namespace> --field-selector <filter>
+            - kubectl describe <resource> <name> -n <namespace> (comprehensive, efficient)
+            - kubectl get events -n <namespace> --sort-by='.lastTimestamp'
             - kubectl logs <pod> -n <namespace> --tail=50
-            - kubectl get endpoints <service> -n <namespace> -o json
-            - kubectl get <resource> -o yaml -n <namespace> (for full config)
+            - kubectl get endpoints <service> -n <namespace>
+            - kubectl get <resource> -o wide -n <namespace>
 
             Args:
                 cluster_id: Target cluster

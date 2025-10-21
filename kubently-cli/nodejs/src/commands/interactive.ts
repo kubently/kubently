@@ -25,13 +25,7 @@ export async function runInteractiveMode(config: Config): Promise<void> {
   let shouldContinue = true;
   
   while (shouldContinue) {
-    // Show welcome banner
-    console.log(chalk.cyan('\n╔═══════════════════════════════════════════════════════════╗'));
-    console.log(chalk.cyan('║') + chalk.white('           🚀 Kubently Interactive Mode                   ') + chalk.cyan('║'));
-    console.log(chalk.cyan('╠═══════════════════════════════════════════════════════════╣'));
-    console.log(chalk.cyan('║ ') + chalk.gray('Choose your operation mode:'.padEnd(57)) + chalk.cyan(' ║'));
-    console.log(chalk.cyan('╚═══════════════════════════════════════════════════════════╝'));
-    console.log();
+    console.log(); // Add spacing
 
     // Get user's choice
     const { mode } = await inquirer.prompt([
