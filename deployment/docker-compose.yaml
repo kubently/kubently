@@ -1,21 +1,4 @@
-version: '3.8'
-
 services:
-  # TLS termination proxy for local development
-  nginx:
-    image: nginx:alpine
-    container_name: kubently-nginx
-    ports:
-      - "443:443"
-      - "80:80"
-    volumes:
-      - ./dev-certs:/etc/nginx/certs:ro
-      - ./nginx-dev.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - api
-    networks:
-      - kubently-network
-
   redis:
     image: redis:7-alpine
     container_name: kubently-redis
@@ -36,12 +19,27 @@ services:
       context: ..
       dockerfile: deployment/docker/api/Dockerfile
     container_name: kubently-api
-    # No longer expose port directly - go through nginx
-    expose:
-      - "8080"
+    ports:
+      - "8080:8080"  # Expose directly for local dev (no nginx proxy)
     environment:
-      - REDIS_URL=redis://redis:6379
-      - API_KEYS=test-key-1,test-key-2
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+      # Authentication
+      - API_KEYS=dev:test-api-key,test-key-2
+
+      # LLM Provider (set at least one via .env file)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - LLM_PROVIDER=${LLM_PROVIDER:-anthropic-claude}
+
+      # A2A Configuration
+      - A2A_ENABLED=true
+      - A2A_EXTERNAL_URL=http://localhost:8080/a2a/
+
+      # Performance & Session
       - LOG_LEVEL=DEBUG
       - MAX_COMMANDS_PER_FETCH=10
       - COMMAND_TIMEOUT=30
@@ -51,33 +49,47 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ../kubently:/app/kubently:ro  # For development (read-only)
+      - ../kubently:/app/kubently:ro  # For development hot reload
+      - ../prompts:/etc/kubently/prompts:ro  # Mount prompts
     networks:
       - kubently-network
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
       interval: 10s
-      timeout: 3s
+      timeout: 5s
       retries: 3
+      start_period: 10s
 
-  agent:
+  executor:
     build:
       context: ..
-      dockerfile: deployment/docker/agent/Dockerfile
-    container_name: kubently-agent
+      dockerfile: deployment/docker/executor/Dockerfile
+    container_name: kubently-executor
     environment:
-      - KUBENTLY_API_URL=https://nginx  # Use HTTPS even locally
-      - KUBENTLY_SSL_VERIFY=false  # Accept self-signed for dev
-      - CLUSTER_ID=local-test
-      - KUBENTLY_TOKEN=test-token
+      # Executor Configuration
+      - KUBENTLY_API_URL=http://api:8080
+      - CLUSTER_ID=local-dev
+      - KUBENTLY_TOKEN=generated-token
+
+      # TLS Configuration (not needed for HTTP)
+      - KUBENTLY_SSL_VERIFY=false
+
+      # Executor Type (sse is default)
+      - EXECUTOR_TYPE=sse
+
+      # Logging
       - LOG_LEVEL=DEBUG
     depends_on:
       api:
         condition: service_healthy
-    volumes:
-      - ~/.kube:/home/kubently/.kube:ro  # Mount kubeconfig (read-only)
+    # NOTE: Kubeconfig volume mount commented out for local testing
+    # From inside a container, localhost/127.0.0.1 clusters (like kind) are not accessible.
+    # Uncomment if using Docker Desktop Kubernetes or remote clusters accessible from containers.
+    # volumes:
+    #   - ~/.kube:/home/kubently/.kube:ro
     networks:
       - kubently-network
+    restart: unless-stopped
 
 volumes:
   redis-data:

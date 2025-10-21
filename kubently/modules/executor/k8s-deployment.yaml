@@ -93,10 +93,6 @@ spec:
           value: "true"  # Enforce certificate validation
         - name: KUBENTLY_CA_CERT
           value: "/etc/kubently/ca/ca.crt"
-        - name: POLL_INTERVAL
-          value: "10"
-        - name: FAST_POLL_INTERVAL
-          value: "0.5"
         - name: LOG_LEVEL
           value: "INFO"
         resources:

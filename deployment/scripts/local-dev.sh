@@ -49,27 +49,22 @@ check_kubeconfig() {
 case "$ACTION" in
     up|start)
         echo -e "${YELLOW}Starting Kubently services...${NC}"
-        
+
         check_kubeconfig
-        
+
         if [ "$BUILD" == "true" ]; then
             echo -e "${YELLOW}Building images...${NC}"
             ${DOCKER_COMPOSE} -f ${COMPOSE_FILE} build
         fi
-        
+
         ${DOCKER_COMPOSE} -f ${COMPOSE_FILE} up -d
-        
+
         echo -e "${GREEN}✓ Services started${NC}"
         echo ""
-        echo "Services available at:"
-        echo "  API: http://localhost:8080"
-        echo "  Redis: localhost:6379"
-        echo ""
-        echo "Test with:"
-        echo "  curl http://localhost:8080/health"
-        echo ""
-        echo "View logs with:"
-        echo "  ${DOCKER_COMPOSE} -f ${COMPOSE_FILE} logs -f [service]"
+
+        # Initialize executor token registration
+        echo -e "${YELLOW}Initializing executor authentication...${NC}"
+        "${SCRIPT_DIR}/docker-compose-init.sh"
         ;;
         
     stop|down)
