@@ -63,7 +63,7 @@ class SessionModule:
         session_key = f"session:{session_id}"
         await self.redis.setex(session_key, self.default_ttl, json.dumps(session_data))
 
-        # Mark cluster as active (for fast polling)
+        # Mark cluster as active (for session tracking and monitoring)
         cluster_active_key = f"cluster:active:{cluster_id}"
         await self.redis.setex(cluster_active_key, self.default_ttl, session_id)
 
@@ -106,7 +106,7 @@ class SessionModule:
         """
         Check if cluster has an active debugging session.
 
-        This is called frequently by agents to determine polling interval.
+        Used for monitoring and session management.
 
         Args:
             cluster_id: Cluster identifier
