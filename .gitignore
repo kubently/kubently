@@ -236,3 +236,4 @@ secrets/*
 *.crt
 *-key.json
 .kubently-tokens.env
+deployment/.env

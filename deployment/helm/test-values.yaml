@@ -25,10 +25,10 @@ api:
     port: 8080
     targetPort: 8080
   
-  # API Keys for authentication (includes executor token)
-  apiKeys:
-    - "test-api-key"
-    - "37d34f63b1d4a7420fceefc6eceb2c89d7124153f2a26578bcd2bc8082b538f0"
+  # API Keys for authentication
+  # IMPORTANT: Set via --set-string api.apiKeys="{key1,key2}" during helm install
+  # For local dev, use secrets/deploy-test.sh which loads from secrets/kubently-tokens.env
+  apiKeys: []
   
   # OAuth/OIDC Configuration (for human users)
   oidc:
@@ -70,9 +70,6 @@ api:
     # Requires langchain-anthropic >=0.3.21
     ANTHROPIC_CONTEXT_CLEARING: "true"
     
-    # Agent tokens for cluster access
-    AGENT_TOKEN_KIND: "test-api-key"
-    
     # CRITICAL: API URL for internal service-to-service calls
     # Must use service name, not localhost, for pod-to-service communication
     KUBENTLY_API_URL: "http://kubently-api:8080"
@@ -100,14 +97,15 @@ executor:
   # Cluster ID for the executor
   clusterId: "kind"
 
-  # Token for executor authentication (FOR TESTING ONLY)
-  # WARNING: For production, use existingSecret instead of embedding tokens here
-  token: "37d34f63b1d4a7420fceefc6eceb2c89d7124153f2a26578bcd2bc8082b538f0"
+  # Token for executor authentication
+  # IMPORTANT: Set via --set executor.token=<token> during helm install
+  # For local dev, use secrets/deploy-test.sh which loads from secrets/kubently-tokens.env
+  token: ""
 
   # Reference an existing secret (recommended for production)
   # Create secret first: kubectl create secret generic my-executor-token --from-literal=token=<secure-token>
-  # Then uncomment these lines and remove the token above:
-  # existingSecret: "my-executor-token"
+  # Then set: existingSecret=my-executor-token
+  # existingSecret: ""
   # existingSecretKey: "token"  # Optional, defaults to "token"
   
   env:

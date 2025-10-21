@@ -14,8 +14,12 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 import uuid
 
+from dotenv import load_dotenv
 from langsmith import Client
-from langsmith.schemas import Dataset, Example
+from langsmith.schemas import Dataset, Example, DataType
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 @dataclass
@@ -214,7 +218,7 @@ class DatasetBuilder:
         dataset = self.client.create_dataset(
             dataset_name=dataset_name,
             description=description,
-            data_type="kv"  # Key-value pairs for inputs/outputs
+            data_type=DataType.kv  # Key-value pairs for inputs/outputs
         )
 
         print(f"Created dataset: {dataset_name}")
@@ -247,22 +251,16 @@ class DatasetBuilder:
                 }
             }
 
-            # Create the example
-            example = Example(
+            # Add example to dataset
+            self.client.create_example(
                 inputs=inputs,
                 outputs=outputs,
+                dataset_id=dataset.id,
                 metadata={
                     "scenario_name": scenario.name,
                     "created_at": datetime.now().isoformat(),
                     **scenario.metadata
                 }
-            )
-
-            # Add to dataset
-            self.client.create_example(
-                inputs=inputs,
-                outputs=outputs,
-                dataset_id=dataset.id
             )
 
             print(f"  Added example: {scenario.name}")

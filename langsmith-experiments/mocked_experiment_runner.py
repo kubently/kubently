@@ -15,9 +15,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass, asdict
 
+from dotenv import load_dotenv
 from langsmith import Client
-from langsmith.evaluation import evaluate, EvaluationResult
+from langsmith.evaluation import aevaluate, EvaluationResult
 from langsmith.schemas import Run, Example
+
+# Load environment variables from .env file
+load_dotenv()
 from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_anthropic import ChatAnthropic
@@ -422,7 +426,7 @@ class MockedExperimentRunner:
             test_fn = self.create_test_function(config)
 
             # Run evaluation
-            eval_results = await evaluate(
+            eval_results = await aevaluate(
                 test_fn,
                 data=dataset_name,
                 evaluators=[self.evaluate_response],

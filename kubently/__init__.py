@@ -1,7 +1,7 @@
 """
 Kubently - Kubernetes Debugging System
 
-A black box architecture system for debugging Kubernetes clusters through AI.
+A system for debugging Kubernetes clusters through AI.
 
 Architecture:
 - Each module is self-contained with clear interfaces
