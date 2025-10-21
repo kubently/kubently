@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
     global auth_service, session_module, queue_module, redis_client, a2a_server
 
     # Startup
-    logger.info("Starting Kubently API with Black Box Architecture...")
+    logger.info("Starting Kubently API  ...")
 
     # Initialize Redis connection
     redis_client = await get_redis_client()
@@ -252,6 +252,7 @@ async def executor_stream(cluster_id: str = Depends(verify_executor_auth)):
         # Create a separate Redis connection for pub/sub
         pubsub = redis_client.pubsub()
         channel = f"executor-commands:{cluster_id}"
+        keepalive_interval = 30  # Send keepalive every 30 seconds
 
         try:
             # Subscribe to executor's command channel
@@ -264,26 +265,42 @@ async def executor_stream(cluster_id: str = Depends(verify_executor_auth)):
                 "data": json.dumps({"status": "connected", "cluster_id": cluster_id}),
             }
 
-            # Listen for commands
-            async for message in pubsub.listen():
-                if message["type"] == "message":
-                    # Command received from Redis
-                    command_data = message["data"]
-                    if isinstance(command_data, str):
-                        logger.info(f"Sending command to executor {cluster_id}")
-                        yield {"event": "command", "data": command_data}
+            # Listen for commands with timeout-based keepalives
+            last_keepalive = asyncio.get_event_loop().time()
 
-                # Send periodic keepalive to detect disconnections
-                # Also renew cluster active status with EXPIRE (more efficient than SETEX)
+            while True:
                 try:
-                    await redis_client.expire(cluster_active_key, 90)
-                except Exception as e:
-                    logger.warning(f"Failed to renew cluster TTL for {cluster_id}: {e}")
+                    # Wait for message with timeout to ensure periodic keepalives
+                    message = await asyncio.wait_for(
+                        pubsub.get_message(ignore_subscribe_messages=True, timeout=0.1),
+                        timeout=keepalive_interval
+                    )
 
-                yield {
-                    "event": "keepalive",
-                    "data": json.dumps({"timestamp": asyncio.get_event_loop().time()}),
-                }
+                    if message and message["type"] == "message":
+                        # Command received from Redis
+                        command_data = message["data"]
+                        if isinstance(command_data, str):
+                            logger.info(f"Sending command to executor {cluster_id}")
+                            yield {"event": "command", "data": command_data}
+
+                except asyncio.TimeoutError:
+                    # Timeout reached - time to send keepalive
+                    pass
+
+                # Check if it's time to send keepalive (every keepalive_interval seconds)
+                current_time = asyncio.get_event_loop().time()
+                if current_time - last_keepalive >= keepalive_interval:
+                    # Renew cluster active status with EXPIRE
+                    try:
+                        await redis_client.expire(cluster_active_key, 90)
+                    except Exception as e:
+                        logger.warning(f"Failed to renew cluster TTL for {cluster_id}: {e}")
+
+                    yield {
+                        "event": "keepalive",
+                        "data": json.dumps({"timestamp": current_time}),
+                    }
+                    last_keepalive = current_time
 
         except asyncio.CancelledError:
             logger.info(f"Executor {cluster_id} disconnecting")
