@@ -266,31 +266,21 @@ async def executor_stream(cluster_id: str = Depends(verify_executor_auth)):
             }
 
             # Listen for commands with timeout-based keepalives
-            last_keepalive = asyncio.get_event_loop().time()
-
             while True:
-                try:
-                    # Wait for message with timeout to ensure periodic keepalives
-                    message = await asyncio.wait_for(
-                        pubsub.get_message(ignore_subscribe_messages=True, timeout=0.1),
-                        timeout=keepalive_interval
-                    )
+                # Wait efficiently for a message for up to keepalive_interval seconds
+                message = await pubsub.get_message(
+                    ignore_subscribe_messages=True,
+                    timeout=keepalive_interval
+                )
 
-                    if message and message["type"] == "message":
-                        # Command received from Redis
-                        command_data = message["data"]
-                        if isinstance(command_data, str):
-                            logger.info(f"Sending command to executor {cluster_id}")
-                            yield {"event": "command", "data": command_data}
-
-                except asyncio.TimeoutError:
-                    # Timeout reached - time to send keepalive
-                    pass
-
-                # Check if it's time to send keepalive (every keepalive_interval seconds)
-                current_time = asyncio.get_event_loop().time()
-                if current_time - last_keepalive >= keepalive_interval:
-                    # Renew cluster active status with EXPIRE
+                if message and message["type"] == "message":
+                    # Command received - send it to the client
+                    command_data = message["data"]
+                    if isinstance(command_data, str):
+                        logger.info(f"Sending command to executor {cluster_id}")
+                        yield {"event": "command", "data": command_data}
+                else:
+                    # No message within timeout - send keepalive and renew TTL
                     try:
                         await redis_client.expire(cluster_active_key, 90)
                     except Exception as e:
@@ -298,9 +288,8 @@ async def executor_stream(cluster_id: str = Depends(verify_executor_auth)):
 
                     yield {
                         "event": "keepalive",
-                        "data": json.dumps({"timestamp": current_time}),
+                        "data": json.dumps({"timestamp": asyncio.get_running_loop().time()}),
                     }
-                    last_keepalive = current_time
 
         except asyncio.CancelledError:
             logger.info(f"Executor {cluster_id} disconnecting")
