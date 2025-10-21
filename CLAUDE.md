@@ -43,7 +43,16 @@ bash test-a2a.sh              # Basic A2A protocol tests
 ```bash
 # Build multi-architecture image
 make docker-build
-docker buildx build --platform linux/amd64 -f deployment/docker/api/Dockerfile -t ghcr.io/kubently/kubently/api:<commit-sha> --push .
+
+# Manual build with multiple tags (latest, branch, SHA)
+COMMIT_SHA=$(git rev-parse --short HEAD)
+BRANCH=$(git branch --show-current)
+docker buildx build --platform linux/amd64 \
+  -f deployment/docker/api/Dockerfile \
+  -t ghcr.io/kubently/kubently:latest \
+  -t ghcr.io/kubently/kubently:${BRANCH} \
+  -t ghcr.io/kubently/kubently:sha-${COMMIT_SHA} \
+  --push .
 
 # Helm deployment (always use Helm, not kubectl directly)
 helm install kubently ./deployment/helm/kubently -f deployment/helm/test-values.yaml --namespace kubently

@@ -25,23 +25,33 @@ deployment/
 
 ## Quick Start
 
-### Local Development
+### Local Development with Docker Compose
 
-Start the entire stack locally using Docker Compose:
+Start the entire stack locally using Docker Compose for faster iteration:
 
 ```bash
+# Configure environment (first time only)
+cd deployment/
+cp .env.example .env
+# Edit .env and add your LLM API key
+
 # Start services
-./deployment/scripts/local-dev.sh up
+./scripts/local-dev.sh up
+
+# Or rebuild and start
+./scripts/local-dev.sh up true
 
 # View logs
-./deployment/scripts/local-dev.sh logs
+./scripts/local-dev.sh logs
 
 # Run tests
-./deployment/scripts/local-dev.sh test
+./scripts/local-dev.sh test
 
 # Stop services
-./deployment/scripts/local-dev.sh stop
+./scripts/local-dev.sh stop
 ```
+
+**📖 See [DOCKER_COMPOSE.md](DOCKER_COMPOSE.md) for complete Docker Compose guide**
 
 ### Kubernetes Deployment
 

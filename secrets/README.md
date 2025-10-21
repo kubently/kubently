@@ -15,9 +15,29 @@ This folder contains sensitive credentials and tokens for local development and 
 
 ## Usage:
 
-Source the environment file before deploying:
+### Automated (Recommended):
+
+Run the deployment script from the secrets directory - it automatically loads tokens:
+```bash
+./secrets/deploy-test.sh
+```
+
+The script will:
+1. Load tokens from `kubently-tokens.env`
+2. Pass them to Helm via `--set` parameters
+3. Configure Redis with the executor token
+
+### Manual:
+
+If deploying manually, source the environment file first:
 ```bash
 source secrets/kubently-tokens.env
+
+# Then deploy with Helm
+helm upgrade --install kubently ./deployment/helm/kubently \
+  --set-string "api.apiKeys={$API_KEY,$KIND_EXECUTOR_TOKEN}" \
+  --set executor.token="$KIND_EXECUTOR_TOKEN" \
+  -f deployment/helm/test-values.yaml
 ```
 
 ## Security:

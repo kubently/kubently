@@ -150,7 +150,7 @@ class QueueModule:
 
     async def wait_for_result(self, command_id: str, timeout: int = 10) -> Optional[dict]:
         """
-        Wait for command result (blocking).
+        Wait for command result using Redis pub/sub.
 
         Used by API to wait synchronously for command completion.
 
@@ -162,31 +162,55 @@ class QueueModule:
             Result dict or None if timeout
 
         Logic:
-        1. Check if result already exists
-        2. If not, poll with exponential backoff
-        3. Could be optimized with pub/sub
+        1. Check if result already exists (fast path)
+        2. Subscribe to result notification channel
+        3. Re-check after subscription (race-safety)
+        4. Wait for pub/sub message with timeout
+        5. On notification, retrieve result from Redis
         """
         result_key = f"result:{command_id}"
+        channel = f"result:ready:{command_id}"
 
+        # Fast path: Check if result already exists
         result = await self.redis.get(result_key)
         if result:
             return json.loads(result)
 
-        elapsed = 0
-        poll_interval = 0.1
+        # Subscribe to result notification channel
+        pubsub = self.redis.pubsub()
+        try:
+            await pubsub.subscribe(channel)
 
-        while elapsed < timeout:
-            await asyncio.sleep(poll_interval)
-            elapsed += poll_interval
-
+            # Re-check after subscription to avoid race condition
+            # (result could have been stored between first check and subscribe)
             result = await self.redis.get(result_key)
             if result:
                 return json.loads(result)
 
-            poll_interval = min(poll_interval * 1.5, 1.0)
+            # Wait for pub/sub notification with timeout
+            try:
+                async with asyncio.timeout(timeout):
+                    # Listen for the notification message
+                    async for message in pubsub.listen():
+                        if message["type"] == "message":
+                            # Notification received, retrieve the result
+                            result = await self.redis.get(result_key)
+                            if result:
+                                return json.loads(result)
+                            # If result not found, continue listening
+                            # (shouldn't happen, but defensive)
 
-        await self._increment_metric("commands_timeout", "global")
-        return None
+            except asyncio.TimeoutError:
+                # Timeout reached without result
+                await self._increment_metric("commands_timeout", "global")
+                return None
+
+        finally:
+            # Always unsubscribe and close pub/sub connection
+            try:
+                await pubsub.unsubscribe(channel)
+            finally:
+                await pubsub.close()
 
     async def get_queue_depth(self, cluster_id: str) -> int:
         """
