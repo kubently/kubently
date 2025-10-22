@@ -1,0 +1,727 @@
+{
+  "name": "kubently-scenarios",
+  "description": "Kubently test scenarios for debugging Kubernetes issues",
+  "created_at": "2025-10-14T21:05:47.764487",
+  "examples": [
+    {
+      "inputs": {
+        "query": "In cluster kind, there's an issue with a pod in namespace test-scenario-01. The pod is showing ImagePullBackOff status. Please investigate and fix the issue.",
+        "namespace": "test-scenario-01",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/01-imagepullbackoff-typo.sh",
+          "scenario_type": "image_pull",
+          "difficulty": "easy",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-01"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Correct the image name from busyboxx to busybox",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "01-imagepullbackoff-typo",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/01-imagepullbackoff-typo.sh",
+        "scenario_type": "image_pull",
+        "difficulty": "easy",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-01"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, there's an issue with a pod in namespace test-scenario-02. The pod is showing ImagePullBackOff status. Please investigate and fix the issue.",
+        "namespace": "test-scenario-02",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/02-imagepullbackoff-private.sh",
+          "scenario_type": "image_pull",
+          "difficulty": "medium",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-02"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Create and reference an imagePullSecret with valid registry credentials",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "02-imagepullbackoff-private",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/02-imagepullbackoff-private.sh",
+        "scenario_type": "image_pull",
+        "difficulty": "medium",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-02"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, a pod in namespace test-scenario-03 is in CrashLoopBackOff. Please diagnose the issue.",
+        "namespace": "test-scenario-03",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/03-crashloopbackoff.sh",
+          "scenario_type": "crash_loop",
+          "difficulty": "medium",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-03"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Fix the command to not exit with error code (remove 'exit 1' or change to successful command)",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "03-crashloopbackoff",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/03-crashloopbackoff.sh",
+        "scenario_type": "crash_loop",
+        "difficulty": "medium",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-03"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, a pod in namespace test-scenario-04 is having configuration issues. Please investigate.",
+        "namespace": "test-scenario-04",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/04-runcontainer-missing-configmap.sh",
+          "scenario_type": "configuration",
+          "difficulty": "medium",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-04"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Create the missing ConfigMap 'app-config' or remove the envFrom reference",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "04-runcontainer-missing-configmap",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/04-runcontainer-missing-configmap.sh",
+        "scenario_type": "configuration",
+        "difficulty": "medium",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-04"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, a pod in namespace test-scenario-05 is having issues with secrets. Please investigate.",
+        "namespace": "test-scenario-05",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/05-runcontainer-missing-secret-key.sh",
+          "scenario_type": "secrets",
+          "difficulty": "medium",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-05"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Add the missing 'api-key' key to the secret or use a key that exists in the secret",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "05-runcontainer-missing-secret-key",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/05-runcontainer-missing-secret-key.sh",
+        "scenario_type": "secrets",
+        "difficulty": "medium",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-05"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, a pod in namespace test-scenario-06 keeps getting OOMKilled. Please investigate and fix the issue.",
+        "namespace": "test-scenario-06",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/06-oomkilled.sh",
+          "scenario_type": "memory",
+          "difficulty": "medium",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-06"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Increase memory limit to accommodate actual memory usage (e.g., to 256Mi)",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "06-oomkilled",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/06-oomkilled.sh",
+        "scenario_type": "memory",
+        "difficulty": "medium",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-06"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, a pod in namespace test-scenario-07 is failing its health checks. Please investigate.",
+        "namespace": "test-scenario-07",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/07-failed-readiness-probe.sh",
+          "scenario_type": "health_probe",
+          "difficulty": "medium",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-07"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Fix readiness probe path to '/' or remove the readiness probe",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "07-failed-readiness-probe",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/07-failed-readiness-probe.sh",
+        "scenario_type": "health_probe",
+        "difficulty": "medium",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-07"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, a pod in namespace test-scenario-08 is failing its health checks. Please investigate.",
+        "namespace": "test-scenario-08",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/08-failing-liveness-probe.sh",
+          "scenario_type": "health_probe",
+          "difficulty": "medium",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-08"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Fix liveness probe path to '/' or adjust probe thresholds",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "08-failing-liveness-probe",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/08-failing-liveness-probe.sh",
+        "scenario_type": "health_probe",
+        "difficulty": "medium",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-08"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, there's an issue in namespace test-scenario-09. Please investigate and identify the root cause.",
+        "namespace": "test-scenario-09",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/09-init-container-failure.sh",
+          "scenario_type": "general",
+          "difficulty": "medium",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-09"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Fix the init container's command or dependencies",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "09-init-container-failure",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/09-init-container-failure.sh",
+        "scenario_type": "general",
+        "difficulty": "medium",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-09"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, a pod in namespace test-scenario-10 is having resource constraint issues. Please investigate.",
+        "namespace": "test-scenario-10",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/10-unschedulable-resources.sh",
+          "scenario_type": "resources",
+          "difficulty": "medium",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-10"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Reduce resource requests to reasonable values (e.g., cpu: \"1\", memory: \"1Gi\")",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "10-unschedulable-resources",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/10-unschedulable-resources.sh",
+        "scenario_type": "resources",
+        "difficulty": "medium",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-10"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, there's an issue in namespace test-scenario-11. Please investigate and identify the root cause.",
+        "namespace": "test-scenario-11",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/11-unschedulable-taint.sh",
+          "scenario_type": "general",
+          "difficulty": "medium",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-11"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Add toleration for 'app=critical:NoSchedule' taint or remove taint from nodes",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "11-unschedulable-taint",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/11-unschedulable-taint.sh",
+        "scenario_type": "general",
+        "difficulty": "medium",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-11"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, a pod in namespace test-scenario-12 is having volume mount issues. Please investigate.",
+        "namespace": "test-scenario-12",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/12-pvc-unbound.sh",
+          "scenario_type": "storage",
+          "difficulty": "medium",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-12"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Use an existing StorageClass or create the missing 'fast-ssd' StorageClass",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "12-pvc-unbound",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/12-pvc-unbound.sh",
+        "scenario_type": "storage",
+        "difficulty": "medium",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-12"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, the service in namespace test-scenario-13 doesn't seem to be working. Traffic isn't reaching the pods. Please investigate.",
+        "namespace": "test-scenario-13",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/13-service-selector-mismatch.sh",
+          "scenario_type": "service_issue",
+          "difficulty": "medium",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-13"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Update service selector to match pod labels",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "13-service-selector-mismatch",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/13-service-selector-mismatch.sh",
+        "scenario_type": "service_issue",
+        "difficulty": "medium",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-13"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, the service in namespace test-scenario-14 doesn't seem to be working. Traffic isn't reaching the pods. Please investigate.",
+        "namespace": "test-scenario-14",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/14-service-port-mismatch.sh",
+          "scenario_type": "service_issue",
+          "difficulty": "medium",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-14"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Change Service targetPort from 8080 to 80 to match container port",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "14-service-port-mismatch",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/14-service-port-mismatch.sh",
+        "scenario_type": "service_issue",
+        "difficulty": "medium",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-14"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, there are network connectivity issues in namespace test-scenario-15. Please investigate.",
+        "namespace": "test-scenario-15",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/15-network-policy-deny-ingress.sh",
+          "scenario_type": "network",
+          "difficulty": "hard",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-15"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Add NetworkPolicy rule to allow traffic from client pod or remove the deny-all policy",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "15-network-policy-deny-ingress",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/15-network-policy-deny-ingress.sh",
+        "scenario_type": "network",
+        "difficulty": "hard",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-15"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, there are network connectivity issues in namespace test-scenario-16. Please investigate.",
+        "namespace": "test-scenario-16",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/16-network-policy-deny-egress.sh",
+          "scenario_type": "network",
+          "difficulty": "hard",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-16"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Add egress rule to allow external traffic or remove the egress NetworkPolicy",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "16-network-policy-deny-egress",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/16-network-policy-deny-egress.sh",
+        "scenario_type": "network",
+        "difficulty": "hard",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-16"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, there are connectivity issues between namespaces. Please investigate and identify the root cause.",
+        "namespace": "test-scenario-17",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/17-cross-namespace-block.sh",
+          "scenario_type": "cross_namespace",
+          "difficulty": "hard",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-17"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Update NetworkPolicy to allow ingress from namespace-a or remove the policy",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "17-cross-namespace-block",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/17-cross-namespace-block.sh",
+        "scenario_type": "cross_namespace",
+        "difficulty": "hard",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-17"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, the service in namespace test-scenario-18 doesn't seem to be working. Traffic isn't reaching the pods. Please investigate.",
+        "namespace": "test-scenario-18",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/18-missing-serviceaccount.sh",
+          "scenario_type": "service_issue",
+          "difficulty": "medium",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-18"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Create the missing ServiceAccount 'custom-sa' or use 'default'",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "18-missing-serviceaccount",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/18-missing-serviceaccount.sh",
+        "scenario_type": "service_issue",
+        "difficulty": "medium",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-18"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, a pod in namespace test-scenario-19 is encountering authorization issues. Please diagnose and make recommendations.",
+        "namespace": "test-scenario-19",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/19-rbac-forbidden-role.sh",
+          "scenario_type": "rbac",
+          "difficulty": "hard",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-19"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Update Role to include 'list' and 'delete' verbs, not just 'get'",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "19-rbac-forbidden-role",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/19-rbac-forbidden-role.sh",
+        "scenario_type": "rbac",
+        "difficulty": "hard",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-19"
+      }
+    },
+    {
+      "inputs": {
+        "query": "In cluster kind, a pod in namespace test-scenario-20 is encountering authorization issues. Please diagnose and make recommendations.",
+        "namespace": "test-scenario-20",
+        "cluster_type": "kind",
+        "metadata": {
+          "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/20-rbac-forbidden-clusterrole.sh",
+          "scenario_type": "rbac",
+          "difficulty": "hard",
+          "required_tools": [
+            "debug_resource",
+            "get_pod_logs"
+          ],
+          "namespace": "test-scenario-20"
+        }
+      },
+      "outputs": {
+        "expected_fix": "Use ClusterRoleBinding instead of RoleBinding for cross-namespace access",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "validation_checks": []
+      },
+      "metadata": {
+        "scenario_name": "20-rbac-forbidden-clusterrole",
+        "file_path": "/Users/adickinson/repos/kubently/test-automation/scenarios/20-rbac-forbidden-clusterrole.sh",
+        "scenario_type": "rbac",
+        "difficulty": "hard",
+        "required_tools": [
+          "debug_resource",
+          "get_pod_logs"
+        ],
+        "namespace": "test-scenario-20"
+      }
+    }
+  ]
+}

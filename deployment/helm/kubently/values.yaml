@@ -42,11 +42,23 @@ api:
       memory: 768Mi
   
   # API Keys for authentication
-  # Format: "service:key" (e.g., "cli-user:abc123...")
-  # The service name identifies the client, the key is the authentication token
-  # Example: apiKeys: ["cli-user:da4f779eaaf81b37...", "admin:8a3f9c2d..."]
+  # OPTION 1 (RECOMMENDED): Use existing secret (managed separately)
+  # Set existingSecret to the name of your manually created secret
+  # The secret must contain a 'keys' field with newline-separated API keys
+  # Example:
+  #   kubectl create secret generic my-api-keys \
+  #     --from-literal=keys="$(cat <<EOF
+  #   key1
+  #   key2
+  #   EOF
+  #   )"
+  existingSecret: ""  # e.g., "kubently-api-keys"
+
+  # OPTION 2: Provide keys directly in values (NOT recommended for production)
+  # Only used if existingSecret is not set
+  # Format: each key on a new line (just the key value, no "service:" prefix needed)
+  # Example: apiKeys: ["abc123...", "def456..."]
   apiKeys: []
-    # - "service-name:key-value"
   
   env:
     LOG_LEVEL: "INFO"

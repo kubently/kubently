@@ -26,8 +26,14 @@ api:
     targetPort: 8080
   
   # API Keys for authentication
-  # IMPORTANT: Set via --set-string api.apiKeys="{key1,key2}" during helm install
-  # For local dev, use secrets/deploy-test.sh which loads from secrets/kubently-tokens.env
+  # RECOMMENDED: Create secret manually before deploying:
+  #   kubectl create secret generic kubently-api-keys \
+  #     --from-literal=keys="your-api-key-here" \
+  #     --namespace kubently
+  # Then reference it here:
+  # existingSecret: "kubently-api-keys"
+
+  # For quick testing, you can provide keys inline (NOT for production):
   apiKeys: []
   
   # OAuth/OIDC Configuration (for human users)
@@ -76,7 +82,13 @@ api:
     
     # Debug mode for troubleshooting
     A2A_SERVER_DEBUG: "true"
-  
+
+    # LangSmith Tracing (Production Observability)
+    # LANGSMITH_API_KEY is managed via separate secret (see langsmith.apiKeySecret)
+    LANGSMITH_TRACING: "true"  # Enable automatic tracing
+    LANGSMITH_PROJECT: "kubently-production"  # Project name in LangSmith UI
+    LANGSMITH_ENDPOINT: "https://api.smith.langchain.com"  # LangSmith API endpoint
+
   resources:
     requests:
       cpu: 200m

@@ -21,8 +21,9 @@ from typing import AsyncGenerator, Optional, Tuple
 
 import redis.asyncio as redis
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, Body
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, field_validator
 from sse_starlette.sse import EventSourceResponse
 
 from kubently.modules.a2a import create_a2a_server
@@ -66,6 +67,28 @@ redis_client: Optional[redis.Redis] = None
 a2a_server = None  # A2A server instance
 a2a_app = None  # A2A FastAPI sub-application
 pubsub_connections = {}  # Active SSE connections for agents
+
+
+# Pydantic Models
+class CreateTokenRequest(BaseModel):
+    """Request model for creating executor tokens with optional custom token."""
+
+    token: Optional[str] = Field(
+        None,
+        min_length=32,
+        max_length=128,
+        description="Custom token (32-128 chars). If not provided, a secure token will be auto-generated."
+    )
+
+    @field_validator('token')
+    @classmethod
+    def validate_token_format(cls, v: Optional[str]) -> Optional[str]:
+        """Validate token is alphanumeric, hyphens, or underscores only."""
+        if v is not None:
+            # Allow alphanumeric, hyphens, underscores (common in tokens)
+            if not all(c.isalnum() or c in '-_' for c in v):
+                raise ValueError('Token must contain only alphanumeric characters, hyphens, or underscores')
+        return v
 
 
 async def get_redis_client() -> redis.Redis:
@@ -528,19 +551,37 @@ async def end_session(
 @app.post("/admin/agents/{cluster_id}/token")
 async def create_agent_token(
     cluster_id: str,
+    request: Optional[CreateTokenRequest] = Body(None),
     auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
 ):
     """
     Create authentication token for cluster executor.
 
-    Generates a secure token and stores it in Redis for executor authentication.
-    The executor should use this token in the Authorization header when connecting.
+    Supports two modes:
+    1. Auto-generate: POST without body - generates a secure random token
+    2. Custom token: POST with {"token": "your-token"} - uses your provided token
+
+    The custom token must be 32-128 characters and contain only alphanumeric
+    characters, hyphens, or underscores.
+
+    Args:
+        cluster_id: Unique identifier for the cluster
+        request: Optional request body with custom token
 
     Returns:
-        201: Token created successfully with kubectl command for deployment
+        201: Token created successfully
+        400: Invalid token format
         401: Unauthorized
         409: Token already exists for this cluster
         500: Internal server error
+
+    Examples:
+        # Auto-generate token
+        POST /admin/agents/my-cluster/token
+
+        # Provide custom token
+        POST /admin/agents/my-cluster/token
+        {"token": "my-secret-token-from-vault-abc123"}
     """
     if not redis_client:
         raise HTTPException(503, "Service not initialized")
@@ -551,13 +592,18 @@ async def create_agent_token(
         if existing_token:
             raise HTTPException(409, f"Token already exists for cluster '{cluster_id}'. Delete it first to create a new one.")
 
-        # Generate secure token for executor
-        import secrets
-        token = secrets.token_hex(32)  # 64 character hex string
+        # Use custom token if provided, otherwise auto-generate
+        if request and request.token:
+            token = request.token
+            logger.info(f"Created executor token for cluster '{cluster_id}' (custom token provided)")
+        else:
+            # Generate secure token for executor
+            import secrets
+            token = secrets.token_hex(32)  # 64 character hex string
+            logger.info(f"Created executor token for cluster '{cluster_id}' (auto-generated)")
 
         # Store token: executor:token:{cluster_id} = token_value
         await redis_client.set(f"executor:token:{cluster_id}", token)
-        logger.info(f"Created executor token for cluster: {cluster_id}")
 
         return {
             "token": token,

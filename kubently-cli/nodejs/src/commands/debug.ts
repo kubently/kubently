@@ -11,7 +11,7 @@ function printWelcome() {
   console.log(chalk.cyan('╠═══════════════════════════════════════════════════════════╣'));
   console.log(chalk.cyan('║ ') + chalk.white('Mode:       ') + chalk.green('Agent Chat (A2A Protocol)'.padEnd(45)) + chalk.cyan(' ║'));
   console.log(chalk.cyan('╠═══════════════════════════════════════════════════════════╣'));
-  console.log(chalk.cyan('║ ') + chalk.gray('Type "help" for commands, "exit" to quit'.padEnd(57)) + chalk.cyan(' ║'));
+  console.log(chalk.cyan('║ ') + chalk.gray('Type "help" for commands, "clear" to start new convo'.padEnd(57)) + chalk.cyan(' ║'));
   console.log(chalk.cyan('╚═══════════════════════════════════════════════════════════╝'));
   console.log();
 }
@@ -19,7 +19,7 @@ function printWelcome() {
 function printHelp() {
   console.log(chalk.cyan('\n📚 Available Commands:'));
   console.log(chalk.white('  help      - Show this help message'));
-  console.log(chalk.white('  clear     - Clear the screen'));
+  console.log(chalk.white('  clear     - Clear screen and start new conversation'));
   console.log(chalk.white('  history   - Show command history'));
   console.log(chalk.white('  exit/quit - Exit the debug session'));
   console.log(chalk.white('\nYou can ask the agent to perform operations using natural language.'));
@@ -89,6 +89,8 @@ export async function runDebugSession(
           return;
         case 'clear':
           console.clear();
+          session.resetSession();
+          console.log(chalk.green('✨ Started new conversation (session reset)'));
           printWelcome();
           if (!isClosing) rl.prompt();
           return;
