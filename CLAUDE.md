@@ -258,18 +258,29 @@ For GitOps workflows, use:
 
 ### Adding Executor Tokens via Admin API
 
-If you need to manage multiple executor clusters beyond what's defined in Helm values, use the admin API:
+If you need to manage multiple executor clusters beyond what's defined in Helm values, use the admin API.
 
+**Option 1: Auto-generate token** (secure random 64-char hex):
 ```bash
-# Create a new executor token for a cluster
 curl -X POST http://localhost:8080/admin/agents/kind-kubently/token \
   -H "X-API-Key: your-admin-key"
 
-# Response: {"token": "abc123...", "clusterId": "kind-kubently"}
+# Response: {"token": "abc123...", "clusterId": "kind-kubently", "createdAt": "2025-..."}
+```
 
-# Deploy executor to the remote cluster with this token
+**Option 2: Provide custom token** (from Vault, secrets manager, etc.):
+```bash
+# Token must be 32-128 characters, alphanumeric + hyphens/underscores only
+curl -X POST http://localhost:8080/admin/agents/kind-kubently/token \
+  -H "X-API-Key: your-admin-key" \
+  -H "Content-Type: application/json" \
+  -d '{"token": "my-vault-managed-token-abc123-def456"}'
+
+# Response: {"token": "my-vault-managed-token-abc123-def456", "clusterId": "kind-kubently", "createdAt": "2025-..."}
+
+# Deploy executor to the remote cluster with this token (use the token from response)
 kubectl create secret generic kubently-executor-token \
-  --from-literal=token="abc123..." \
+  --from-literal=token="my-vault-managed-token-abc123-def456" \
   --namespace kubently \
   --context kind-kubently
 

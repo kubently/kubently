@@ -23,7 +23,7 @@ import redis.asyncio as redis
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, Body
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from sse_starlette.sse import EventSourceResponse
 
 from kubently.modules.a2a import create_a2a_server
@@ -80,9 +80,10 @@ class CreateTokenRequest(BaseModel):
         description="Custom token (32-128 chars). If not provided, a secure token will be auto-generated."
     )
 
-    @validator('token')
-    def validate_token_format(cls, v):
-        """Validate token is alphanumeric or hex-like."""
+    @field_validator('token')
+    @classmethod
+    def validate_token_format(cls, v: Optional[str]) -> Optional[str]:
+        """Validate token is alphanumeric, hyphens, or underscores only."""
         if v is not None:
             # Allow alphanumeric, hyphens, underscores (common in tokens)
             if not all(c.isalnum() or c in '-_' for c in v):

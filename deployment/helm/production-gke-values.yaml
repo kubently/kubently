@@ -25,7 +25,7 @@ api:
   image:
     pullPolicy: Always
     repository: ghcr.io/kubently/kubently
-    tag: sha-d9e56ab  # Built with langsmith support
+    tag: sha-5130ec7  # Built with langsmith + custom token support
 
   replicaCount: 2
 
