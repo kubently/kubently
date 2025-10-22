@@ -118,35 +118,29 @@ class OIDCValidator:
                 del self.user_cache[token]
         
         try:
-            # If we have a JWKS client, use it for verification
-            if self.jwks_client:
-                # Get the signing key from JWKS
-                signing_key = self.jwks_client.get_signing_key_from_jwt(token)
-                
-                # Decode and verify the token
-                claims = jwt.decode(
-                    token,
-                    signing_key.key,
-                    algorithms=["RS256", "RS384", "RS512"],
-                    audience=self.audience,
-                    issuer=self.issuer,
-                    options={
-                        "verify_signature": True,
-                        "verify_aud": bool(self.audience),
-                        "verify_iss": bool(self.issuer),
-                        "verify_exp": True,
-                        "require": ["exp", "iat", "sub"]
-                    }
-                )
-            else:
-                # No JWKS client - decode without verification (for testing only)
-                logger.warning("JWKS not configured - decoding JWT without verification")
-                claims = jwt.decode(
-                    token,
-                    options={"verify_signature": False},
-                    audience=self.audience,
-                    issuer=self.issuer
-                )
+            # JWKS client is required for secure JWT validation
+            if not self.jwks_client:
+                logger.error("JWKS client not initialized - cannot verify JWT signatures")
+                return False, None
+
+            # Get the signing key from JWKS
+            signing_key = self.jwks_client.get_signing_key_from_jwt(token)
+
+            # Decode and verify the token
+            claims = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["RS256", "RS384", "RS512"],
+                audience=self.audience,
+                issuer=self.issuer,
+                options={
+                    "verify_signature": True,
+                    "verify_aud": bool(self.audience),
+                    "verify_iss": bool(self.issuer),
+                    "verify_exp": True,
+                    "require": ["exp", "iat", "sub"]
+                }
+            )
             
             # Cache the valid claims
             self.user_cache[token] = (claims, time.time() + self.cache_ttl)
