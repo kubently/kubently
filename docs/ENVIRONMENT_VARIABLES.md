@@ -60,6 +60,18 @@
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | No | Ollama server URL |
 | `OLLAMA_MODEL` | `llama3` | No | Ollama model to use |
 
+### LangSmith Tracing (Production Observability)
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `LANGSMITH_TRACING` | `false` | No | Enable LangSmith tracing for observability |
+| `LANGSMITH_API_KEY` | - | If tracing enabled | LangSmith API key (set via secret) |
+| `LANGSMITH_PROJECT` | `default` | No | Project name in LangSmith UI |
+| `LANGSMITH_ENDPOINT` | `https://api.smith.langchain.com` | No | LangSmith API endpoint |
+| `LANGSMITH_SAMPLE_RATE` | `1.0` | No | Sampling rate (0.0-1.0) for trace volume reduction |
+
+**See**: `docs/LANGSMITH_TRACING.md` for detailed setup guide
+
 ## Executor Configuration
 
 ### Core Settings

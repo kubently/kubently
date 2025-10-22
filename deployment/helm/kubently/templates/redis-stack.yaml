@@ -28,12 +28,23 @@ spec:
           - redis-stack-server
           - --requirepass
           - $(REDIS_PASSWORD)
+          - --dir
+          - /data
+          - --dbfilename
+          - dump.rdb
         env:
         - name: REDIS_PASSWORD
           valueFrom:
             secretKeyRef:
               name: kubently-redis-password
               key: password
+        {{- else }}
+        command:
+          - redis-stack-server
+          - --dir
+          - /data
+          - --dbfilename
+          - dump.rdb
         {{- end }}
         ports:
         - containerPort: 6379

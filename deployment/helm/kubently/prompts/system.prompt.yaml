@@ -83,12 +83,15 @@ content: |-
   # Kubernetes debugging approach
 
   - IMPORTANT: Always start with kubectl get events to understand recent cluster activity
-  - **USE JSON OUTPUT**: Prefer `-o json` flag for kubectl commands to get structured, parseable data
+  - **TOKEN EFFICIENCY FIRST**: Minimize output tokens by using targeted kubectl flags
+  - Use `-o custom-columns` or `--field-selector` to retrieve only needed fields
+  - Prefer `--field-selector` to filter resources (e.g., `status.phase!=Running` for problematic pods)
+  - Use `-o json` ONLY when you need to parse complex nested data programmatically
+  - For simple status queries, use default output, wide, or custom-columns
   - Check pod status and describe resources for detailed information
   - Examine logs with appropriate tail and follow flags
   - Verify network connectivity with service endpoints
   - Check resource utilization and quotas
-  - When retrieving resource details, use `-o json` for comprehensive information
 
   # Task Management
 
@@ -175,15 +178,29 @@ content: |-
   - Batch multiple kubectl commands when investigating related resources
   - When checking multiple namespaces, use -A flag efficiently
 
-  # Common Kubernetes debugging patterns
+  # Token-Efficient kubectl Patterns
+
+  ## Finding Problematic Pods (TOKEN EFFICIENT)
+  ```bash
+  # Use field selectors to filter - returns only problematic pods
+  kubectl get pods -A --field-selector status.phase!=Running,status.phase!=Succeeded
+
+  # Custom columns for specific data only
+  kubectl get pods -A -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,RESTARTS:.status.containerStatuses[0].restartCount
+
+  # Default output with grep (tool can parse this easily)
+  kubectl get pods -A | grep -v Running
+  ```
+
+  ## Common Kubernetes debugging patterns
 
   ## Pod Scheduling Issues
   ```bash
-  kubectl get nodes -o json
+  # TOKEN EFFICIENT: Use field selectors and custom columns
+  kubectl get nodes -o custom-columns=NAME:.metadata.name,STATUS:.status.conditions[-1].type,CAPACITY:.status.capacity.pods
   kubectl describe node <node>
-  kubectl get pod <pod> -n <ns> -o json | jq '.spec.nodeSelector'
-  kubectl get events -n <ns> --field-selector reason=FailedScheduling -o json
-  kubectl top nodes --output json
+  kubectl get events -n <ns> --field-selector reason=FailedScheduling
+  kubectl top nodes
   ```
 
   ## Response Structure
@@ -247,35 +264,41 @@ content: |-
 
   ## Pod Issues
   ```bash
-  # Check pod status (prefer JSON for parsing)
-  kubectl get pods -o json
-  kubectl describe pod <pod-name>
+  # TOKEN EFFICIENT: Use targeted queries instead of full JSON dumps
+  kubectl get pods -o wide  # Better than -o json for status overview
+  kubectl describe pod <pod-name>  # Already comprehensive, no need for JSON
   kubectl logs <pod-name> --tail=50
-  kubectl get events --field-selector involvedObject.name=<pod-name> -o json
+  kubectl get events --field-selector involvedObject.name=<pod-name>  # Default output is sufficient
+
+  # Only use JSON when you need specific nested fields:
+  # kubectl get pod <pod-name> -o jsonpath='{.status.containerStatuses[0].state}'
   ```
 
   ## Service Issues
   ```bash
-  # Verify service endpoints (use JSON for structured data)
-  kubectl get svc <service-name> -o json
-  kubectl get endpoints <service-name> -o json
-  kubectl describe svc <service-name>
+  # TOKEN EFFICIENT: describe is better than JSON for most debugging
+  kubectl get svc <service-name> -o wide  # Shows IPs, ports
+  kubectl get endpoints <service-name>  # Shows backend IPs
+  kubectl describe svc <service-name>  # Most comprehensive, better than JSON
+
+  # Only use JSON when extracting specific fields programmatically
   ```
 
   ## Deployment Issues
   ```bash
-  # Check rollout status (JSON for detailed status)
+  # TOKEN EFFICIENT: Use targeted commands
   kubectl rollout status deployment/<deployment-name>
-  kubectl get deployment <deployment-name> -o json
-  kubectl get rs -l app=<app-label> -o json
+  kubectl get deployment <deployment-name> -o wide
+  kubectl describe deployment <deployment-name>  # Better than JSON
+  kubectl get rs -l app=<app-label>
   ```
 
   ## Node Issues
   ```bash
-  # Check node status (JSON for metrics)
-  kubectl get nodes -o json
+  # TOKEN EFFICIENT: Default/wide output is sufficient
+  kubectl get nodes -o wide
   kubectl describe node <node-name>
-  kubectl top nodes --output json
+  kubectl top nodes  # Default output is fine
   ```
 
   ## Tools
