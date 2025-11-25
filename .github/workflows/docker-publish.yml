@@ -34,7 +34,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - image: kubently-api
+          - image: kubently
             dockerfile: ./deployment/docker/api/Dockerfile
           - image: kubently-executor
             dockerfile: ./deployment/docker/executor/Dockerfile

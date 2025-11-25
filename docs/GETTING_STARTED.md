@@ -79,7 +79,7 @@ Create a `values.yaml` file for your deployment:
 api:
   replicaCount: 2
   image:
-    repository: ghcr.io/kubently/kubently/api
+    repository: ghcr.io/kubently/kubently
     tag: "latest"
 
   env:
