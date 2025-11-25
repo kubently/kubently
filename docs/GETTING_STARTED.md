@@ -26,7 +26,7 @@ The Kubently CLI is required for administration and querying:
 npm install -g @kubently/cli
 
 # Or install from source
-git clone https://github.com/your-org/kubently.git
+git clone https://github.com/kubently/kubently.git
 cd kubently/kubently-cli/nodejs
 npm install && npm run build && npm link
 
@@ -47,9 +47,9 @@ kubectl config use-context your-api-cluster
 # Create namespace
 kubectl create namespace kubently
 
-# Generate Redis password
-cd kubently/secrets
-bash generate-redis-password.sh
+# Create Redis password secret (REQUIRED)
+kubectl create secret generic kubently-redis-password -n kubently \
+  --from-literal=password="$(openssl rand -base64 32)"
 
 # Create LLM API key secret (choose one or more providers)
 kubectl create secret generic kubently-llm-secrets -n kubently \
@@ -68,6 +68,8 @@ echo "Your admin API key: ${ADMIN_KEY}" > ~/kubently-admin-key.txt
 chmod 600 ~/kubently-admin-key.txt
 ```
 
+**Note**: All secrets must be created manually before deployment. To use a different secret name for Redis, update `redis.auth.existingSecret` in your values file.
+
 ### 2.2 Deploy with Helm
 
 Create a `values.yaml` file for your deployment:
@@ -77,20 +79,18 @@ Create a `values.yaml` file for your deployment:
 api:
   replicaCount: 2
   image:
-    repository: ghcr.io/your-org/kubently/api
+    repository: ghcr.io/kubently/kubently/api
     tag: "latest"
 
   env:
     LLM_PROVIDER: "anthropic-claude"  # or "openai" or "google-gemini"
     ANTHROPIC_MODEL_NAME: "claude-sonnet-4-20250514"
     LOG_LEVEL: "INFO"
-    A2A_ENABLED: "true"
     A2A_EXTERNAL_URL: "https://kubently.yourdomain.com/a2a/"  # Update after ingress setup
 
 redis:
   enabled: true
-  auth:
-    enabled: true  # Password set via kubently-redis-password secret
+  # Auth defaults to kubently-redis-password secret (created in Step 2.1)
   master:
     persistence:
       enabled: true
@@ -126,70 +126,55 @@ curl http://localhost:8080/health
 # Should return: {"status":"healthy"}
 ```
 
-## Step 3: Configure Ingress and TLS
+## Step 3: Configure External Access (Optional)
 
-You need to expose the Kubently API externally for remote executors to connect. The exact method depends on your infrastructure:
+For production deployments where remote executors need to connect from other clusters, you'll need to expose the Kubently API externally.
 
-### Option A: Using Ingress Controller (Recommended)
+**For local/same-cluster testing**: Skip this step - executors can connect directly via ClusterIP service (`http://kubently-api:8080`).
+
+**For production/cross-cluster**: Configure ingress with TLS. See detailed examples at:
+📁 **[deployment/helm/kubently/examples/](../deployment/helm/kubently/examples/)**
+
+Quick example using Helm values:
 
 ```yaml
-# kubently-ingress.yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: kubently-api
-  namespace: kubently
+# production-values.yaml
+ingress:
+  enabled: true
+  className: nginx
+
   annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"  # If using cert-manager
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-spec:
-  ingressClassName: nginx
-  tls:
-  - hosts:
-    - kubently.yourdomain.com
-    secretName: kubently-tls
-  rules:
-  - host: kubently.yourdomain.com
-    http:
+    # Let cert-manager create the certificate automatically
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+  hosts:
+    - host: kubently.yourdomain.com
       paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: kubently-api
-            port:
-              number: 8080
+        - path: /
+          pathType: Prefix
+
+  # cert-manager will create this secret automatically
+  tls:
+    - secretName: kubently-api-tls
+      hosts:
+        - kubently.yourdomain.com
+
+# Secret references (already set by default)
+# redis.auth.existingSecret: "kubently-redis-password"
+# api.existingSecret: "kubently-api-keys"
+# You only need to override these if using custom secret names
 ```
 
-Apply the ingress:
+Deploy with ingress and production secrets:
 
 ```bash
-kubectl apply -f kubently-ingress.yaml
-
-# Verify
-kubectl get ingress -n kubently
+helm install kubently ./deployment/helm/kubently \
+  --namespace kubently \
+  --values production-values.yaml
 ```
 
-### Option B: Using LoadBalancer Service
-
-```yaml
-# kubently-loadbalancer.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: kubently-api-lb
-  namespace: kubently
-spec:
-  type: LoadBalancer
-  selector:
-    app.kubernetes.io/name: kubently
-    app.kubernetes.io/component: api
-  ports:
-  - port: 443
-    targetPort: 8080
-```
-
-**Note**: With LoadBalancer, you'll need to handle TLS termination separately (e.g., using a reverse proxy or cloud provider TLS).
+**Note**: You must have a ClusterIssuer configured (e.g., letsencrypt-prod). See [TLS examples](../deployment/helm/kubently/examples/) for setup instructions.
 
 ### Update A2A External URL
 
@@ -501,5 +486,5 @@ Each cluster needs its own unique token and cluster ID.
 ## Support
 
 - **Documentation**: See `/docs` directory for comprehensive guides
-- **Issues**: Report bugs or request features at [GitHub Issues](https://github.com/your-org/kubently/issues)
-- **Community**: Join discussions at [GitHub Discussions](https://github.com/your-org/kubently/discussions)
+- **Issues**: Report bugs or request features at [GitHub Issues](https://github.com/kubently/kubently/issues)
+- **Community**: Join discussions at [GitHub Discussions](https://github.com/kubently/kubently/discussions)

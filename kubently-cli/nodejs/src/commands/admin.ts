@@ -35,7 +35,7 @@ async function listClusters(client: KubentlyAdminClient): Promise<void> {
   }
 }
 
-async function addCluster(client: KubentlyAdminClient): Promise<void> {
+async function addCluster(client: KubentlyAdminClient, apiUrl: string): Promise<void> {
   const { clusterId } = await inquirer.prompt([
     {
       type: 'input',
@@ -45,27 +45,74 @@ async function addCluster(client: KubentlyAdminClient): Promise<void> {
     }
   ]);
 
-  const spinner = ora('Creating agent token...').start();
-  
+  const { useCustomToken } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'useCustomToken',
+      message: 'Use custom token (from Vault, etc.)?',
+      default: false
+    }
+  ]);
+
+  let customToken: string | undefined;
+  if (useCustomToken) {
+    const response = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'token',
+        message: 'Enter custom token:',
+        validate: (input) => input.trim() !== '' || 'Token is required'
+      }
+    ]);
+    customToken = response.token;
+  }
+
+  const spinner = ora('Creating executor token...').start();
+
   try {
-    const result = await client.createAgentToken(clusterId);
-    
-    spinner.succeed('Agent token created successfully');
-    
-    console.log(chalk.cyan('\n🔑 Agent Configuration:'));
-    console.log(chalk.white('─'.repeat(60)));
-    console.log(chalk.white('Cluster ID:  ') + chalk.green(result.clusterId));
-    console.log(chalk.white('Token:       ') + chalk.yellow(result.token));
-    console.log(chalk.white('Created At:  ') + chalk.gray(result.createdAt));
-    console.log(chalk.white('─'.repeat(60)));
-    
-    console.log(chalk.cyan('\n📝 Installation Instructions:'));
-    console.log(chalk.white('1. Save the token securely'));
-    console.log(chalk.white('2. Deploy the Kubently agent to your cluster'));
-    console.log(chalk.white('3. Configure the agent with this token'));
+    const result = await client.createAgentToken(clusterId, customToken);
+    const token = result.token;
+
+    spinner.succeed('Executor token created successfully');
+
+    console.log(chalk.cyan('\n╔═══════════════════════════════════════════════════════════╗'));
+    console.log(chalk.cyan('║') + chalk.white('              Executor Token Created                       ') + chalk.cyan('║'));
+    console.log(chalk.cyan('╠═══════════════════════════════════════════════════════════╣'));
+    console.log(chalk.cyan('║ ') + chalk.gray('Token:'.padEnd(57)) + chalk.cyan(' ║'));
+    console.log(chalk.cyan('║ ') + chalk.yellow(token.substring(0, 57)) + chalk.cyan('║'));
+    if (token.length > 57) {
+      console.log(chalk.cyan('║ ') + chalk.yellow(token.substring(57).padEnd(57)) + chalk.cyan('║'));
+    }
+    console.log(chalk.cyan('╚═══════════════════════════════════════════════════════════╝'));
+
+    console.log(chalk.cyan('\n📦 Deploy Executor to Cluster:\n'));
+
+    console.log(chalk.white('1. Get the Helm chart:'));
+    console.log(chalk.gray('   # Option A: Clone the repository'));
+    console.log(chalk.gray('   git clone https://github.com/kubently/kubently.git\n'));
+    console.log(chalk.gray('   # Option B: Download from GitHub releases'));
+    console.log(chalk.gray('   # https://github.com/kubently/kubently/releases\n'));
+
+    console.log(chalk.white('2. Create secret on the executor cluster:'));
+    console.log(chalk.gray('   kubectl create secret generic kubently-executor-token \\'));
+    console.log(chalk.gray(`     --from-literal=token="${token}" \\`));
+    console.log(chalk.gray('     --namespace kubently\n'));
+
+    console.log(chalk.white('3. Deploy executor using Helm:'));
+    console.log(chalk.gray('   # If you cloned the repo:'));
+    console.log(chalk.gray('   helm install kubently ./deployment/helm/kubently \\'));
+    console.log(chalk.gray('     --set api.enabled=false \\'));
+    console.log(chalk.gray('     --set redis.enabled=false \\'));
+    console.log(chalk.gray('     --set executor.enabled=true \\'));
+    console.log(chalk.gray(`     --set executor.clusterId=${clusterId} \\`));
+    console.log(chalk.gray(`     --set executor.apiUrl=${apiUrl} \\`));
+    console.log(chalk.gray('     --set executor.existingSecret=kubently-executor-token \\'));
+    console.log(chalk.gray('     --namespace kubently\n'));
+
+    console.log(chalk.yellow('⚠️  Store the token securely - it cannot be retrieved later!'));
     console.log();
   } catch (error) {
-    spinner.fail('Failed to create agent token');
+    spinner.fail('Failed to create executor token');
     console.log(chalk.red(`✗ Error: ${error instanceof Error ? error.message : 'Unknown error'}`));
   }
 }
@@ -187,24 +234,24 @@ async function viewClusterStatus(client: KubentlyAdminClient): Promise<void> {
 export async function runAdminMenu(config: Config): Promise<void> {
   const apiUrl = config.getApiUrl();
   const apiKey = config.getApiKey();
-  
+
   if (process.env.DEBUG === 'true') {
     console.log('DEBUG: runAdminMenu apiUrl:', apiUrl);
   }
-  
+
   if (!apiUrl || !apiKey) {
     console.log(chalk.red('✗ API URL and API key are required.'));
     console.log(chalk.yellow('Run "kubently init" or set environment variables.'));
     return;
   }
-  
+
   const client = new KubentlyAdminClient(apiUrl, apiKey);
-  
+
   while (true) {
     console.log(chalk.cyan('\n╔═══════════════════════════════════════════════════════════╗'));
     console.log(chalk.cyan('║') + chalk.white('           ⚙️  Kubently Admin Operations                   ') + chalk.cyan('║'));
     console.log(chalk.cyan('╚═══════════════════════════════════════════════════════════╝'));
-    
+
     const { action } = await inquirer.prompt([
       {
         type: 'list',
@@ -220,13 +267,13 @@ export async function runAdminMenu(config: Config): Promise<void> {
         ]
       }
     ]);
-    
+
     switch (action) {
       case 'list':
         await listClusters(client);
         break;
       case 'add':
-        await addCluster(client);
+        await addCluster(client, apiUrl);
         break;
       case 'remove':
         await removeCluster(client);

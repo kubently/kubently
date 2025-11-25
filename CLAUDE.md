@@ -41,17 +41,27 @@ bash test-a2a.sh              # Basic A2A protocol tests
 ### Docker & Helm
 
 ```bash
-# Build multi-architecture image
-make docker-build
+# Build multi-architecture images
+make docker-build  # Builds API image only (use manual commands below for both)
 
 # Manual build with multiple tags (latest, branch, SHA)
 COMMIT_SHA=$(git rev-parse --short HEAD)
 BRANCH=$(git branch --show-current)
+
+# Build API image (includes A2A server)
 docker buildx build --platform linux/amd64 \
   -f deployment/docker/api/Dockerfile \
   -t ghcr.io/kubently/kubently:latest \
   -t ghcr.io/kubently/kubently:${BRANCH} \
   -t ghcr.io/kubently/kubently:sha-${COMMIT_SHA} \
+  --push .
+
+# Build Executor image (includes kubectl)
+docker buildx build --platform linux/amd64 \
+  -f deployment/docker/executor/Dockerfile \
+  -t ghcr.io/kubently/kubently-executor:latest \
+  -t ghcr.io/kubently/kubently-executor:${BRANCH} \
+  -t ghcr.io/kubently/kubently-executor:sha-${COMMIT_SHA} \
   --push .
 
 # Helm deployment (always use Helm, not kubectl directly)
@@ -232,9 +242,33 @@ executor:
   clusterId: "prod-cluster"
 ```
 
-### 2. Values from Secure Store (CI/CD)
+### Redis Passwords
 
-Use secret management tools in your deployment pipeline:
+**REQUIRED**: Redis password secret must be created manually before deployment.
+
+```bash
+# Create Redis password secret
+kubectl create secret generic kubently-redis-password \
+  --from-literal=password="$(openssl rand -base64 32)" \
+  --namespace kubently
+
+# Chart automatically references this secret (default setting):
+# redis.auth.existingSecret: "kubently-redis-password"
+
+# To use a different secret name, override in values.yaml:
+redis:
+  auth:
+    existingSecret: "my-custom-redis-secret"
+```
+
+**Why this approach?**
+- No auto-generation complexity - secrets are explicit and predictable
+- Consistent pattern across all secrets (API keys, executor tokens, Redis)
+- Prevents Helm ownership conflicts
+
+### Alternative Secret Management Patterns
+
+**CI/CD Integration**: Use secret management tools in your deployment pipeline:
 
 ```bash
 # Example with cloud provider secret managers
@@ -244,9 +278,7 @@ helm install kubently ./deployment/helm/kubently \
   --set executor.token="${EXECUTOR_TOKEN}"
 ```
 
-### 3. Sealed Secrets / External Secrets Operator
-
-For GitOps workflows, use:
+**GitOps Workflows**: Use encrypted secret management:
 - [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets) - Encrypt secrets for Git storage
 - [External Secrets Operator](https://external-secrets.io/) - Sync from external secret managers
 
@@ -325,7 +357,6 @@ Required:
 Optional:
 - `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` - Redis connection
 - `LLM_PROVIDER` - Provider selection (anthropic-claude, openai, google-gemini)
-- `A2A_ENABLED` - Enable A2A server (default: true)
 - `A2A_EXTERNAL_URL` - External A2A endpoint for agent card
 - `LANGSMITH_TRACING` - Enable production tracing (default: false)
 - `LANGSMITH_API_KEY` - LangSmith API key (via secret)

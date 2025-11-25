@@ -1,0 +1,184 @@
+# Cloud Provider Load Balancer TLS
+#
+# This example shows TLS termination at the cloud provider load balancer level.
+# The load balancer handles TLS, and traffic to the cluster is HTTP.
+#
+# Use this when:
+# - Using AWS ALB with ACM certificates
+# - Using GCP GCLB with Google-managed certificates
+# - Using Azure Application Gateway
+#
+# Advantages:
+# - Certificates managed by cloud provider (auto-renewal)
+# - TLS termination outside cluster (reduced resource usage)
+# - Integration with cloud WAF/DDoS protection
+
+# ============================================================================
+# AWS - Application Load Balancer (ALB) with ACM
+# ============================================================================
+
+# Prerequisites:
+# 1. AWS Load Balancer Controller installed
+# 2. ACM certificate created for your domain
+# 3. Route53 (or external DNS) pointing to ALB
+
+# Step 1: Create ACM certificate (via AWS Console or CLI)
+aws acm request-certificate \
+  --domain-name api.kubently.com \
+  --validation-method DNS \
+  --region us-east-1
+
+# Step 2: Validate certificate (add DNS records shown in ACM console)
+
+# Step 3: Deploy kubently with ALB annotations
+# Save as aws-values.yaml:
+
+# aws-values.yaml:
+api:
+  replicaCount: 2
+  service:
+    type: NodePort  # ALB requires NodePort or LoadBalancer
+
+ingress:
+  enabled: true
+  className: alb
+
+  annotations:
+    # ALB-specific annotations
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+
+    # SSL/TLS configuration
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:123456789012:certificate/abc123...  # CHANGE THIS
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS-1-2-2017-01
+
+    # Redirect HTTP to HTTPS
+    alb.ingress.kubernetes.io/actions.ssl-redirect: '{"Type": "redirect", "RedirectConfig": {"Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301"}}'
+
+  hosts:
+    - host: api.kubently.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+  # NO TLS section - TLS is handled by ALB, not ingress
+  tls: []
+
+redis:
+  enabled: true
+  auth:
+    enabled: true
+
+executor:
+  enabled: false
+
+# How to deploy (AWS):
+#
+# 1. Install AWS Load Balancer Controller:
+#    helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+#      -n kube-system --set clusterName=your-cluster-name
+#
+# 2. Create ACM certificate and get ARN
+#
+# 3. Update aws-values.yaml with certificate ARN
+#
+# 4. Deploy kubently:
+#    helm install kubently ./deployment/helm/kubently -f aws-values.yaml
+#
+# 5. Get ALB hostname:
+#    kubectl get ingress kubently -n kubently -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+#
+# 6. Create Route53 CNAME pointing to ALB hostname
+
+# ============================================================================
+# GCP - Google Cloud Load Balancer with Google-managed certificate
+# ============================================================================
+
+# Prerequisites:
+# 1. GKE cluster with Ingress enabled
+# 2. Static IP address reserved
+# 3. DNS A record pointing to static IP
+
+# Step 1: Reserve static IP
+gcloud compute addresses create kubently-ip --global
+
+# Step 2: Get the IP
+gcloud compute addresses describe kubently-ip --global --format="value(address)"
+
+# Step 3: Create DNS A record pointing to this IP
+
+# Step 4: Deploy kubently with GCP managed certificate
+# Save as gcp-values.yaml:
+
+# gcp-values.yaml:
+api:
+  replicaCount: 2
+
+ingress:
+  enabled: true
+  className: gce  # or "gce-internal" for internal LB
+
+  annotations:
+    # Use Google-managed certificate
+    networking.gke.io/managed-certificates: kubently-cert
+
+    # Use static IP
+    kubernetes.io/ingress.global-static-ip-name: kubently-ip
+
+    # Enable HTTPS redirect
+    networking.gke.io/v1beta1.FrontendConfig: kubently-frontend-config
+
+  hosts:
+    - host: api.kubently.com
+      paths:
+        - path: /*  # GCP uses /* for all paths
+          pathType: ImplementationSpecific
+
+  # NO TLS section - Google manages the certificate
+  tls: []
+
+---
+# Create ManagedCertificate resource
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: kubently-cert
+  namespace: kubently
+spec:
+  domains:
+    - api.kubently.com
+
+---
+# Create FrontendConfig for HTTPS redirect
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: kubently-frontend-config
+  namespace: kubently
+spec:
+  redirectToHttps:
+    enabled: true
+
+# How to deploy (GCP):
+#
+# 1. Reserve static IP and update DNS
+#
+# 2. Create ManagedCertificate and FrontendConfig:
+#    kubectl apply -f gcp-resources.yaml
+#
+# 3. Deploy kubently:
+#    helm install kubently ./deployment/helm/kubently -f gcp-values.yaml
+#
+# 4. Wait for certificate provisioning (can take 10-15 minutes):
+#    kubectl describe managedcertificate kubently-cert -n kubently
+#    # Wait for Status: Active
+#
+# 5. Access your API:
+#    curl https://api.kubently.com/health
+
+# Troubleshooting:
+# - AWS: Check ALB target groups have healthy targets
+# - GCP: Certificate provisioning can take 10-15 minutes
+# - Ensure DNS is pointing to correct IP/hostname
+# - Check cloud provider console for load balancer status

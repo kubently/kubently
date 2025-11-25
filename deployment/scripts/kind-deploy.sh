@@ -58,13 +58,13 @@ if [ "$BUILD_IMAGES" = "true" ]; then
     
     # Build API image (includes A2A)
     docker build -f deployment/docker/api/Dockerfile -t kubently-api:latest .
-    
-    # Build Agent image
-    docker build -f deployment/docker/agent/Dockerfile -t kubently-agent:latest .
-    
+
+    # Build Executor image
+    docker build -f deployment/docker/executor/Dockerfile -t kubently-executor:latest .
+
     print_status "Loading images into kind cluster..."
     kind load docker-image kubently-api:latest --name ${CLUSTER_NAME}
-    kind load docker-image kubently-agent:latest --name ${CLUSTER_NAME}
+    kind load docker-image kubently-executor:latest --name ${CLUSTER_NAME}
 else
     print_status "Skipping image build (BUILD_IMAGES=false)"
 fi
@@ -192,8 +192,6 @@ spec:
           value: "INFO"
         - name: PORT
           value: "8080"
-        - name: A2A_ENABLED
-          value: "true"
         - name: AGENT_TOKEN_KIND
           value: "test-agent-token"
         resources:
@@ -235,18 +233,18 @@ spec:
     nodePort: 30800
 EOF
 
-# Deploy Kubently Agent
-print_status "Deploying Kubently Agent..."
+# Deploy Kubently Executor
+print_status "Deploying Kubently Executor..."
 kubectl apply -n ${NAMESPACE} -f - << 'EOF'
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: kubently-agent
+  name: kubently-executor
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: kubently-agent
+  name: kubently-executor
 rules:
 - apiGroups: ["*"]
   resources: ["*"]
@@ -255,34 +253,34 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: kubently-agent-binding
+  name: kubently-executor-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: kubently-agent
+  name: kubently-executor
 subjects:
 - kind: ServiceAccount
-  name: kubently-agent
+  name: kubently-executor
   namespace: kubently
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kubently-agent
+  name: kubently-executor
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: kubently-agent
+      app: kubently-executor
   template:
     metadata:
       labels:
-        app: kubently-agent
+        app: kubently-executor
     spec:
-      serviceAccountName: kubently-agent
+      serviceAccountName: kubently-executor
       containers:
-      - name: agent
-        image: kubently-agent:latest
+      - name: executor
+        image: kubently-executor:latest
         imagePullPolicy: Never
         env:
         - name: KUBENTLY_API_URL
@@ -305,7 +303,7 @@ EOF
 # Wait for deployments to be ready
 print_status "Waiting for deployments to be ready..."
 kubectl wait --for=condition=available --timeout=120s deployment/kubently-api -n ${NAMESPACE}
-kubectl wait --for=condition=available --timeout=60s deployment/kubently-agent -n ${NAMESPACE}
+kubectl wait --for=condition=available --timeout=60s deployment/kubently-executor -n ${NAMESPACE}
 
 # Create test workload for debugging
 print_status "Creating test workload..."

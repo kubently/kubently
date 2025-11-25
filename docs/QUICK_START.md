@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get Kubently running locally in 5 minutes. For production deployment with TLS/ingress, see [GETTING_STARTED.md](GETTING_STARTED.md).
+Get Kubently running locally in 5 minutes. For production deployment with external access/TLS, see [GETTING_STARTED.md](GETTING_STARTED.md).
 
 ## Prerequisites
 
@@ -15,7 +15,7 @@ Get Kubently running locally in 5 minutes. For production deployment with TLS/in
 npm install -g @kubently/cli
 
 # Clone and navigate to repo
-git clone https://github.com/your-org/kubently.git
+git clone https://github.com/kubently/kubently.git
 cd kubently
 
 # Create namespace and secrets
@@ -69,7 +69,7 @@ kubently debug
 ## Next Steps
 
 - **Add remote clusters**: See [GETTING_STARTED.md - Step 5](GETTING_STARTED.md#step-5-register-and-deploy-executors)
-- **Production setup**: See [GETTING_STARTED.md - Step 3](GETTING_STARTED.md#step-3-configure-ingress-and-tls) for TLS/ingress
+- **Production setup**: See [GETTING_STARTED.md - Step 3](GETTING_STARTED.md#step-3-configure-external-access-optional) for external access/TLS
 - **Troubleshooting**: See [GETTING_STARTED.md - Common Issues](GETTING_STARTED.md#common-issues)
 
 ## Clean Up

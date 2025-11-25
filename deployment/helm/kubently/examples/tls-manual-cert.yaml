@@ -1,0 +1,107 @@
+# Manual/Existing TLS Certificate
+#
+# This example shows how to use an existing TLS certificate that you already have.
+# Use this when:
+# - You have certificates from your enterprise CA
+# - You're using commercially purchased certificates
+# - Certificates are managed by an external system
+#
+# Prerequisites:
+# - TLS certificate file (tls.crt)
+# - Private key file (tls.key)
+# - kubectl access to your cluster
+
+# Step 1: Create TLS secret from your certificate files
+#
+# Option A: From files on disk
+kubectl create secret tls kubently-api-tls \
+  --cert=path/to/your/tls.crt \
+  --key=path/to/your/tls.key \
+  --namespace=kubently
+
+# Option B: From base64-encoded values
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kubently-api-tls
+  namespace: kubently
+type: kubernetes.io/tls
+data:
+  tls.crt: LS0tLS1CRUdJTi...  # base64 encoded certificate
+  tls.key: LS0tLS1CRUdJTi...  # base64 encoded private key
+EOF
+
+# Step 2: Deploy kubently with the existing secret
+# Save as prod-values.yaml:
+
+# prod-values.yaml:
+api:
+  replicaCount: 2
+
+ingress:
+  enabled: true
+  className: nginx
+
+  annotations:
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
+
+  hosts:
+    - host: api.kubently.com  # CHANGE THIS to match your certificate CN
+      paths:
+        - path: /
+          pathType: Prefix
+
+  # Reference the manually created secret
+  tls:
+    - secretName: kubently-api-tls
+      hosts:
+        - api.kubently.com  # CHANGE THIS to match your certificate CN
+
+redis:
+  enabled: true
+  auth:
+    enabled: true
+
+executor:
+  enabled: false
+
+# How to use:
+#
+# 1. Create the secret:
+#    kubectl create namespace kubently
+#    kubectl create secret tls kubently-api-tls \
+#      --cert=tls.crt --key=tls.key -n kubently
+#
+# 2. Verify the secret:
+#    kubectl get secret kubently-api-tls -n kubently
+#    kubectl get secret kubently-api-tls -n kubently -o jsonpath='{.data}' | jq 'keys'
+#
+# 3. Deploy kubently:
+#    helm install kubently ./deployment/helm/kubently -f prod-values.yaml
+#
+# 4. Access your API:
+#    curl https://api.kubently.com/health
+
+# Certificate renewal:
+# When your certificate expires, update the secret:
+kubectl create secret tls kubently-api-tls \
+  --cert=new-tls.crt \
+  --key=new-tls.key \
+  --namespace=kubently \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# The ingress controller will pick up the new certificate automatically (may take 30-60s)
+
+# Using cert bundles (intermediate certificates):
+# If your certificate requires intermediate certificates:
+#
+# 1. Concatenate certificates (server cert first, then intermediates):
+#    cat server.crt intermediate1.crt intermediate2.crt > fullchain.crt
+#
+# 2. Create secret with full chain:
+#    kubectl create secret tls kubently-api-tls \
+#      --cert=fullchain.crt \
+#      --key=server.key \
+#      --namespace=kubently

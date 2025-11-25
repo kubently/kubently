@@ -1,0 +1,88 @@
+# TLS with cert-manager and Let's Encrypt
+#
+# This example shows how to use cert-manager to automatically obtain and renew
+# TLS certificates from Let's Encrypt.
+#
+# Prerequisites:
+# 1. cert-manager installed: kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+# 2. DNS A record pointing to your ingress IP
+# 3. Email address for Let's Encrypt notifications
+
+---
+# Step 1: Create ClusterIssuer for Let's Encrypt
+# This is cluster-wide and can be shared by multiple applications
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: your-email@example.com  # CHANGE THIS to your email
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+      # HTTP-01 challenge (works with most ingress controllers)
+      - http01:
+          ingress:
+            class: nginx  # or traefik, etc.
+
+---
+# Step 2: Deploy kubently with ingress enabled
+# Save this as prod-values.yaml and use:
+# helm install kubently ./deployment/helm/kubently -f prod-values.yaml
+
+# prod-values.yaml:
+api:
+  replicaCount: 2
+
+ingress:
+  enabled: true
+  className: nginx  # or traefik, etc.
+
+  annotations:
+    # cert-manager will see this annotation and create a Certificate resource
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+    # Recommended nginx settings
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
+
+  hosts:
+    - host: api.kubently.com  # CHANGE THIS to your domain
+      paths:
+        - path: /
+          pathType: Prefix
+
+  # cert-manager will create this secret automatically
+  tls:
+    - secretName: kubently-api-tls
+      hosts:
+        - api.kubently.com  # CHANGE THIS to your domain
+
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    # For production, use existingSecret
+
+executor:
+  enabled: false  # Usually deployed separately to monitored clusters
+
+# How to deploy:
+#
+# 1. Create the ClusterIssuer:
+#    kubectl apply -f examples/tls-cert-manager.yaml
+#
+# 2. Update prod-values.yaml with your domain and email
+#
+# 3. Deploy kubently:
+#    helm install kubently ./deployment/helm/kubently -f prod-values.yaml
+#
+# 4. Watch certificate issuance:
+#    kubectl get certificate -n kubently -w
+#
+# 5. Wait for READY=True (usually 1-2 minutes)
+#
+# 6. Access your API:
+#    curl https://api.kubently.com/health

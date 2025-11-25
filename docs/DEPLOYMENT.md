@@ -36,7 +36,7 @@
 
 ```bash
 # Deploy everything with default settings
-kubectl apply -f https://raw.githubusercontent.com/your-org/kubently/main/deploy/quickstart.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubently/kubently/main/deploy/quickstart.yaml
 
 # This includes:
 # - Namespace creation
@@ -49,7 +49,7 @@ kubectl apply -f https://raw.githubusercontent.com/your-org/kubently/main/deploy
 
 ```bash
 # Add Helm repository
-helm repo add kubently https://your-org.github.io/kubently
+helm repo add kubently https://kubently.github.io/kubently
 helm repo update
 
 # Install with custom values
@@ -632,17 +632,34 @@ spec:
 
 ### TLS Configuration
 
-```bash
-# Generate TLS certificates
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  -keyout tls.key -out tls.crt \
-  -subj "/CN=api.kubently.example.com"
+The Helm chart follows the "user brings certificate" pattern. TLS certificates must be created separately and referenced in your values.
 
-# Create TLS secret
-kubectl create secret tls kubently-tls \
-  --key tls.key \
-  --cert tls.crt \
+For detailed TLS setup instructions and examples, see:
+
+📁 **[deployment/helm/kubently/examples/](../deployment/helm/kubently/examples/)**
+
+Available patterns:
+- **cert-manager with Let's Encrypt** - Automatic certificate management (recommended for production)
+- **Manual/existing certificates** - Use certificates from enterprise CA or purchased certificates
+- **Cloud provider load balancers** - AWS ALB/ACM, GCP GCLB, Azure App Gateway
+- **Development self-signed** - For local testing only
+
+Quick example for manual certificate:
+
+```bash
+# Create TLS secret from existing certificate files
+kubectl create secret tls kubently-api-tls \
+  --cert=tls.crt \
+  --key=tls.key \
   -n kubently
+
+# Reference in values.yaml:
+# ingress:
+#   enabled: true
+#   tls:
+#     - secretName: kubently-api-tls
+#       hosts:
+#         - api.kubently.com
 ```
 
 ## Monitoring Setup

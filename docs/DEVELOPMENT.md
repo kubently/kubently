@@ -24,7 +24,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/kubently.git
+git clone https://github.com/kubently/kubently.git
 cd kubently
 
 # Create virtual environment

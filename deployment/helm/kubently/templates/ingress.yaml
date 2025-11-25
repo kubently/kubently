@@ -1,40 +1,19 @@
-{{- if or .Values.ingress.enabled (and .Values.tls.enabled (ne .Values.tls.mode "none")) -}}
+{{- if .Values.ingress.enabled -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "kubently.fullname" . }}
   labels:
     {{- include "kubently.labels" . | nindent 4 }}
-  {{- if or .Values.ingress.annotations (and .Values.tls.enabled (ne .Values.tls.mode "none")) }}
+  {{- with .Values.ingress.annotations }}
   annotations:
-    {{- if .Values.ingress.annotations }}
-    {{- toYaml .Values.ingress.annotations | nindent 4 }}
-    {{- end }}
-    {{- if and .Values.tls.enabled (ne .Values.tls.mode "none") }}
-    # TLS annotations
-    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
-    {{- if eq .Values.tls.mode "external" }}
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    {{- end }}
-    {{- end }}
+    {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
   {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
-  {{- else if and .Values.tls.enabled (ne .Values.tls.mode "none") }}
-  ingressClassName: nginx
   {{- end }}
-  {{- if and .Values.tls.enabled (ne .Values.tls.mode "none") }}
-  tls:
-    - secretName: kubently-api-tls
-      hosts:
-        {{- if eq .Values.tls.mode "internal" }}
-        - {{ .Values.tls.internal.serviceName }}
-        - {{ include "kubently.fullname" . }}-api.{{ .Release.Namespace }}.svc.cluster.local
-        {{- else if eq .Values.tls.mode "external" }}
-        - {{ .Values.tls.external.domain }}
-        {{- end }}
-  {{- else if .Values.ingress.tls }}
+  {{- if .Values.ingress.tls }}
   tls:
     {{- range .Values.ingress.tls }}
     - hosts:
@@ -45,42 +24,6 @@ spec:
     {{- end }}
   {{- end }}
   rules:
-    {{- if and .Values.tls.enabled (eq .Values.tls.mode "internal") }}
-    # Internal TLS rules
-    - host: {{ .Values.tls.internal.serviceName }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "kubently.fullname" . }}-api
-                port:
-                  number: {{ .Values.api.service.port }}
-    - host: {{ include "kubently.fullname" . }}-api.{{ .Release.Namespace }}.svc.cluster.local
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "kubently.fullname" . }}-api
-                port:
-                  number: {{ .Values.api.service.port }}
-    {{- else if and .Values.tls.enabled (eq .Values.tls.mode "external") }}
-    # External TLS rules
-    - host: {{ .Values.tls.external.domain }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "kubently.fullname" . }}-api
-                port:
-                  number: {{ .Values.api.service.port }}
-    {{- else }}
-    # Standard ingress rules
     {{- range .Values.ingress.hosts }}
     - host: {{ .host | quote }}
       http:
@@ -94,6 +37,5 @@ spec:
                 port:
                   number: {{ $.Values.api.service.port }}
           {{- end }}
-    {{- end }}
     {{- end }}
 {{- end }}

@@ -52,7 +52,6 @@ data:
   LLM_PROVIDER: "openai"
   OPENAI_ENDPOINT: "https://api.openai.com/v1"
   OPENAI_MODEL_NAME: "gpt-4o"
-  A2A_ENABLED: "true"
   A2A_SERVER_DEBUG: "true"
   API_PORT: "8080"
 EOF

@@ -65,7 +65,9 @@ Redis URL
 {{- define "kubently.redisUrl" -}}
 {{- if .Values.redis.enabled -}}
 redis://{{ .Release.Name }}-redis-master:6379
-{{- else -}}
+{{- else if .Values.externalRedis -}}
 {{- .Values.externalRedis.url -}}
+{{- else -}}
+redis://localhost:6379
 {{- end -}}
 {{- end }}

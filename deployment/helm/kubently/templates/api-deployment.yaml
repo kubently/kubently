@@ -1,3 +1,4 @@
+{{- if .Values.api.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -86,7 +87,11 @@ spec:
         - name: REDIS_PASSWORD
           valueFrom:
             secretKeyRef:
+              {{- if .Values.redis.auth.existingSecret }}
+              name: {{ .Values.redis.auth.existingSecret }}
+              {{- else }}
               name: kubently-redis-password
+              {{- end }}
               key: password
         {{- end }}
         {{- if .Values.executor.enabled }}
@@ -125,7 +130,11 @@ spec:
         - name: REDIS_PASSWORD
           valueFrom:
             secretKeyRef:
+              {{- if .Values.redis.auth.existingSecret }}
+              name: {{ .Values.redis.auth.existingSecret }}
+              {{- else }}
               name: kubently-redis-password
+              {{- end }}
               key: password
         {{- end }}
         - name: API_KEYS
@@ -201,3 +210,4 @@ spec:
       - name: prompt-config
         configMap:
           name: {{ include "kubently.fullname" . }}-prompt
+{{- end }}

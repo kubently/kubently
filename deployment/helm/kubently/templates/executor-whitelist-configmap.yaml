@@ -1,4 +1,4 @@
-{{- if .Values.kubentlyExecutor.enabled }}
+{{- if .Values.executor.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -10,13 +10,13 @@ metadata:
 data:
   whitelist.yaml: |
     # Security mode for command validation
-    mode: {{ .Values.kubentlyExecutor.securityMode | quote }}
+    mode: {{ .Values.executor.security.mode | quote }}
     
     # Command configuration
     commands:
       # Allowed kubectl verbs
       allowedVerbs:
-        {{- if eq .Values.kubentlyExecutor.securityMode "readOnly" }}
+        {{- if eq .Values.executor.security.mode "readOnly" }}
         # Read-only mode: Safe operations only
         - get
         - describe
@@ -27,7 +27,7 @@ data:
         - api-versions
         - events
         - version
-        {{- else if eq .Values.kubentlyExecutor.securityMode "extendedReadOnly" }}
+        {{- else if eq .Values.executor.security.mode "extendedReadOnly" }}
         # Extended read-only mode: Includes debugging tools
         - get
         - describe
@@ -40,7 +40,7 @@ data:
         - version
         - port-forward
         - exec
-        {{- else if eq .Values.kubentlyExecutor.securityMode "fullAccess" }}
+        {{- else if eq .Values.executor.security.mode "fullAccess" }}
           {{- if not .Values.fullAccessAcknowledged }}
           {{- fail "fullAccess mode requires fullAccessAcknowledged: true in values" }}
           {{- end }}
@@ -61,27 +61,27 @@ data:
         - attach
         - run
         {{- end }}
-        
+
         # Custom verbs from values
-        {{- range .Values.kubentlyExecutor.commandWhitelist.customVerbs }}
+        {{- range .Values.executor.security.commandWhitelist.customVerbs }}
         - {{ . }}
         {{- end }}
         
       # Resource restrictions
       restrictedResources:
-        {{- if eq .Values.kubentlyExecutor.securityMode "readOnly" }}
+        {{- if eq .Values.executor.security.mode "readOnly" }}
         - secrets
         - configmaps
-        {{- else if eq .Values.kubentlyExecutor.securityMode "extendedReadOnly" }}
+        {{- else if eq .Values.executor.security.mode "extendedReadOnly" }}
         - secrets
         {{- end }}
-        {{- range .Values.kubentlyExecutor.commandWhitelist.restrictedResources }}
+        {{- range .Values.executor.security.commandWhitelist.restrictedResources }}
         - {{ . }}
         {{- end }}
         
       # Allowed flags/arguments
       allowedFlags:
-        {{- if eq .Values.kubentlyExecutor.securityMode "readOnly" }}
+        {{- if eq .Values.executor.security.mode "readOnly" }}
         # Basic flags for read operations
         - "--namespace"
         - "-n"
@@ -103,7 +103,7 @@ data:
         - "--timestamps"
         - "--no-headers"
         - "--sort-by"
-        {{- else if eq .Values.kubentlyExecutor.securityMode "extendedReadOnly" }}
+        {{- else if eq .Values.executor.security.mode "extendedReadOnly" }}
         # Extended flags for debugging
         - "--namespace"
         - "-n"
@@ -135,7 +135,7 @@ data:
         - "-t"
         - "--container"
         - "-c"
-        {{- else if eq .Values.kubentlyExecutor.securityMode "fullAccess" }}
+        {{- else if eq .Values.executor.security.mode "fullAccess" }}
         # Full set of flags
         - "--namespace"
         - "-n"
@@ -170,12 +170,12 @@ data:
         - "--recursive"
         - "-R"
         {{- end }}
-        
+
         # Extra flags from values
-        {{- range .Values.kubentlyExecutor.commandWhitelist.extraFlags }}
+        {{- range .Values.executor.security.commandWhitelist.extraFlags }}
         - {{ . }}
         {{- end }}
-        
+
       # Always forbidden patterns (immutable baseline)
       forbiddenPatterns:
         # Authentication bypass attempts
@@ -206,17 +206,17 @@ data:
         # File system access
         - "/etc/kubernetes"
         - "--token-file"
-        
+
         # Extra forbidden patterns from values
-        {{- range .Values.kubentlyExecutor.commandWhitelist.extraForbiddenPatterns }}
+        {{- range .Values.executor.security.commandWhitelist.extraForbiddenPatterns }}
         - {{ . }}
         {{- end }}
-        
+
     # Runtime limits
     limits:
-      maxArguments: {{ .Values.kubentlyExecutor.commandWhitelist.maxArguments | default 20 }}
-      timeoutSeconds: {{ .Values.kubentlyExecutor.commandWhitelist.timeoutSeconds | default 30 }}
-      
+      maxArguments: {{ .Values.executor.security.commandWhitelist.maxArguments | default 20 }}
+      timeoutSeconds: {{ .Values.executor.security.commandWhitelist.timeoutSeconds | default 30 }}
+
     # Configuration reload interval
-    reloadIntervalSeconds: {{ .Values.kubentlyExecutor.commandWhitelist.reloadInterval | default 30 }}
+    reloadIntervalSeconds: {{ .Values.executor.security.commandWhitelist.reloadInterval | default 30 }}
 {{- end }}

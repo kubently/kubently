@@ -7,7 +7,9 @@ metadata:
     {{- include "kubently.labels" . | nindent 4 }}
     app.kubernetes.io/component: executor
 spec:
-  replicas: {{ .Values.executor.replicaCount }}
+  # Always 1 replica - each executor represents a unique cluster identity
+  # Multiple replicas would create duplicate agents for the same cluster
+  replicas: 1
   selector:
     matchLabels:
       {{- include "kubently.selectorLabels" . | nindent 6 }}
@@ -26,7 +28,7 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       volumes:
-      {{- if .Values.kubentlyExecutor.commandWhitelist.enabled }}
+      {{- if .Values.executor.security.commandWhitelist.enabled }}
       - name: whitelist-config
         configMap:
           name: {{ include "kubently.fullname" . }}-executor-whitelist
@@ -42,17 +44,9 @@ spec:
         env:
         - name: KUBENTLY_API_URL
           {{- if .Values.executor.apiUrl }}
-          # Custom API URL for executor (useful for cross-cluster deployments)
           value: {{ .Values.executor.apiUrl | quote }}
-          {{- else if and .Values.tls.enabled (eq .Values.tls.mode "internal") }}
-          # For internal TLS, use HTTP to service (same cluster only)
-          value: "http://{{ include "kubently.fullname" . }}-api:{{ .Values.api.service.port }}"
-          {{- else if and .Values.tls.enabled (eq .Values.tls.mode "external") }}
-          # For external TLS, use public domain (works cross-cluster)
-          value: "https://{{ .Values.tls.external.domain }}"
           {{- else }}
-          # No TLS, direct HTTP connection
-          value: "http://{{ include "kubently.fullname" . }}-api:{{ .Values.api.service.port }}"
+          {{- fail "executor.apiUrl is required. Set it based on your deployment topology. Examples: 'http://kubently-api:8080' (same cluster) or 'https://api.kubently.company.com' (cross-cluster)" }}
           {{- end }}
         - name: CLUSTER_ID
           {{- if .Values.executor.clusterId }}
@@ -72,7 +66,7 @@ spec:
               name: {{ include "kubently.fullname" . }}-executor-token
               key: token
               {{- end }}
-        {{- if .Values.kubentlyExecutor.commandWhitelist.enabled }}
+        {{- if .Values.executor.security.commandWhitelist.enabled }}
         - name: ENABLE_DYNAMIC_WHITELIST
           value: "true"
         - name: KUBENTLY_WHITELIST_CONFIG
@@ -80,16 +74,11 @@ spec:
         - name: KUBENTLY_WHITELIST_DB
           value: "/var/lib/kubently/whitelist.db"
         {{- end }}
-        {{- if and .Values.tls.enabled (eq .Values.tls.mode "external") }}
-        # Only enable SSL verification for external mode (using public certs)
-        - name: KUBENTLY_SSL_VERIFY
-          value: "true"
-        {{- end }}
         {{- range $key, $value := .Values.executor.env }}
         - name: {{ $key }}
           value: {{ $value | quote }}
         {{- end }}
-        {{- if .Values.kubentlyExecutor.commandWhitelist.enabled }}
+        {{- if .Values.executor.security.commandWhitelist.enabled }}
         volumeMounts:
         - name: whitelist-config
           mountPath: /etc/kubently

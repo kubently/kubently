@@ -1,30 +1,11 @@
 # Kubently Helm Chart Values
 
-# TLS Configuration
-tls:
-  enabled: true  # Enable TLS by default for security
-  mode: "internal"  # Options: "internal", "external", or "none"
-  
-  # Internal mode configuration (self-signed certificates)
-  internal:
-    issuer: "self-signed-issuer"
-    serviceName: "kubently-api.kubently.svc.cluster.local"
-    duration: "8760h"  # 1 year for development certificates
-    renewBefore: "720h"  # Renew 30 days before expiry
-  
-  # External mode configuration (public certificates)
-  external:
-    domain: ""  # Must be set when using external mode (e.g., "api.kubently.com")
-    issuer: "letsencrypt-prod"  # ClusterIssuer to use for public certificates
-    duration: "2160h"  # 90 days (Let's Encrypt default)
-    renewBefore: "720h"  # Renew 30 days before expiry
-
 # API Configuration (includes A2A server)
 api:
   replicaCount: 3  # Can scale horizontally with connection registry
   
   image:
-    repository: kubently/api
+    repository: ghcr.io/kubently/kubently
     pullPolicy: IfNotPresent
     tag: "latest"
   
@@ -68,16 +49,41 @@ api:
     PORT: "8080"
     API_PORT: "8080"
 
+# ============================================================================
 # Executor Configuration
+# ============================================================================
+# The executor runs IN the cluster being monitored and executes kubectl
+# commands on behalf of AI agents. It connects back to the API server.
+#
+# Typical deployment pattern:
+#   - API server: Central cluster (with Redis)
+#   - Executor: Each monitored cluster (dev, staging, prod)
+#
+# Each executor needs:
+#   1. A unique clusterId (identifies which cluster it monitors)
+#   2. An authentication token (created via admin API)
+#   3. The API server URL (where to send results)
+# ============================================================================
 executor:
+  # Enable/disable executor deployment
+  # Set to false if deploying only the API server (central cluster)
+  # Set to true if deploying to a monitored cluster
   enabled: true
-  replicaCount: 1
-  
+
+  # NOTE: Executors always run with 1 replica (no replicaCount setting)
+  # Each executor represents a unique cluster identity (clusterId)
+  # Running multiple replicas would create duplicate agents for the same cluster
+  # For high availability, deploy the executor using a Deployment (default behavior)
+  # which ensures automatic pod restart if it fails
+
+  # ----------------------------------------------------------------------------
+  # Container Configuration
+  # ----------------------------------------------------------------------------
   image:
-    repository: kubently/executor
+    repository: ghcr.io/kubently/kubently-executor
     tag: "latest"
     pullPolicy: IfNotPresent
-  
+
   resources:
     requests:
       cpu: 50m
@@ -85,23 +91,94 @@ executor:
     limits:
       cpu: 200m
       memory: 256Mi
-  
-  # Cluster ID for the executor
-  clusterId: ""  # If empty, uses namespace name
-  
-  # Token for executor authentication
-  token: ""  # Generated if not provided
-  
-  # Custom API URL for executor (optional)
-  # Use this for cross-cluster deployments or custom networking
-  # If not set, URL is determined by TLS mode
-  apiUrl: ""  # e.g., "https://api.kubently.internal.company.com"
-  
-  env:
-    LOG_LEVEL: "INFO"
-  
-  # RBAC rules for the executor ClusterRole
+
+  # ----------------------------------------------------------------------------
+  # Authentication & Cluster Identity
+  # ----------------------------------------------------------------------------
+  # These settings tell the executor WHICH cluster it's monitoring and
+  # HOW to authenticate with the central API server
+
+  # Cluster identifier (must be unique across all executors)
+  # If empty, uses the Kubernetes namespace name as the cluster ID
+  # Example: "prod-us-west", "staging-eu", "dev-local"
+  clusterId: ""
+
+  # Executor authentication token
+  # This token is created via the admin API and stored in Redis
+  # OPTION 1 (RECOMMENDED): Use existing secret (managed separately)
+  existingSecret: ""  # e.g., "kubently-executor-token"
+  existingSecretKey: "token"  # Key within the secret containing the token
+
+  # OPTION 2: Provide token directly (NOT recommended for production)
+  # Only used if existingSecret is not set
+  # REQUIRED: You must provide a token value - deployment will fail if both are empty
+  token: ""  # e.g., "my-secure-token-here" or set via --set executor.token=<value>
+
+  # API server URL (where executor sends command results)
+  # REQUIRED: You must explicitly set this based on your deployment topology
+  #
+  # Examples:
+  #   Same cluster (executor + API in same cluster):
+  #     apiUrl: "http://kubently-api:8080"
+  #
+  #   Cross-cluster with external domain (executor in remote cluster):
+  #     apiUrl: "https://kubently-api.company.com"
+  #
+  #   Cross-cluster with internal load balancer:
+  #     apiUrl: "http://kubently-api.central-cluster.svc.cluster.local:8080"
+  apiUrl: ""
+
+  # ----------------------------------------------------------------------------
+  # Security & Command Whitelist
+  # ----------------------------------------------------------------------------
+  # Controls which kubectl commands the executor is allowed to run
+  # This is a critical security boundary - AI agents request commands,
+  # but the executor validates them before execution
+
+  security:
+    # Security mode determines the baseline set of allowed commands
+    # Options:
+    #   - readOnly: Safe read operations only (get, describe, logs)
+    #   - extendedReadOnly: Includes debugging (port-forward, exec)
+    #   - fullAccess: Advanced operations (use with extreme caution)
+    mode: "readOnly"
+
+    # Dynamic command whitelist (validates commands before execution)
+    commandWhitelist:
+      # Enable whitelist validation (disable for testing only)
+      enabled: true
+
+      # Add custom kubectl verbs beyond the mode defaults
+      # Example: ["auth", "certificate", "cluster-info"]
+      customVerbs: []
+
+      # Add extra allowed flags beyond the mode defaults
+      # Example: ["--raw", "--field-selector", "--chunk-size"]
+      extraFlags: []
+
+      # Add forbidden patterns beyond the immutable baseline
+      # The baseline always blocks: delete, apply, create, tokens, shell injection
+      # Example: ["rm", "sudo", "sh", "bash"]
+      extraForbiddenPatterns: []
+
+      # Restrict access to specific Kubernetes resources
+      # Example: ["serviceaccounts", "roles", "rolebindings"]
+      restrictedResources: []
+
+      # Runtime limits for command execution
+      maxArguments: 20        # Max number of arguments per command
+      timeoutSeconds: 30      # Command execution timeout
+      reloadInterval: 30      # How often to reload whitelist config (seconds)
+
+  # ----------------------------------------------------------------------------
+  # RBAC Configuration
+  # ----------------------------------------------------------------------------
+  # Defines what Kubernetes resources the executor ServiceAccount can access
   # If not specified, uses default rules with generic read access
+  #
+  # NOTE: This is separate from the command whitelist above:
+  #   - rbacRules: What the ServiceAccount CAN access
+  #   - commandWhitelist: What commands the AI agent CAN request
   rbacRules: []
   # Example custom rules:
   # rbacRules:
@@ -112,69 +189,20 @@ executor:
   #   resources: ["deployments", "replicasets"]
   #   verbs: ["get", "list", "watch"]
 
-# Kubently Executor Configuration (new dynamic whitelist settings)
-kubentlyExecutor:
-  enabled: true
-  
-  # Security mode for command whitelist
-  # Options: readOnly | extendedReadOnly | fullAccess
-  securityMode: "readOnly"
-  
-  # Dynamic command whitelist configuration
-  commandWhitelist:
-    # Enable dynamic whitelist (set to false to use static whitelist)
-    enabled: true
-    
-    # Custom verbs to add (in addition to mode defaults)
-    customVerbs: []
-    # Example:
-    # - auth
-    # - certificate
-    
-    # Extra allowed flags (appended to mode defaults)
-    extraFlags: []
-    # Example:
-    # - "--raw"
-    # - "--field-selector"
-    
-    # Extra forbidden patterns (appended to baseline)
-    extraForbiddenPatterns: []
-    # Example:
-    # - "rm"
-    # - "sudo"
-    
-    # Additional restricted resources
-    restrictedResources: []
-    # Example:
-    # - serviceaccounts
-    # - roles
-    
-    # Runtime limits
-    maxArguments: 20
-    timeoutSeconds: 30
-    
-    # Configuration reload interval (seconds)
-    reloadInterval: 30
-  
-  # Per-cluster overrides (optional)
-  # Use this to have different settings per environment
-  clusterOverrides: {}
-  # Example:
-  # production:
-  #   securityMode: "readOnly"
-  #   commandWhitelist:
-  #     customVerbs: ["auth"]
-  # staging:
-  #   securityMode: "extendedReadOnly"
-  #   commandWhitelist:
-  #     extraFlags: ["--watch"]
-  # development:
-  #   securityMode: "fullAccess"
-  #   commandWhitelist:
-  #     extraForbiddenPatterns: ["rm", "sudo"]
+  # ----------------------------------------------------------------------------
+  # Environment Variables
+  # ----------------------------------------------------------------------------
+  env:
+    LOG_LEVEL: "INFO"
 
-# Emergency/Admin override
-# MUST be set to true to enable fullAccess mode
+# ============================================================================
+# Emergency/Admin Override
+# ============================================================================
+# CRITICAL SAFETY FLAG: Must be explicitly set to true to enable fullAccess mode
+# This prevents accidental deployment of executors with dangerous permissions
+#
+# fullAccess mode allows commands like: exec, cp, run, attach, proxy
+# Only enable this if you understand the security implications
 fullAccessAcknowledged: false
 
 # Redis Configuration
@@ -182,7 +210,17 @@ redis:
   enabled: true
   auth:
     enabled: true  # CRITICAL: Enable authentication for production
-    password: ""   # Auto-generated if empty, or set via --set redis.auth.password=<secure-password>
+
+    # Reference to manually created secret containing Redis password
+    # The secret must have a 'password' key
+    # Default expects: kubently-redis-password
+    # Create with:
+    #   kubectl create secret generic kubently-redis-password \
+    #     --from-literal=password="$(openssl rand -base64 32)" -n kubently
+    # Or specify a different secret name:
+    #   existingSecret: "my-custom-redis-secret"
+    existingSecret: "kubently-redis-password"
+
   architecture: standalone
   master:
     persistence:
@@ -198,36 +236,36 @@ redis:
         memory: 512Mi
 
 # Ingress Configuration
+# This chart follows the "user brings certificate" pattern (Bitnami/ArgoCD standard)
+# TLS certificates must be created separately and referenced via secretName
+# See examples/ directory for TLS setup patterns
 ingress:
   enabled: false
   className: nginx
-  annotations:
-    # Cert-manager for automatic certificate management
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    
-    # Force HTTPS redirect and secure TLS configuration
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
-    nginx.ingress.kubernetes.io/ssl-ciphers: "HIGH:!aNULL:!MD5"
-    
-    # Security headers (note: configuration-snippet is often disabled for security)
-    # To enable these headers, either:
-    # 1. Enable snippets in nginx controller (not recommended)
-    # 2. Use server-snippet at controller level
-    # 3. Configure headers via ConfigMap
-    
-    # Standard proxy settings
-    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+
+  # Annotations are passed through directly
+  # For cert-manager integration, add cert-manager.io/cluster-issuer annotation
+  # For other ingress controllers, add appropriate annotations
+  annotations: {}
+  # Examples:
+  # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  # nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+  # nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+
   hosts:
     - host: api.kubently.local
       paths:
         - path: /
           pathType: Prefix
-  tls:
-    - secretName: kubently-tls
-      hosts:
-        - api.kubently.local
+
+  # TLS certificates (must be created separately)
+  # See examples/ directory for different TLS patterns
+  tls: []
+  # Example:
+  # tls:
+  #   - secretName: kubently-api-tls  # You must create this secret
+  #     hosts:
+  #       - api.kubently.com
 
 # Autoscaling Configuration
 autoscaling:

@@ -1,0 +1,129 @@
+# Development Self-Signed TLS
+#
+# ⚠️  WARNING: FOR DEVELOPMENT/TESTING ONLY - NOT FOR PRODUCTION
+#
+# This creates a self-signed certificate using cert-manager.
+# Browsers will show security warnings - you'll need to accept the certificate.
+#
+# Prerequisites:
+# 1. cert-manager installed: kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+# 2. kubectl access to your cluster
+
+---
+# Step 1: Create namespace-scoped SelfSigned Issuer
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned-issuer
+  namespace: kubently
+spec:
+  selfSigned: {}
+
+---
+# Step 2: Create a self-signed CA certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kubently-ca
+  namespace: kubently
+spec:
+  secretName: kubently-ca
+  isCA: true
+  commonName: "Kubently Dev CA"
+  duration: 87600h  # 10 years
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  issuerRef:
+    name: selfsigned-issuer
+    kind: Issuer
+
+---
+# Step 3: Create CA Issuer
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: kubently-ca-issuer
+  namespace: kubently
+spec:
+  ca:
+    secretName: kubently-ca
+
+---
+# Step 4: Create the API certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kubently-api-tls
+  namespace: kubently
+spec:
+  secretName: kubently-api-tls
+  duration: 8760h  # 1 year
+  renewBefore: 720h  # 30 days before expiry
+  dnsNames:
+    - kubently-api.kubently.svc.cluster.local
+    - kubently-api
+    - localhost
+    - "*.kubently.local"
+  issuerRef:
+    name: kubently-ca-issuer
+    kind: Issuer
+
+---
+# Step 5: Deploy kubently with ingress
+# Save as dev-values.yaml:
+
+# dev-values.yaml:
+api:
+  replicaCount: 1
+
+ingress:
+  enabled: true
+  className: nginx
+
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
+
+  hosts:
+    - host: kubently.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+  # Uses the self-signed certificate created above
+  tls:
+    - secretName: kubently-api-tls
+      hosts:
+        - kubently.local
+
+executor:
+  enabled: true
+  clusterId: "dev"
+  apiUrl: "http://kubently-api:8080"  # Internal communication (no TLS)
+
+# How to use:
+#
+# 1. Create the cert-manager resources:
+#    kubectl create namespace kubently
+#    kubectl apply -f examples/tls-dev-selfsigned.yaml
+#
+# 2. Wait for certificate to be ready:
+#    kubectl get certificate -n kubently -w
+#
+# 3. Add to /etc/hosts:
+#    echo "127.0.0.1 kubently.local" | sudo tee -a /etc/hosts
+#
+# 4. Deploy kubently:
+#    helm install kubently ./deployment/helm/kubently -f dev-values.yaml
+#
+# 5. Port-forward ingress:
+#    kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 443:443
+#
+# 6. Access (accept certificate warning in browser):
+#    curl -k https://kubently.local/health
+#    # or visit https://kubently.local in browser and accept certificate
+#
+# Accepting the self-signed certificate:
+# - Chrome/Edge: Click "Advanced" → "Proceed to kubently.local (unsafe)"
+# - Firefox: Click "Advanced" → "Accept the Risk and Continue"
+# - Safari: Click "Show Details" → "visit this website"

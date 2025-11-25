@@ -6,7 +6,6 @@ import figlet from 'figlet';
 import { initCommand } from './commands/init.js';
 import { clusterCommands } from './commands/cluster.js';
 import { debugCommand } from './commands/debug.js';
-import { debugCommand as debugDiagnosticCommand } from './commands/debug-ultra-diagnostic.js';
 import { createLoginCommand } from './commands/login.js';
 import { Config } from './lib/config.js';
 import { runInteractiveMode } from './commands/interactive.js';
@@ -75,7 +74,6 @@ program.addCommand(initCommand(config));
 program.addCommand(createLoginCommand());
 program.addCommand(clusterCommands(config));
 program.addCommand(debugCommand(config));
-program.addCommand(debugDiagnosticCommand(config).name('debug-diag'));
 
 // Version command with extra info
 program

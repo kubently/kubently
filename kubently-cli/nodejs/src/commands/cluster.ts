@@ -2,15 +2,8 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import inquirer from 'inquirer';
-import fs from 'fs';
 import { Config } from '../lib/config.js';
 import { KubentlyAdminClient } from '../lib/adminClient.js';
-import { 
-  generateAgentDeployment, 
-  generateDockerCompose,
-  generateHelmValues,
-  generateShellScript 
-} from '../lib/templates.js';
 
 function ensureApiConfig(config: Config): boolean {
   const apiUrl = config.getApiUrl();
@@ -33,81 +26,65 @@ export function clusterCommands(config: Config): Command {
   // Add cluster command
   cluster
     .command('add <cluster-id>')
-    .description('🆕 Register a new cluster with Kubently')
-    .option('-o, --output <format>', 'Output format: k8s, docker, helm, script, or all', 'k8s')
-    .option('-n, --namespace <namespace>', 'Kubernetes namespace', 'kubently')
-    .option('-i, --image <image>', 'Agent Docker image', 'kubently/agent:latest')
+    .description('🆕 Register a new cluster and get executor token')
+    .option('--custom-token <token>', 'Provide a custom token (from Vault, etc.)')
     .action(async (clusterId: string, options) => {
       if (!ensureApiConfig(config)) return;
 
       const spinner = ora(`Creating token for cluster '${clusterId}'...`).start();
-      
+
       try {
         const client = new KubentlyAdminClient(config.getApiUrl()!, config.getApiKey()!);
-        const result = await client.createAgentToken(clusterId);
+        const result = await client.createAgentToken(clusterId, options.customToken);
         const token = result.token;
-        
+
         // Store in config
         config.addCluster(clusterId, {
           token,
           createdAt: new Date().toISOString(),
-          namespace: options.namespace
         });
-        
-        spinner.succeed(`Token created and stored for cluster '${clusterId}'`);
-        
+
+        spinner.succeed(`Token created for cluster '${clusterId}'`);
+
         const apiUrl = config.getApiUrl()!;
-        const outputs = options.output.split(',').map((o: string) => o.trim());
-        
-        // Generate manifests based on output format
-        if (outputs.includes('k8s') || outputs.includes('all')) {
-          const manifest = generateAgentDeployment(
-            clusterId,
-            token,
-            apiUrl,
-            options.namespace,
-            options.image
-          );
-          const filename = `kubently-agent-${clusterId}.yaml`;
-          fs.writeFileSync(filename, manifest);
-          console.log(chalk.green(`✓ Kubernetes manifest written to ${filename}`));
-          console.log(chalk.gray(`\n  Deploy to Kubernetes with:`));
-          console.log(chalk.cyan(`  kubectl apply -f ${filename}\n`));
+
+        // Display token and deployment instructions
+        console.log(chalk.cyan('\n╔═══════════════════════════════════════════════════════════╗'));
+        console.log(chalk.cyan('║') + chalk.white('              Executor Token Created                       ') + chalk.cyan('║'));
+        console.log(chalk.cyan('╠═══════════════════════════════════════════════════════════╣'));
+        console.log(chalk.cyan('║ ') + chalk.gray('Token:'.padEnd(57)) + chalk.cyan(' ║'));
+        console.log(chalk.cyan('║ ') + chalk.yellow(token.substring(0, 57)) + chalk.cyan('║'));
+        if (token.length > 57) {
+          console.log(chalk.cyan('║ ') + chalk.yellow(token.substring(57).padEnd(57)) + chalk.cyan('║'));
         }
-        
-        if (outputs.includes('docker') || outputs.includes('all')) {
-          const compose = generateDockerCompose(clusterId, token, apiUrl);
-          const filename = `docker-compose-${clusterId}.yaml`;
-          fs.writeFileSync(filename, compose);
-          console.log(chalk.green(`✓ Docker Compose file written to ${filename}`));
-          console.log(chalk.gray(`\n  Run locally with:`));
-          console.log(chalk.cyan(`  docker-compose -f ${filename} up\n`));
-        }
-        
-        if (outputs.includes('helm') || outputs.includes('all')) {
-          const values = generateHelmValues(
-            clusterId,
-            token,
-            apiUrl,
-            options.namespace,
-            options.image
-          );
-          const filename = `helm-values-${clusterId}.yaml`;
-          fs.writeFileSync(filename, values);
-          console.log(chalk.green(`✓ Helm values file written to ${filename}`));
-          console.log(chalk.gray(`\n  Deploy with Helm:`));
-          console.log(chalk.cyan(`  helm install kubently-agent ./chart -f ${filename}\n`));
-        }
-        
-        if (outputs.includes('script') || outputs.includes('all')) {
-          const script = generateShellScript(clusterId, token, apiUrl, options.namespace);
-          const filename = `deploy-${clusterId}.sh`;
-          fs.writeFileSync(filename, script, { mode: 0o755 });
-          console.log(chalk.green(`✓ Deployment script written to ${filename}`));
-          console.log(chalk.gray(`\n  Deploy with:`));
-          console.log(chalk.cyan(`  ./${filename}\n`));
-        }
-        
+        console.log(chalk.cyan('╚═══════════════════════════════════════════════════════════╝'));
+
+        console.log(chalk.cyan('\n📦 Deploy Executor to Cluster:\n'));
+
+        console.log(chalk.white('1. Get the Helm chart:'));
+        console.log(chalk.gray('   # Option A: Clone the repository'));
+        console.log(chalk.gray('   git clone https://github.com/kubently/kubently.git\n'));
+        console.log(chalk.gray('   # Option B: Download from GitHub releases'));
+        console.log(chalk.gray('   # https://github.com/kubently/kubently/releases\n'));
+
+        console.log(chalk.white('2. Create secret on the executor cluster:'));
+        console.log(chalk.gray('   kubectl create secret generic kubently-executor-token \\'));
+        console.log(chalk.gray(`     --from-literal=token="${token}" \\`));
+        console.log(chalk.gray('     --namespace kubently\n'));
+
+        console.log(chalk.white('3. Deploy executor using Helm:'));
+        console.log(chalk.gray('   # If you cloned the repo:'));
+        console.log(chalk.gray('   helm install kubently ./deployment/helm/kubently \\'));
+        console.log(chalk.gray('     --set api.enabled=false \\'));
+        console.log(chalk.gray('     --set redis.enabled=false \\'));
+        console.log(chalk.gray('     --set executor.enabled=true \\'));
+        console.log(chalk.gray(`     --set executor.clusterId=${clusterId} \\`));
+        console.log(chalk.gray(`     --set executor.apiUrl=${apiUrl} \\`));
+        console.log(chalk.gray('     --set executor.existingSecret=kubently-executor-token \\'));
+        console.log(chalk.gray('     --namespace kubently\n'));
+
+        console.log(chalk.yellow('⚠️  Store the token securely - it cannot be retrieved later!'));
+
       } catch (error) {
         spinner.fail('Failed to add cluster');
         console.log(chalk.red(`✗ Error: ${error instanceof Error ? error.message : 'Unknown error'}`));
@@ -227,8 +204,10 @@ export function clusterCommands(config: Config): Command {
         config.removeCluster(clusterId);
         
         spinner.succeed(`Cluster '${clusterId}' removed successfully`);
-        console.log(chalk.yellow('\n⚠ Remember to remove the agent from the cluster:'));
-        console.log(chalk.cyan('  kubectl -n kubently delete deployment kubently-agent'));
+        console.log(chalk.yellow('\n⚠ Remember to remove the executor from the cluster:'));
+        console.log(chalk.cyan('  helm uninstall kubently --namespace kubently'));
+        console.log(chalk.gray('  # Or if not using Helm:'));
+        console.log(chalk.gray('  # kubectl -n kubently delete deployment kubently-executor'));
         
       } catch (error) {
         spinner.fail('Failed to remove cluster');

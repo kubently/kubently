@@ -1,4 +1,5 @@
-FROM python:3.13-slim
+# Build stage
+FROM python:3.13-slim AS builder
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -21,6 +22,20 @@ COPY README.md .
 RUN uv pip install --no-cache .
 # Install a2a dependencies (required for A2A support)
 RUN uv pip install --no-cache ".[a2a]"
+
+# Runtime stage
+FROM python:3.13-slim
+
+# Install uv in runtime stage
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+ENV UV_SYSTEM_PYTHON=1
+
+# Copy Python packages from builder
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Set working directory
+WORKDIR /app
 
 # Copy application
 COPY kubently/ ./kubently/

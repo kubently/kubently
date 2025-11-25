@@ -35,8 +35,7 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       - LLM_PROVIDER=${LLM_PROVIDER:-anthropic-claude}
 
-      # A2A Configuration
-      - A2A_ENABLED=true
+      # A2A Configuration (A2A is always enabled)
       - A2A_EXTERNAL_URL=http://localhost:8080/a2a/
 
       # Performance & Session

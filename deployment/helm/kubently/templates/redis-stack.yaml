@@ -36,7 +36,11 @@ spec:
         - name: REDIS_PASSWORD
           valueFrom:
             secretKeyRef:
+              {{- if .Values.redis.auth.existingSecret }}
+              name: {{ .Values.redis.auth.existingSecret }}
+              {{- else }}
               name: kubently-redis-password
+              {{- end }}
               key: password
         {{- else }}
         command:

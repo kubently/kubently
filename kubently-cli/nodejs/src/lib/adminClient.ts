@@ -69,8 +69,9 @@ export class KubentlyAdminClient {
     );
   }
 
-  async createAgentToken(clusterId: string): Promise<AgentToken> {
-    const response = await this.client.post(`/admin/agents/${clusterId}/token`);
+  async createAgentToken(clusterId: string, customToken?: string): Promise<AgentToken> {
+    const body = customToken ? { token: customToken } : undefined;
+    const response = await this.client.post(`/admin/agents/${clusterId}/token`, body);
     return response.data;
   }
 
