@@ -1,0 +1,63 @@
+name: Publish NPM Package
+
+on:
+  push:
+    tags:
+      - 'cli-v*.*.*'  # Triggers on tags like cli-v2.1.2
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Required for provenance
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        working-directory: kubently-cli/nodejs
+        run: npm ci
+
+      - name: Run tests
+        working-directory: kubently-cli/nodejs
+        run: npm test
+
+      - name: Build
+        working-directory: kubently-cli/nodejs
+        run: npm run build
+
+      - name: Publish to npm
+        working-directory: kubently-cli/nodejs
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: CLI ${{ github.ref }}
+          body: |
+            ## Kubently CLI Release
+
+            Published to npm as [@kubently/cli](https://www.npmjs.com/package/@kubently/cli)
+
+            ### Installation
+            ```bash
+            npm install -g @kubently/cli
+            ```
+
+            See [CHANGELOG.md](kubently-cli/nodejs/CHANGELOG.md) for details.
+          draft: false
+          prerelease: false
