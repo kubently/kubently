@@ -1,5 +1,5 @@
 {
-  "name": "kubently-cli",
+  "name": "@kubently/cli",
   "version": "2.1.2",
   "description": "Modern Node.js CLI for Kubently - Troubleshooting Kubernetes Agentically",
   "type": "module",
@@ -14,6 +14,7 @@
     "kubently": "node run.js",
     "clean": "rm -rf dist",
     "prepare": "npm run build",
+    "prepublishOnly": "npm run clean && npm run build",
     "test": "jest",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write 'src/**/*.ts'",
@@ -23,16 +24,38 @@
     "dev:debug": "npm run build && node dist/index.js --api-url http://localhost:8080 --api-key test-api-key debug",
     "link:refresh": "npm unlink -g kubently-cli 2>/dev/null || true && npm link && asdf reshim nodejs"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kubently/kubently.git",
+    "directory": "kubently-cli/nodejs"
+  },
+  "bugs": {
+    "url": "https://github.com/kubently/kubently/issues"
+  },
+  "homepage": "https://kubently.io",
   "keywords": [
     "kubernetes",
     "k8s",
     "debugging",
     "cli",
     "kubently",
-    "a2a"
+    "a2a",
+    "troubleshooting",
+    "agent",
+    "ai"
   ],
   "author": "Kubently Team",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "dependencies": {
     "axios": "^1.7.9",
     "chalk": "^5.3.0",
