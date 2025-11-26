@@ -1,4 +1,7 @@
-# Kubently CLI v2.0.0 (Node.js)
+# Kubently CLI
+
+[![npm version](https://badge.fury.io/js/@kubently%2Fcli.svg)](https://www.npmjs.com/package/@kubently/cli)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 A modern, beautiful Node.js/TypeScript implementation of the Kubently CLI - your interactive Kubernetes debugging companion.
 
@@ -28,10 +31,26 @@ A modern, beautiful Node.js/TypeScript implementation of the Kubently CLI - your
 
 ## 🔧 Installation
 
+### Install from npm (Recommended)
+
+```bash
+npm install -g @kubently/cli
+```
+
+Or use with npx (no installation required):
+
+```bash
+npx @kubently/cli
+```
+
+### Install from Source
+
+For development or contributing:
+
 ```bash
 # Clone the repository
-git clone <repository-url>
-cd nodejs-cli
+git clone https://github.com/kubently/kubently.git
+cd kubently/kubently-cli/nodejs
 
 # Install dependencies
 npm install
