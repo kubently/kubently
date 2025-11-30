@@ -9,13 +9,84 @@ rules:
 {{- if .Values.executor.rbacRules }}
   {{- toYaml .Values.executor.rbacRules | nindent 0 }}
 {{- else }}
-# Default rules - generic read access to all APIs
-- apiGroups: ["*"]
-  resources: ["*"]
-  verbs: ["get", "list", "watch"]
+# Default rules - read access to common resources (excluding secrets)
+# Core API group (v1) - specific resources only
 - apiGroups: [""]
-  resources: ["pods/log"]
-  verbs: ["get", "list"]
+  resources:
+    - pods
+    - pods/status
+    - pods/log
+    - services
+    - endpoints
+    - configmaps
+    - persistentvolumeclaims
+    - persistentvolumes
+    - nodes
+    - namespaces
+    - events
+    - resourcequotas
+    - limitranges
+    - serviceaccounts
+  verbs: ["get", "list", "watch"]
+
+# Apps API group
+- apiGroups: ["apps"]
+  resources:
+    - deployments
+    - daemonsets
+    - statefulsets
+    - replicasets
+  verbs: ["get", "list", "watch"]
+
+# Batch API group
+- apiGroups: ["batch"]
+  resources:
+    - jobs
+    - cronjobs
+  verbs: ["get", "list", "watch"]
+
+# Networking API group
+- apiGroups: ["networking.k8s.io"]
+  resources:
+    - ingresses
+    - networkpolicies
+  verbs: ["get", "list", "watch"]
+
+# RBAC API group (for debugging permissions)
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources:
+    - roles
+    - rolebindings
+    - clusterroles
+    - clusterrolebindings
+  verbs: ["get", "list", "watch"]
+
+# Storage API group
+- apiGroups: ["storage.k8s.io"]
+  resources:
+    - storageclasses
+    - volumeattachments
+  verbs: ["get", "list", "watch"]
+
+# Autoscaling API group
+- apiGroups: ["autoscaling"]
+  resources:
+    - horizontalpodautoscalers
+  verbs: ["get", "list", "watch"]
+
+# Policy API group
+- apiGroups: ["policy"]
+  resources:
+    - poddisruptionbudgets
+  verbs: ["get", "list", "watch"]
+
+# Note: For Custom Resource Definitions (CRDs), users should add them via
+# executor.rbacRules in values.yaml. Example:
+# executor:
+#   rbacRules:
+#     - apiGroups: ["cert-manager.io"]
+#       resources: ["*"]
+#       verbs: ["get", "list", "watch"]
 {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
