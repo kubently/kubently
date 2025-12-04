@@ -31,7 +31,7 @@ Kubently (*Kubernetes + Agentically*) enables AI agents to troubleshoot Kubernet
 
 ```bash
 # Install CLI
-npm install -g @kubently/cli
+npm i -g @kubently/cli
 
 # Deploy to your cluster
 git clone https://github.com/kubently/kubently.git

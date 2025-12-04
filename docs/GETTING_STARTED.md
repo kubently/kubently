@@ -23,7 +23,7 @@ The Kubently CLI is required for administration and querying:
 
 ```bash
 # Install Node.js CLI globally
-npm install -g @kubently/cli
+npm i -g @kubently/cli
 
 # Or install from source
 git clone https://github.com/kubently/kubently.git

@@ -6,6 +6,19 @@ export interface AgentToken {
   createdAt: string;
 }
 
+export interface ExecutorCapabilities {
+  cluster_id: string;
+  mode: string;
+  allowed_verbs: string[];
+  restricted_resources: string[];
+  allowed_flags: string[];
+  executor_version?: string;
+  executor_pod?: string;
+  reported_at?: string;
+  expires_at?: string;
+  features: Record<string, boolean>;
+}
+
 export interface ClusterStatus {
   id: string;
   status: string;
@@ -13,6 +26,8 @@ export interface ClusterStatus {
   lastSeen?: string;
   version?: string;
   kubernetesVersion?: string;
+  mode?: string;  // Security mode (readOnly, extendedReadOnly, fullAccess)
+  capabilities?: ExecutorCapabilities;  // Full capability details
 }
 
 export interface ClusterListItem {

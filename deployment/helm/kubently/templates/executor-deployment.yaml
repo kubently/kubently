@@ -74,6 +74,15 @@ spec:
         - name: KUBENTLY_WHITELIST_DB
           value: "/var/lib/kubently/whitelist.db"
         {{- end }}
+        {{- /* Capability reporting configuration (optional feature) */}}
+        {{- if .Values.executor.capabilities }}
+        {{- if .Values.executor.capabilities.enabled }}
+        - name: KUBENTLY_REPORT_CAPABILITIES
+          value: "true"
+        - name: KUBENTLY_HEARTBEAT_INTERVAL
+          value: {{ .Values.executor.capabilities.heartbeatInterval | default 300 | quote }}
+        {{- end }}
+        {{- end }}
         {{- range $key, $value := .Values.executor.env }}
         - name: {{ $key }}
           value: {{ $value | quote }}

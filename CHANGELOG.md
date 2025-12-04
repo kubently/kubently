@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased] - 2025-12-03
+
+### Added
+- **Executor Capability Reporting (Optional Feature)**
+  - Executors can now advertise their DynamicCommandWhitelist configuration to the central API
+  - New `CapabilityModule` stores capability data in Redis with TTL-based expiration
+  - API endpoints: `POST /executor/capabilities`, `POST /executor/heartbeat`, `GET /api/v1/clusters/{cluster_id}/capabilities`
+  - New cluster detail endpoint: `GET /debug/clusters/{cluster_id}` shows comprehensive cluster status including capabilities
+  - Helm configuration: `executor.capabilities.enabled` and `executor.capabilities.heartbeatInterval`
+  - Graceful degradation: feature is optional, disabled by default, and failures don't affect core functionality
+  - Backwards compatible: older executors work with new API, new executors work with older API
+  - Input validation: mode enum restriction, max list sizes to prevent oversized payloads
+  - Capability cleanup on token revoke: prevents stale advertisements
+  - Reviewed by Gemini 3 and GPT-5 with identified issues addressed
+
 ## [Unreleased] - 2025-09-27
 
 ### Added
