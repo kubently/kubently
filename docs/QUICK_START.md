@@ -13,7 +13,7 @@ Get Kubently running locally in 5 minutes. For production deployment with extern
 
 ```bash
 # Install CLI
-npm install -g @kubently/cli
+npm i -g @kubently/cli
 
 # Clone and navigate to repo
 git clone https://github.com/kubently/kubently.git

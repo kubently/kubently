@@ -34,7 +34,7 @@ A modern, beautiful Node.js/TypeScript implementation of the Kubently CLI - your
 ### Install from npm (Recommended)
 
 ```bash
-npm install -g @kubently/cli
+npm i -g @kubently/cli
 ```
 
 Or use with npx (no installation required):
