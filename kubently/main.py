@@ -852,13 +852,24 @@ async def get_agent_status(
         active_key = f"cluster:active:{cluster_id}"
         is_active = await redis_client.exists(active_key)
 
+        # Get capabilities if available (graceful degradation)
+        capabilities = None
+        capabilities_mode = None
+        if capability_module:
+            caps = await capability_module.get_capabilities(cluster_id)
+            if caps:
+                capabilities = caps.to_dict()
+                capabilities_mode = caps.mode
+
         return {
             "id": cluster_id,
             "connected": bool(is_active),
             "status": "connected" if is_active else "disconnected",
             "lastSeen": None,  # Could track with Redis TTL or separate timestamp
-            "version": None,  # Could be reported by executor
-            "kubernetesVersion": None  # Could be reported by executor
+            "version": capabilities.get("executor_version") if capabilities else None,
+            "kubernetesVersion": None,  # Could be reported by executor in future
+            "capabilities": capabilities,  # Full capability details (null if not reported)
+            "mode": capabilities_mode,  # Quick access to security mode
         }
 
     except HTTPException:
