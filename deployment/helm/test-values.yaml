@@ -1,0 +1,92 @@
+# Test values for local Kubently deployment
+# This file provides minimal configuration for quick testing.
+# For full deployment configuration, see secrets/test-values.yaml
+
+api:
+  replicaCount: 1
+
+  image:
+    repository: ghcr.io/kubently/kubently
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+
+  env:
+    LOG_LEVEL: "INFO"
+    LLM_PROVIDER: "anthropic-claude"
+    PORT: "8080"
+    API_PORT: "8080"
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+executor:
+  enabled: true
+
+  image:
+    repository: ghcr.io/kubently/kubently-executor
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # REQUIRED: Set these via --set flags or override this file
+  # Example:
+  #   --set executor.clusterId=local
+  #   --set executor.apiUrl=http://kubently-api:8080
+  #   --set executor.token=$(openssl rand -hex 32)
+  clusterId: ""
+  apiUrl: ""
+  token: ""
+
+  env:
+    LOG_LEVEL: "INFO"
+
+  security:
+    mode: "readOnly"
+    commandWhitelist:
+      enabled: true
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: true
+    existingSecret: "kubently-redis-password"
+  master:
+    persistence:
+      enabled: false  # Disabled for local testing
+
+ingress:
+  enabled: false
+
+serviceAccount:
+  create: true
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000

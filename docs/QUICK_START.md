@@ -5,6 +5,7 @@ Get Kubently running locally in 5 minutes. For production deployment with extern
 ## Prerequisites
 
 - Kubernetes cluster with `kubectl` access
+- Helm 3.x installed
 - Node.js 18+ (for CLI)
 - LLM API key (Anthropic, OpenAI, or Google)
 
@@ -18,26 +19,32 @@ npm install -g @kubently/cli
 git clone https://github.com/kubently/kubently.git
 cd kubently
 
-# Create namespace and secrets
+# Create namespace
 kubectl create namespace kubently
-cd secrets && bash generate-redis-password.sh && cd ..
+
+# Create Redis password secret
+kubectl create secret generic kubently-redis-password -n kubently \
+  --from-literal=password="$(openssl rand -base64 32)"
 
 # Create LLM secret (replace with your key)
 kubectl create secret generic kubently-llm-secrets -n kubently \
   --from-literal=ANTHROPIC_API_KEY="your-key-here"
 
-# Generate and save admin API key
+# Generate admin API key and executor token
 export ADMIN_KEY=$(openssl rand -hex 32)
+export EXECUTOR_TOKEN=$(openssl rand -hex 32)
+
+# Create API keys secret
 kubectl create secret generic kubently-api-keys -n kubently \
   --from-literal=keys="admin:${ADMIN_KEY}"
 echo $ADMIN_KEY > ~/kubently-admin-key.txt
 
 # Deploy (API + executor in same cluster)
 helm install kubently ./deployment/helm/kubently -n kubently \
-  -f deployment/helm/test-values.yaml \
   --set executor.enabled=true \
   --set executor.clusterId=local \
-  --set executor.apiUrl=http://kubently-api:8080
+  --set executor.apiUrl=http://kubently-api:8080 \
+  --set executor.token="${EXECUTOR_TOKEN}"
 
 # Wait for ready
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kubently -n kubently --timeout=120s
