@@ -118,16 +118,14 @@ export function clusterCommands(config: Config): Command {
         console.log(chalk.cyan('╠═══════════════════════════════════════════════════════════╣'));
         
         clusters.forEach((cluster) => {
-          const status = cluster.connected 
-            ? chalk.green('✓ Connected') 
+          const status = cluster.connected
+            ? chalk.green('✓ Connected')
             : chalk.red('✗ Disconnected');
-          const lastSeen = cluster.lastSeen || 'Never';
-          
-          console.log(chalk.cyan('║ ') + 
-            chalk.white('ID: ') + chalk.yellow(cluster.id.padEnd(20)) + 
-            ' ' + status.padEnd(25) + 
-            chalk.gray(` Last: ${lastSeen}`.padEnd(20)) + 
-            chalk.cyan(' ║'));
+
+          console.log(chalk.cyan('║ ') +
+            chalk.white('ID: ') + chalk.yellow(cluster.id.padEnd(20)) +
+            ' ' + status.padEnd(36) +
+            chalk.cyan('║'));
         });
         
         console.log(chalk.cyan('╚═══════════════════════════════════════════════════════════╝'));
@@ -158,9 +156,7 @@ export function clusterCommands(config: Config): Command {
         console.log(chalk.cyan('║') + chalk.white(`         Cluster Status: ${clusterId}`.padEnd(59)) + chalk.cyan('║'));
         console.log(chalk.cyan('╠═══════════════════════════════════════════════════════════╣'));
         console.log(chalk.cyan('║ ') + chalk.white('Status:     ') + (status.connected ? chalk.green('✓ Connected') : chalk.red('✗ Disconnected')).padEnd(58) + chalk.cyan('║'));
-        console.log(chalk.cyan('║ ') + chalk.white('Last Seen:  ') + chalk.gray((status.lastSeen || 'Never').padEnd(46)) + chalk.cyan('║'));
         console.log(chalk.cyan('║ ') + chalk.white('Version:    ') + chalk.gray((status.version || 'Unknown').padEnd(46)) + chalk.cyan('║'));
-        console.log(chalk.cyan('║ ') + chalk.white('K8s Version:') + chalk.gray((status.kubernetesVersion || 'Unknown').padEnd(46)) + chalk.cyan('║'));
 
         // Display capability information if available
         if (status.mode) {

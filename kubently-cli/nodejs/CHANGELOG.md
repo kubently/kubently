@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.1.6] - 2025-12-17
+
+### Fixed
+- **Cluster Context Passing**: Fixed issue where cluster ID specified on command line was not passed to the agent
+  - CLI now stores and sends `clusterId` via A2A metadata extension
+  - Agent receives cluster context and uses it automatically in kubectl calls
+  - No longer asks "which cluster?" when cluster is specified via `kubently debug <cluster-id>`
+
+## [2.1.5] - 2025-12-17
+
+### Added
+- **Admin Command**: Added `kubently admin` as a standalone CLI command for direct access to cluster and token management
+  - Users can now run `kubently admin` directly instead of navigating through the interactive menu
+  - Admin operations remain accessible via interactive mode as well
+
 ## [2.1.2] - 2025-01-11
 
 ### Fixed

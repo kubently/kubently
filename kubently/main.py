@@ -566,8 +566,33 @@ async def execute_command(
     if not redis_client or not queue_module or not session_module:
         raise HTTPException(503, "Service not initialized")
 
+    # === CLUSTER VALIDATION ===
+    # Verify the cluster exists before creating any markers or publishing commands
+    # This prevents phantom clusters and gives immediate feedback to the agent
+    token_key = f"executor:token:{request.cluster_id}"
+    cluster_exists = await redis_client.exists(token_key)
+
+    if not cluster_exists:
+        # Get list of valid clusters for helpful error message
+        valid_clusters = []
+        token_keys = await redis_client.keys("executor:token:*")
+        for key in token_keys:
+            raw = key.decode() if isinstance(key, bytes) else key
+            valid_clusters.append(raw.replace("executor:token:", ""))
+        valid_clusters.sort()
+
+        error_msg = f"Cluster '{request.cluster_id}' not found."
+        if valid_clusters:
+            error_msg += f" Available clusters: {', '.join(valid_clusters)}"
+        else:
+            error_msg += " No clusters are currently registered."
+
+        logger.warning(f"Invalid cluster requested: {request.cluster_id}")
+        raise HTTPException(404, error_msg)
+    # === END CLUSTER VALIDATION ===
+
     # === A2A FIX STARTS HERE ===
-    # Always mark cluster as active for fast polling
+    # Mark cluster as active for fast polling (only for VALID clusters)
     # This ensures A2A calls get same performance as session-based calls
     cluster_active_key = f"cluster:active:{request.cluster_id}"
     await redis_client.setex(cluster_active_key, 60, "1")  # 60s fast polling window

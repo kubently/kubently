@@ -20,6 +20,7 @@ export interface A2ARequest {
   method: string;
   params: {
     message: A2AMessage;
+    metadata?: Record<string, any>;  // A2A extension metadata
   };
 }
 
@@ -39,6 +40,7 @@ export class KubentlyA2ASession {
   private sessionId: string;
   private requestId: number;
   private config: Config;
+  private clusterId?: string;
 
   constructor(apiUrl: string, apiKey?: string, clusterId?: string, insecure: boolean = false) {
     // Default to https:// if no protocol specified
@@ -49,6 +51,7 @@ export class KubentlyA2ASession {
     this.sessionId = uuidv4();
     this.requestId = 0;
     this.config = new Config();
+    this.clusterId = clusterId;
 
     // Build headers based on authentication method
     const headers: Record<string, string> = {
@@ -105,6 +108,8 @@ export class KubentlyA2ASession {
           }],
           contextId: this.sessionId,  // contextId must be inside message
         },
+        // Pass cluster context via A2A metadata extension
+        metadata: this.clusterId ? { clusterId: this.clusterId } : undefined,
       },
     };
     

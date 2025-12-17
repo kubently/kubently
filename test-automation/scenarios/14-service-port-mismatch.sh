@@ -4,14 +4,15 @@
 # SYMPTOM: Connection refused when accessing service (port mismatch)
 # THE FIX: Change Service targetPort from 8080 to 80 to match container port
 
-
+# Allow context override: KUBE_CONTEXT=kind-kind-exec-only ./14-service-port-mismatch.sh setup
+KUBE_CONTEXT="${KUBE_CONTEXT:-kind-kubently}"
 NAMESPACE="test-scenario-14"
 
 if [ "$1" = "setup" ]; then
-    echo "Setting up scenario 14..."
-    
-    kubectl --context kind-kubently create namespace $NAMESPACE --dry-run=client -o yaml | kubectl --context kind-kubently apply -f -
-    cat <<EOF | kubectl --context kind-kubently apply -f -
+    echo "Setting up scenario 14 on context: $KUBE_CONTEXT..."
+
+    kubectl --context $KUBE_CONTEXT create namespace $NAMESPACE --dry-run=client -o yaml | kubectl --context $KUBE_CONTEXT apply -f -
+    cat <<EOF | kubectl --context $KUBE_CONTEXT apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -57,18 +58,18 @@ spec:
     image: busybox:latest
     command: ["sh", "-c", "while true; do wget -O- http://web-service 2>&1 | head -5; echo '---'; sleep 5; done"]
 EOF
-    kubectl --context kind-kubently get svc,endpoints -n $NAMESPACE
-    kubectl --context kind-kubently logs test-client -n $NAMESPACE --tail=10
-    
+    kubectl --context $KUBE_CONTEXT get svc,endpoints -n $NAMESPACE
+    kubectl --context $KUBE_CONTEXT logs test-client -n $NAMESPACE --tail=10 2>/dev/null || true
+
     # Wait for resources to be ready
     sleep 5
-    
+
     exit 0
 fi
 
 if [ "$1" = "cleanup" ]; then
-    echo "Cleaning up scenario 14..."
-    kubectl --context kind-kubently delete namespace $NAMESPACE --ignore-not-found=true
+    echo "Cleaning up scenario 14 on context: $KUBE_CONTEXT..."
+    kubectl --context $KUBE_CONTEXT delete namespace $NAMESPACE --ignore-not-found=true
     exit 0
 fi
 

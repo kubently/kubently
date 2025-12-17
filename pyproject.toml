@@ -180,6 +180,12 @@ addopts = """
     --cov-report=html
     --cov-report=xml
 """
+markers = [
+    "kubectl_mock: Tests using mocked kubectl subprocess calls",
+    "integration: Integration tests requiring infrastructure",
+    "e2e: End-to-end tests requiring a real cluster",
+    "slow: Tests that take a long time to run",
+]
 
 [tool.coverage.run]
 source = ["kubently"]
