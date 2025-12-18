@@ -4,29 +4,31 @@
 # SYMPTOM: Pod stuck in Init:0/1 or Init:Error state
 # THE FIX: Fix the init container's command or dependencies
 
+# Allow context override: KUBE_CONTEXT=kind-kind-exec-only ./09-init-container-failure.sh setup
+KUBE_CONTEXT="${KUBE_CONTEXT:-kind-kubently}"
 NAMESPACE="test-scenario-09"
 
 if [ "$1" = "setup" ]; then
-    echo "Setting up scenario 09 - Init Container Failure..."
+    echo "Setting up scenario 09 on context: $KUBE_CONTEXT..."
 
-    kubectl --context kind-kubently create namespace $NAMESPACE --dry-run=client -o yaml | kubectl --context kind-kubently apply -f -
+    kubectl --context $KUBE_CONTEXT create namespace $NAMESPACE --dry-run=client -o yaml | kubectl --context $KUBE_CONTEXT apply -f -
 
     # Create a deployment with a failing init container
-    cat <<EOF | kubectl --context kind-kubently apply -f -
+    cat <<EOF | kubectl --context $KUBE_CONTEXT apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: app-with-init
+  name: order-processor
   namespace: $NAMESPACE
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: myapp
+      app: orders
   template:
     metadata:
       labels:
-        app: myapp
+        app: orders
     spec:
       initContainers:
       - name: init-database
@@ -59,15 +61,15 @@ spec:
 EOF
 
     # Create a service for the deployment (but NOT the database service the init container needs)
-    cat <<EOF | kubectl --context kind-kubently apply -f -
+    cat <<EOF | kubectl --context $KUBE_CONTEXT apply -f -
 apiVersion: v1
 kind: Service
 metadata:
-  name: app-service
+  name: order-service
   namespace: $NAMESPACE
 spec:
   selector:
-    app: myapp
+    app: orders
   ports:
   - port: 80
     targetPort: 80
@@ -78,19 +80,19 @@ EOF
 
     # Show the problem
     echo "=== Pods stuck in Init state ==="
-    kubectl --context kind-kubently get pods -n $NAMESPACE
+    kubectl --context $KUBE_CONTEXT get pods -n $NAMESPACE
 
     echo ""
     echo "=== Init container logs showing DNS failure ==="
-    POD=$(kubectl --context kind-kubently get pods -n $NAMESPACE -o jsonpath='{.items[0].metadata.name}')
-    kubectl --context kind-kubently logs $POD -c init-database -n $NAMESPACE --tail=5 || true
+    POD=$(kubectl --context $KUBE_CONTEXT get pods -n $NAMESPACE -o jsonpath='{.items[0].metadata.name}')
+    kubectl --context $KUBE_CONTEXT logs $POD -c init-database -n $NAMESPACE --tail=5 || true
 
     exit 0
 fi
 
 if [ "$1" = "cleanup" ]; then
-    echo "Cleaning up scenario 09..."
-    kubectl --context kind-kubently delete namespace $NAMESPACE --ignore-not-found=true
+    echo "Cleaning up scenario 09 on context: $KUBE_CONTEXT..."
+    kubectl --context $KUBE_CONTEXT delete namespace $NAMESPACE --ignore-not-found=true
     exit 0
 fi
 
