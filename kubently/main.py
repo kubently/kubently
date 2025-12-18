@@ -45,6 +45,7 @@ from kubently.modules.api.oidc_discovery import create_discovery_router
 from kubently.modules.config import get_config
 from kubently.modules.queue import QueueModule
 from kubently.modules.session import SessionModule
+from kubently.modules.capability import CapabilityModule, ExecutorCapabilities
 
 # Get configuration
 config = get_config()
@@ -63,6 +64,7 @@ config_provider: ConfigProvider = EnvConfigProvider()
 auth_service: Optional[AuthenticationService] = None
 session_module: Optional[SessionModule] = None
 queue_module: Optional[QueueModule] = None
+capability_module: Optional[CapabilityModule] = None
 redis_client: Optional[redis.Redis] = None
 a2a_server = None  # A2A server instance
 a2a_app = None  # A2A FastAPI sub-application
@@ -112,7 +114,7 @@ async def lifespan(app: FastAPI):
     """
     Manage application lifecycle - initialize and cleanup resources.
     """
-    global auth_service, session_module, queue_module, redis_client, a2a_server
+    global auth_service, session_module, queue_module, capability_module, redis_client, a2a_server
 
     # Startup
     logger.info("Starting Kubently API  ...")
@@ -126,6 +128,9 @@ async def lifespan(app: FastAPI):
     session_module = SessionModule(redis_client, default_ttl=config.get("session_ttl"))
     queue_module = QueueModule(
         redis_client, max_commands_per_fetch=config.get("max_commands_per_fetch")
+    )
+    capability_module = CapabilityModule(
+        redis_client, default_ttl=config.get("capability_ttl", 3600)
     )
 
     # Mount A2A server (core functionality)
@@ -344,6 +349,155 @@ async def post_result(payload: CommandResult, cluster_id: str = Depends(verify_e
     return {"status": "accepted", "command_id": payload.command_id}
 
 
+# Capability Endpoints (Executor capability reporting)
+
+
+class CapabilityReport(BaseModel):
+    """Capability report from executor - maps to DynamicCommandWhitelist config."""
+
+    mode: str = Field(
+        ...,
+        pattern=r"^(readOnly|extendedReadOnly|fullAccess)$",
+        description="Security mode (readOnly, extendedReadOnly, fullAccess)"
+    )
+    allowed_verbs: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description="Allowed kubectl verbs"
+    )
+    restricted_resources: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description="Restricted resources"
+    )
+    allowed_flags: list[str] = Field(
+        default_factory=list,
+        max_length=100,
+        description="Allowed flags"
+    )
+    executor_version: Optional[str] = Field(
+        None,
+        max_length=50,
+        description="Executor version"
+    )
+    executor_pod: Optional[str] = Field(
+        None,
+        max_length=253,  # Max K8s pod name length
+        description="Executor pod name"
+    )
+
+
+@app.post("/executor/capabilities")
+async def report_capabilities(
+    report: CapabilityReport,
+    cluster_id: str = Depends(verify_executor_auth),
+):
+    """
+    Report executor capabilities to central API.
+
+    Called by executors on startup to advertise their DynamicCommandWhitelist
+    configuration. This allows the API and agent to know what each cluster
+    can do before sending commands.
+
+    This endpoint is optional - executors that don't report capabilities
+    will still function normally (graceful degradation).
+
+    Returns:
+        200: Capabilities stored successfully
+        401: Unauthorized
+        503: Service not initialized
+    """
+    if not capability_module:
+        raise HTTPException(503, "Service not initialized")
+
+    # Convert report to ExecutorCapabilities
+    capabilities = ExecutorCapabilities(
+        cluster_id=cluster_id,
+        mode=report.mode,
+        allowed_verbs=report.allowed_verbs,
+        restricted_resources=report.restricted_resources,
+        allowed_flags=report.allowed_flags,
+        executor_version=report.executor_version,
+        executor_pod=report.executor_pod,
+        features={
+            "exec": report.mode in ["extendedReadOnly", "fullAccess"],
+            "port_forward": report.mode in ["extendedReadOnly", "fullAccess"],
+            "proxy": report.mode == "fullAccess",
+        },
+    )
+
+    success = await capability_module.store_capabilities(capabilities)
+    if not success:
+        raise HTTPException(500, "Failed to store capabilities")
+
+    return {
+        "status": "success",
+        "message": f"Capabilities stored for cluster {cluster_id}",
+        "mode": report.mode,
+        "ttl_seconds": capability_module.default_ttl,
+    }
+
+
+@app.post("/executor/heartbeat")
+async def executor_heartbeat(
+    cluster_id: str = Depends(verify_executor_auth),
+):
+    """
+    Refresh capability TTL (heartbeat).
+
+    Called periodically by executors to keep their capabilities from expiring.
+    This is optional - if capabilities expire, the system continues to function
+    normally without them.
+
+    Returns:
+        200: TTL refreshed
+        404: No capabilities found (executor may need to re-report)
+        401: Unauthorized
+    """
+    if not capability_module:
+        raise HTTPException(503, "Service not initialized")
+
+    success = await capability_module.refresh_ttl(cluster_id)
+    if not success:
+        # Not an error - just means no capabilities stored (graceful degradation)
+        return {
+            "status": "not_found",
+            "message": f"No capabilities found for cluster {cluster_id}. Consider re-reporting.",
+        }
+
+    return {
+        "status": "success",
+        "message": f"TTL refreshed for cluster {cluster_id}",
+    }
+
+
+@app.get("/api/v1/clusters/{cluster_id}/capabilities")
+async def get_cluster_capabilities(
+    cluster_id: str,
+    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+):
+    """
+    Get capabilities for a specific cluster.
+
+    Used by agents to check what operations are allowed before executing commands.
+    Returns null capabilities if none are stored (graceful degradation).
+
+    Returns:
+        200: Capabilities (or null if not stored)
+        401: Unauthorized
+    """
+    if not capability_module:
+        raise HTTPException(503, "Service not initialized")
+
+    capabilities = await capability_module.get_capabilities(cluster_id)
+
+    return {
+        "clusterId": cluster_id,
+        "capabilities": capabilities.to_dict() if capabilities else None,
+        "available": capabilities is not None,
+    }
+
+
 # AI/User/A2A Service Endpoints
 
 
@@ -412,8 +566,33 @@ async def execute_command(
     if not redis_client or not queue_module or not session_module:
         raise HTTPException(503, "Service not initialized")
 
+    # === CLUSTER VALIDATION ===
+    # Verify the cluster exists before creating any markers or publishing commands
+    # This prevents phantom clusters and gives immediate feedback to the agent
+    token_key = f"executor:token:{request.cluster_id}"
+    cluster_exists = await redis_client.exists(token_key)
+
+    if not cluster_exists:
+        # Get list of valid clusters for helpful error message
+        valid_clusters = []
+        token_keys = await redis_client.keys("executor:token:*")
+        for key in token_keys:
+            raw = key.decode() if isinstance(key, bytes) else key
+            valid_clusters.append(raw.replace("executor:token:", ""))
+        valid_clusters.sort()
+
+        error_msg = f"Cluster '{request.cluster_id}' not found."
+        if valid_clusters:
+            error_msg += f" Available clusters: {', '.join(valid_clusters)}"
+        else:
+            error_msg += " No clusters are currently registered."
+
+        logger.warning(f"Invalid cluster requested: {request.cluster_id}")
+        raise HTTPException(404, error_msg)
+    # === END CLUSTER VALIDATION ===
+
     # === A2A FIX STARTS HERE ===
-    # Always mark cluster as active for fast polling
+    # Mark cluster as active for fast polling (only for VALID clusters)
     # This ensures A2A calls get same performance as session-based calls
     cluster_active_key = f"cluster:active:{request.cluster_id}"
     await redis_client.setex(cluster_active_key, 60, "1")  # 60s fast polling window
@@ -698,13 +877,24 @@ async def get_agent_status(
         active_key = f"cluster:active:{cluster_id}"
         is_active = await redis_client.exists(active_key)
 
+        # Get capabilities if available (graceful degradation)
+        capabilities = None
+        capabilities_mode = None
+        if capability_module:
+            caps = await capability_module.get_capabilities(cluster_id)
+            if caps:
+                capabilities = caps.to_dict()
+                capabilities_mode = caps.mode
+
         return {
             "id": cluster_id,
             "connected": bool(is_active),
             "status": "connected" if is_active else "disconnected",
             "lastSeen": None,  # Could track with Redis TTL or separate timestamp
-            "version": None,  # Could be reported by executor
-            "kubernetesVersion": None  # Could be reported by executor
+            "version": capabilities.get("executor_version") if capabilities else None,
+            "kubernetesVersion": None,  # Could be reported by executor in future
+            "capabilities": capabilities,  # Full capability details (null if not reported)
+            "mode": capabilities_mode,  # Quick access to security mode
         }
 
     except HTTPException:
@@ -745,6 +935,9 @@ async def revoke_agent_token(
 
         # Also remove cluster active marker if exists
         await redis_client.delete(f"cluster:active:{cluster_id}")
+
+        # Clean up capabilities to prevent stale advertisements
+        await redis_client.delete(f"cluster:{cluster_id}:capabilities")
 
         logger.info(f"Revoked executor token for cluster: {cluster_id}")
         return Response(status_code=204)
@@ -803,6 +996,56 @@ async def list_clusters(
 
     except Exception as e:
         logger.error(f"Failed to list clusters: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/debug/clusters/{cluster_id}")
+async def get_cluster_detail(
+    cluster_id: str,
+    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+):
+    """
+    Get detailed status for a specific cluster, including capabilities.
+
+    Returns comprehensive cluster information including:
+    - Token status (whether executor token exists)
+    - Active session status
+    - Executor capabilities (if reported)
+    - Capability TTL remaining
+
+    This endpoint supports graceful degradation - if capabilities haven't
+    been reported, the capabilities field will be null but other status
+    information will still be returned.
+
+    Returns:
+        200: Cluster details
+        401: Unauthorized
+        404: Cluster not found
+    """
+    if not capability_module:
+        raise HTTPException(503, "Service not initialized")
+
+    try:
+        # Use capability module's aggregation method
+        detail = await capability_module.get_cluster_detail(cluster_id)
+
+        # Check if cluster exists at all (has token, session, or capabilities)
+        has_token = detail["status"].get("hasToken", False)
+        has_session = detail["status"].get("hasActiveSession", False)
+        has_capabilities = detail["status"].get("executorReporting", False)
+
+        if not (has_token or has_session or has_capabilities):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Cluster '{cluster_id}' not found. No token, session, or capabilities exist.",
+            )
+
+        return detail
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get cluster detail for {cluster_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -59,14 +59,18 @@ class KubentlyAgentExecutor(AgentExecutor):
         
         # Use context_id from message like mas-agent-atlassian does
         contextId = context.message.context_id if context.message else None
-        
-        # Debug logging to track context ID
+
+        # Extract cluster ID from A2A metadata extension
+        cluster_id = context.metadata.get('clusterId') if context.metadata else None
+
+        # Debug logging to track context ID and cluster
         logger.info(f"Debug context IDs:")
         logger.info(f"  - context.context_id: {context.context_id}")
         logger.info(f"  - context.message.context_id: {contextId}")
         logger.info(f"  - task.contextId: {task.contextId if task else None}")
-        
-        logger.info(f"Using contextId: {contextId}")
+        logger.info(f"  - cluster_id (from metadata): {cluster_id}")
+
+        logger.info(f"Using contextId: {contextId}, cluster_id: {cluster_id}")
 
         if not context.message:
             raise Exception("No message provided")
@@ -117,9 +121,9 @@ class KubentlyAgentExecutor(AgentExecutor):
         interceptor = get_tool_call_interceptor()
         
         try:
-            logger.info(f"Starting agent execution for query: {query[:100]}")
+            logger.info(f"Starting agent execution for query: {query[:100]}, cluster_id: {cluster_id}")
             chunk_count = 0
-            async for chunk in self.agent.run(messages, thread_id=contextId):
+            async for chunk in self.agent.run(messages, thread_id=contextId, cluster_id=cluster_id):
                 chunk_count += 1
                 # Chunk is a dict, extract content for logging
                 chunk_str = str(chunk)[:100] if chunk else 'EMPTY'

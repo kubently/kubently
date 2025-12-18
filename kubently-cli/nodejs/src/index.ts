@@ -9,6 +9,7 @@ import { debugCommand } from './commands/debug.js';
 import { createLoginCommand } from './commands/login.js';
 import { Config } from './lib/config.js';
 import { runInteractiveMode } from './commands/interactive.js';
+import { runAdminMenu } from './commands/admin.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -75,6 +76,14 @@ program.addCommand(createLoginCommand());
 program.addCommand(clusterCommands(config));
 program.addCommand(debugCommand(config));
 
+// Admin command - direct access to admin operations
+program
+  .command('admin')
+  .description('Manage clusters and executor tokens')
+  .action(async () => {
+    await runAdminMenu(config);
+  });
+
 // Version command with extra info
 program
   .command('version')
@@ -92,10 +101,12 @@ program
 
 // Add a default action for when no command is specified
 program.action(async () => {
-  const opts = program.opts();
-  
-  // If api-url and api-key are provided, run interactive mode
-  if (opts.apiUrl && opts.apiKey) {
+  // Use config which respects env vars and config file, not just CLI flags
+  const apiUrl = config.getApiUrl();
+  const apiKey = config.getApiKey();
+
+  // If api-url and api-key are available (from flags, env, or config), run interactive mode
+  if (apiUrl && apiKey) {
     await runInteractiveMode(config);
   } else {
     // Show help if no valid options

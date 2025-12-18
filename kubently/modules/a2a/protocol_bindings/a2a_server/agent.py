@@ -547,12 +547,32 @@ class KubentlyAgent:
         messages: list[dict],
         thread_id: str | None = None,
         context_id: str | None = None,
+        cluster_id: str | None = None,
     ) -> AsyncIterable[dict]:
-        """Run the agent and stream responses."""
+        """Run the agent and stream responses.
+
+        Args:
+            messages: User messages to process
+            thread_id: Thread ID for memory/conversation tracking
+            context_id: Context ID for the A2A protocol
+            cluster_id: Target cluster ID from CLI (if specified)
+        """
         await self.initialize()
 
         # Store thread ID for tool call tracking
         self._current_thread_id = thread_id
+
+        # If cluster_id is specified, inject context at the start
+        if cluster_id:
+            logger.info(f"Cluster context provided: {cluster_id}")
+            # Prepend a system-style context to inform the agent
+            cluster_context = {
+                "role": "system",
+                "content": f"IMPORTANT CONTEXT: The user has selected cluster '{cluster_id}' for this session. "
+                           f"Use this cluster_id in all execute_kubectl calls unless the user explicitly "
+                           f"requests a different cluster. Do NOT ask which cluster to use - it has been specified."
+            }
+            messages = [cluster_context] + messages
 
         # Convert messages to LangChain format
         lc_messages = []

@@ -4,6 +4,18 @@ Modern Node.js CLI client for Kubently - Interactive Kubernetes Debugging System
 
 ## Installation
 
+### From npm (Recommended)
+
+```bash
+npm i -g @kubently/cli
+```
+
+Or use npx without installing:
+
+```bash
+npx @kubently/cli
+```
+
 ### From Source
 
 ```bash

@@ -118,16 +118,14 @@ export function clusterCommands(config: Config): Command {
         console.log(chalk.cyan('╠═══════════════════════════════════════════════════════════╣'));
         
         clusters.forEach((cluster) => {
-          const status = cluster.connected 
-            ? chalk.green('✓ Connected') 
+          const status = cluster.connected
+            ? chalk.green('✓ Connected')
             : chalk.red('✗ Disconnected');
-          const lastSeen = cluster.lastSeen || 'Never';
-          
-          console.log(chalk.cyan('║ ') + 
-            chalk.white('ID: ') + chalk.yellow(cluster.id.padEnd(20)) + 
-            ' ' + status.padEnd(25) + 
-            chalk.gray(` Last: ${lastSeen}`.padEnd(20)) + 
-            chalk.cyan(' ║'));
+
+          console.log(chalk.cyan('║ ') +
+            chalk.white('ID: ') + chalk.yellow(cluster.id.padEnd(20)) +
+            ' ' + status.padEnd(36) +
+            chalk.cyan('║'));
         });
         
         console.log(chalk.cyan('╚═══════════════════════════════════════════════════════════╝'));
@@ -158,9 +156,35 @@ export function clusterCommands(config: Config): Command {
         console.log(chalk.cyan('║') + chalk.white(`         Cluster Status: ${clusterId}`.padEnd(59)) + chalk.cyan('║'));
         console.log(chalk.cyan('╠═══════════════════════════════════════════════════════════╣'));
         console.log(chalk.cyan('║ ') + chalk.white('Status:     ') + (status.connected ? chalk.green('✓ Connected') : chalk.red('✗ Disconnected')).padEnd(58) + chalk.cyan('║'));
-        console.log(chalk.cyan('║ ') + chalk.white('Last Seen:  ') + chalk.gray((status.lastSeen || 'Never').padEnd(46)) + chalk.cyan('║'));
         console.log(chalk.cyan('║ ') + chalk.white('Version:    ') + chalk.gray((status.version || 'Unknown').padEnd(46)) + chalk.cyan('║'));
-        console.log(chalk.cyan('║ ') + chalk.white('K8s Version:') + chalk.gray((status.kubernetesVersion || 'Unknown').padEnd(46)) + chalk.cyan('║'));
+
+        // Display capability information if available
+        if (status.mode) {
+          console.log(chalk.cyan('╠═══════════════════════════════════════════════════════════╣'));
+          console.log(chalk.cyan('║') + chalk.white('                    Capabilities                           ') + chalk.cyan('║'));
+          console.log(chalk.cyan('╠═══════════════════════════════════════════════════════════╣'));
+
+          const modeColor = status.mode === 'fullAccess' ? chalk.red :
+                           status.mode === 'extendedReadOnly' ? chalk.yellow :
+                           chalk.green;
+          console.log(chalk.cyan('║ ') + chalk.white('Mode:       ') + modeColor(status.mode.padEnd(46)) + chalk.cyan('║'));
+
+          if (status.capabilities) {
+            const caps = status.capabilities;
+            const features = Object.entries(caps.features || {})
+              .filter(([_, enabled]) => enabled)
+              .map(([name]) => name)
+              .join(', ') || 'None';
+            console.log(chalk.cyan('║ ') + chalk.white('Features:   ') + chalk.gray(features.padEnd(46)) + chalk.cyan('║'));
+            console.log(chalk.cyan('║ ') + chalk.white('Verbs:      ') + chalk.gray((caps.allowed_verbs?.slice(0, 5).join(', ') + (caps.allowed_verbs?.length > 5 ? '...' : '')).padEnd(46)) + chalk.cyan('║'));
+            if (caps.executor_pod) {
+              console.log(chalk.cyan('║ ') + chalk.white('Pod:        ') + chalk.gray(caps.executor_pod.substring(0, 46).padEnd(46)) + chalk.cyan('║'));
+            }
+          }
+        } else {
+          console.log(chalk.cyan('║ ') + chalk.gray('Capabilities: Not reported (executor may need upgrade)'.padEnd(57)) + chalk.cyan('║'));
+        }
+
         console.log(chalk.cyan('╚═══════════════════════════════════════════════════════════╝'));
         
       } catch (error) {

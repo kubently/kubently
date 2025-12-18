@@ -190,6 +190,24 @@ executor:
   #   verbs: ["get", "list", "watch"]
 
   # ----------------------------------------------------------------------------
+  # Capability Reporting (Optional)
+  # ----------------------------------------------------------------------------
+  # When enabled, executors advertise their command whitelist configuration
+  # to the central API. This allows the agent to know what each cluster
+  # can do before sending commands.
+  #
+  # This feature is completely optional - if disabled or if reporting fails,
+  # the system continues to function normally (graceful degradation).
+  capabilities:
+    # Enable capability reporting to central API
+    # Set to true to advertise what this executor can do
+    enabled: false
+
+    # Heartbeat interval (seconds) to refresh capability TTL
+    # Capabilities expire after 1 hour by default; heartbeat keeps them alive
+    heartbeatInterval: 300  # 5 minutes
+
+  # ----------------------------------------------------------------------------
   # Environment Variables
   # ----------------------------------------------------------------------------
   env:
