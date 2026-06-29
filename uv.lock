@@ -1105,6 +1105,7 @@ a2a = [
     { name = "langgraph" },
     { name = "langgraph-checkpoint-redis" },
     { name = "langsmith" },
+    { name = "mcp" },
     { name = "openai" },
     { name = "pydantic" },
     { name = "python-dotenv" },
@@ -1163,6 +1164,7 @@ requires-dist = [
     { name = "langgraph", marker = "extra == 'a2a'", specifier = ">=1.0,<2" },
     { name = "langgraph-checkpoint-redis", marker = "extra == 'a2a'", specifier = ">=0.5.0" },
     { name = "langsmith", marker = "extra == 'a2a'", specifier = ">=0.1.0" },
+    { name = "mcp", marker = "extra == 'a2a'", specifier = ">=1.2.0" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6.0" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.5.0" },
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=0.27.0" },
@@ -2047,7 +2049,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess" },
+    { name = "ptyprocess", marker = "python_full_version >= '3.15' or sys_platform != 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [

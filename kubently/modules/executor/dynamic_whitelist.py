@@ -115,7 +115,9 @@ class DynamicCommandWhitelist:
                 "events",
                 "version",
             },
-            "restrictedResources": {"secrets", "configmaps"},
+            # configmaps are allowed (RBAC permits them and they're core to troubleshooting);
+            # secrets stay restricted as defense-in-depth alongside RBAC.
+            "restrictedResources": {"secrets"},
             "allowedFlags": {
                 "--namespace",
                 "--all-namespaces",

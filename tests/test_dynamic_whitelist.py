@@ -151,6 +151,22 @@ class TestDynamicCommandWhitelist:
         assert is_valid is False
         assert "restricted" in reason
 
+    def test_default_readonly_allows_configmaps_blocks_secrets(self):
+        """Default READ_ONLY config should permit configmap reads but still block secrets.
+
+        Configmaps are bread-and-butter for troubleshooting and are allowed by the
+        executor's RBAC, so the whitelist default must not regress them when enforcement
+        is turned on. Secrets stay restricted.
+        """
+        whitelist = DynamicCommandWhitelist(config_path="/nonexistent/path")
+
+        ok_cm, _ = whitelist.validate_command(["get", "configmaps"])
+        ok_secret, reason = whitelist.validate_command(["get", "secrets"])
+
+        assert ok_cm is True
+        assert ok_secret is False
+        assert "restricted" in reason
+
     def test_security_modes(self):
         """Test different security modes have correct defaults."""
         # Test READ_ONLY mode

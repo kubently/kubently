@@ -15,7 +15,7 @@ import json
 import logging
 import os
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncGenerator, Optional, Tuple
 
@@ -153,6 +153,25 @@ async def lifespan(app: FastAPI):
         logger.error("Failed to initialize A2A server - this is a critical failure")
         raise RuntimeError("A2A server initialization failed")
 
+    # Mount MCP server (optional - only if the `mcp` SDK is installed).
+    # Exposes Kubently's multi-cluster troubleshooting as MCP tools for any MCP client.
+    mcp_stack = None
+    try:
+        from kubently.modules.mcp.server import build_mcp_server
+
+        mcp_server = build_mcp_server()
+        mcp_app = mcp_server.streamable_http_app()  # must run before accessing session_manager
+        app.mount("/mcp", mcp_app)
+        # Starlette doesn't run a mounted sub-app's lifespan, so start the MCP session
+        # manager ourselves and keep it alive for the process lifetime.
+        mcp_stack = AsyncExitStack()
+        await mcp_stack.enter_async_context(mcp_server.session_manager.run())
+        logger.info("MCP server mounted at /mcp")
+    except ImportError:
+        logger.info("mcp package not installed; MCP server not mounted")
+    except Exception as e:
+        logger.warning(f"Failed to mount MCP server: {e}")
+
     logger.info("Kubently API started successfully")
 
     yield
@@ -160,7 +179,8 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down Kubently API...")
 
-
+    if mcp_stack:
+        await mcp_stack.aclose()
     if redis_client:
         await redis_client.close()
     logger.info("Kubently API shutdown complete")
