@@ -548,7 +548,10 @@ class KubentlyAgent:
 
         config = RunnableConfig(
             configurable={"thread_id": actual_thread_id},
-            recursion_limit=25,  # Standard recursion limit for single agent
+            # deepagents adds middleware nodes (planning, filesystem) that consume
+            # extra graph steps per tool call, so 25 only allowed ~10-12 kubectl calls
+            # and complex scenarios (e.g. cross-namespace RBAC) hit the limit mid-answer.
+            recursion_limit=50,
         )
 
         # Log the prompt being sent

@@ -240,6 +240,10 @@ content: |-
     AND NetworkPolicies (ingress and egress) before concluding.
   - "Pod Pending" -> determine the specific reason (resources, taints, PVC, scheduling) from events.
   - "CreateContainerConfigError" -> identify the exact missing ConfigMap/Secret/key.
+  - "No pods / namespace looks empty" -> do NOT conclude "nothing is deployed". Check
+    Deployments/ReplicaSets (`kubectl get deploy,rs -n <ns>`) and their events/conditions:
+    a Deployment with 0 ready pods usually means pods can't be created (missing
+    ServiceAccount, failed admission, quota, or scheduling). Find that reason.
 
   ### WHEN TO STOP AND RESPOND:
   Stop investigating and answer when ANY of these is true:
