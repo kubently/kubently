@@ -632,7 +632,14 @@ class TestRunner:
         
         # Analyze results (if not skipping)
         if self.skip_analysis:
-            analysis = {"skipped": True, "reason": "Analysis disabled"}
+            # No Gemini available: still produce a lightweight, LLM-free root-cause
+            # signal by checking the agent's answer against the scenario's expected_fix,
+            # so sweeps self-score instead of defaulting every scenario to "not found".
+            analysis = {
+                "skipped": True,
+                "reason": "Gemini analysis disabled",
+                "root_cause_analysis": self._local_root_cause_check(scenario, debug_trace),
+            }
         else:
             analysis = await self._analyze_results(scenario, debug_trace)
         
@@ -674,6 +681,50 @@ class TestRunner:
         
         return result
     
+    # Words too generic to indicate the agent actually found the root cause.
+    _RC_STOPWORDS = {
+        "the", "and", "with", "that", "from", "into", "not", "use", "for", "add",
+        "fix", "missing", "change", "update", "create", "correct", "reference",
+        "valid", "reasonable", "values", "just", "only", "its", "new", "existing",
+        "remove", "rule", "allow", "set", "key", "name", "pod", "pods",
+    }
+
+    def _local_root_cause_check(self, scenario, debug_trace) -> dict:
+        """LLM-free root-cause heuristic for --skip-analysis runs.
+
+        Scores how much of the scenario's expected_fix vocabulary the agent's final
+        answer covers. This is a screen, not ground truth: it can false-positive when
+        the agent name-drops the right term while misdiagnosing, and false-negative on
+        vocabulary mismatch. The Gemini analyzer remains authoritative when available.
+        """
+        import re
+
+        responses = getattr(debug_trace, "responses", None) or []
+        answer = ""
+        if responses:
+            last = responses[-1]
+            answer = (last.get("content") if isinstance(last, dict) else str(last)) or ""
+        answer_l = answer.lower()
+
+        terms = [
+            w for w in re.findall(r"[a-z0-9][a-z0-9-]{3,}", (scenario.expected_fix or "").lower())
+            if w not in self._RC_STOPWORDS
+        ]
+        terms = sorted(set(terms))
+        if not terms or not answer.strip():
+            return {"identified_correctly": False, "method": "local-keyword",
+                    "coverage": 0.0, "matched": [], "expected_terms": terms}
+
+        matched = [t for t in terms if t in answer_l]
+        coverage = len(matched) / len(terms)
+        return {
+            "identified_correctly": coverage >= 0.4,
+            "method": "local-keyword",
+            "coverage": round(coverage, 2),
+            "matched": matched,
+            "expected_terms": terms,
+        }
+
     async def _setup_scenario(self, scenario: TestScenario) -> bool:
         """Setup test scenario."""
         try:

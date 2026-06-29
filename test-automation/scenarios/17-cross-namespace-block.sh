@@ -14,70 +14,70 @@ if [ "$1" = "setup" ]; then
     kubectl --context kind-kubently create namespace namespace-a --dry-run=client -o yaml | kubectl --context kind-kubently apply -f -
     kubectl --context kind-kubently create namespace namespace-b --dry-run=client -o yaml | kubectl --context kind-kubently apply -f -
     cat <<EOF | kubectl --context kind-kubently apply -f -
-    apiVersion: apps/v1
-    kind: Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server-b
+  namespace: namespace-b
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: server-b
+  template:
     metadata:
-      name: server-b
-      namespace: namespace-b
-    spec:
-      replicas: 1
-      selector:
-        matchLabels:
-          app: server-b
-      template:
-        metadata:
-          labels:
-            app: server-b
-        spec:
-          containers:
-          - name: nginx
-            image: nginx:latest
-            ports:
-            - containerPort: 80
-    ---
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: server-b-service
-      namespace: namespace-b
-    spec:
-      selector:
-        app: server-b
-      ports:
-      - port: 80
-        targetPort: 80
-EOF
-    cat <<EOF | kubectl --context kind-kubently apply -f -
-    apiVersion: v1
-    kind: Pod
-    metadata:
-      name: client-a
-      namespace: namespace-a
       labels:
-        app: client-a
+        app: server-b
     spec:
       containers:
-      - name: client
-        image: busybox:latest
-        command: ["sh", "-c", "while true; do echo 'Trying cross-namespace connection...'; wget -O- -T 5 http://server-b-service.namespace-b.svc.cluster.local 2>&1 | head -5; echo '---'; sleep 5; done"]
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: server-b-service
+  namespace: namespace-b
+spec:
+  selector:
+    app: server-b
+  ports:
+  - port: 80
+    targetPort: 80
 EOF
     cat <<EOF | kubectl --context kind-kubently apply -f -
-    apiVersion: networking.k8s.io/v1
-    kind: NetworkPolicy
-    metadata:
-      name: same-namespace-only
-      namespace: namespace-b
-    spec:
-      podSelector:
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client-a
+  namespace: namespace-a
+  labels:
+    app: client-a
+spec:
+  containers:
+  - name: client
+    image: busybox:latest
+    command: ["sh", "-c", "while true; do echo 'Trying cross-namespace connection...'; wget -O- -T 5 http://server-b-service.namespace-b.svc.cluster.local 2>&1 | head -5; echo '---'; sleep 5; done"]
+EOF
+    cat <<EOF | kubectl --context kind-kubently apply -f -
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: same-namespace-only
+  namespace: namespace-b
+spec:
+  podSelector:
+    matchLabels:
+      app: server-b
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
         matchLabels:
-          app: server-b
-      policyTypes:
-      - Ingress
-      ingress:
-      - from:
-        - namespaceSelector:
-            matchLabels:
-              name: namespace-b
+          name: namespace-b
 EOF
     kubectl --context kind-kubently get networkpolicy -n namespace-b
     kubectl --context kind-kubently logs client-a -n namespace-a --tail=10

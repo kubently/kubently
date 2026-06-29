@@ -158,12 +158,15 @@ class A2AModule:
                     error_format="jsonrpc"  # Use JSON-RPC error format for A2A
                 )
                 
-                # Register middleware with the app
-                @self._app.middleware("http")
-                async def authentication_middleware(request, call_next):
-                    return await auth_middleware(request, call_next)
-                
-                logger.info("A2A FastAPI sub-application created with authentication middleware")
+                # Register middleware with the app. A2AStarletteApplication.build()
+                # returns a Starlette app, which has no FastAPI-style @app.middleware
+                # decorator — use add_middleware(BaseHTTPMiddleware, dispatch=...),
+                # which works on both Starlette and FastAPI. auth_middleware's
+                # __call__(request, call_next) matches the dispatch signature.
+                from starlette.middleware.base import BaseHTTPMiddleware
+                self._app.add_middleware(BaseHTTPMiddleware, dispatch=auth_middleware)
+
+                logger.info("A2A sub-application created with authentication middleware")
             else:
                 logger.warning("A2A app created without authentication (no Redis client)")
 
