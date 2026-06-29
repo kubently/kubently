@@ -72,7 +72,7 @@ HELM_ARGS=(
   --set api.image.repository=kubently-api      --set api.image.tag=latest      --set api.image.pullPolicy=Never
   --set executor.image.repository=kubently-executor --set executor.image.tag=latest --set executor.image.pullPolicy=Never
   --set api.existingSecret=kubently-api-keys
-  --set api.env.ANTHROPIC_MODEL_NAME="${ANTHROPIC_MODEL_NAME:-claude-sonnet-4-5}"
+  --set api.env.ANTHROPIC_MODEL_NAME="${ANTHROPIC_MODEL_NAME:-claude-sonnet-4-6}"
   --set executor.enabled=true
   --set executor.clusterId="$CLUSTER_ID"
   --set executor.apiUrl="http://kubently-api:8080"
