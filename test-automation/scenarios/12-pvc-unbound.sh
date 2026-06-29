@@ -38,19 +38,19 @@ spec:
   template:
     metadata:
       labels:
-    app: storage-app
+        app: storage-app
     spec:
       containers:
       - name: app
-    image: busybox:latest
-    command: ["sh", "-c", "sleep 3600"]
-    volumeMounts:
-    - name: storage
-      mountPath: /data
+        image: busybox:latest
+        command: ["sh", "-c", "sleep 3600"]
+        volumeMounts:
+        - name: storage
+          mountPath: /data
       volumes:
       - name: storage
-    persistentVolumeClaim:
-      claimName: unbound-pvc
+        persistentVolumeClaim:
+          claimName: unbound-pvc
 EOF
     kubectl --context kind-kubently get pvc -n $NAMESPACE
     kubectl --context kind-kubently get pods -n $NAMESPACE
