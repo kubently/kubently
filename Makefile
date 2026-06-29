@@ -55,11 +55,9 @@ install-all:
 	uv pip install -e ".[dev,test,docs,a2a]"
 
 test:
-	# Unit tests only. Excludes integration/e2e (need a cluster) and
-	# test_dynamic_whitelist.py (pre-existing failures: CommandAnalyzer/LearningEngine drift).
+	# Unit tests only. Excludes integration/e2e (need a cluster).
 	uv run python -m pytest tests kubently/tests kubently/modules/middleware \
-		--ignore=tests/integration --ignore=tests/e2e \
-		--ignore=tests/test_dynamic_whitelist.py
+		--ignore=tests/integration --ignore=tests/e2e
 
 lint:
 	cd kubently && python -m ruff check .

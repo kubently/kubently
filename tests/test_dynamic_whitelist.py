@@ -270,11 +270,12 @@ class TestCommandAnalyzer:
         is_safe, reason = self.analyzer.is_safe_for_mode(args, "readOnly")
         assert is_safe is True
 
-        # Exec not safe for readOnly
+        # Exec not safe for readOnly (rejected via the risk-level check before the
+        # category check; either way the reason names the read-only mode).
         args = ["exec", "pod/test", "ls"]
         is_safe, reason = self.analyzer.is_safe_for_mode(args, "readOnly")
         assert is_safe is False
-        assert "not allowed in read-only mode" in reason
+        assert "read-only mode" in reason
 
         # Exec safe for extendedReadOnly
         is_safe, reason = self.analyzer.is_safe_for_mode(args, "extendedReadOnly")
@@ -334,7 +335,9 @@ class TestLearningEngine:
             )
 
         # Add some safe patterns
-        for i in range(10):
+        # Confidence is safe_patterns / (safe_patterns + rejections); with 20
+        # rejections above, need >= 20 safe patterns to clear min_confidence=0.5.
+        for i in range(25):
             pattern_hash = f"pattern-{i}"
             self.engine.patterns[pattern_hash] = Pattern(
                 template="port-forward pod/<NAME> 8080:80",
