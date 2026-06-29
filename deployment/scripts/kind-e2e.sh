@@ -97,6 +97,13 @@ kubectl -n "$NS" exec statefulset/kubently-redis-master -- \
 kubectl -n "$NS" rollout restart deploy/kubently-executor
 kubectl -n "$NS" rollout status  deploy/kubently-executor --timeout=90s
 
+# Restart the API too: tag is :latest with pullPolicy Never, so `helm upgrade`
+# does NOT pick up a freshly `kind load`ed image (same tag) or an updated prompt
+# configmap. An explicit rollout restart guarantees both are live before smoke.
+step "Restarting kubently-api (load new image + prompt configmap)"
+kubectl -n "$NS" rollout restart deploy/kubently-api
+kubectl -n "$NS" rollout status  deploy/kubently-api --timeout=150s
+
 # 6. Port-forward + smoke -------------------------------------------------
 pkill -f "port-forward.*kubently-api 8080" 2>/dev/null || true
 step "Port-forwarding 8080 -> kubently-api"
