@@ -192,7 +192,7 @@ class KubentlyAgent:
                 from langchain_anthropic import ChatAnthropic
 
                 # Determine model from environment or use default
-                model_name = os.getenv("ANTHROPIC_MODEL_NAME", "claude-sonnet-4-20250514")
+                model_name = os.getenv("ANTHROPIC_MODEL_NAME", "claude-sonnet-4-6")
 
                 self.llm = ChatAnthropic(
                     model=model_name,
@@ -208,7 +208,7 @@ class KubentlyAgent:
                 # Anthropic without context-clearing: plain ChatAnthropic.
                 from langchain_anthropic import ChatAnthropic
 
-                model_name = os.getenv("ANTHROPIC_MODEL_NAME", "claude-sonnet-4-20250514")
+                model_name = os.getenv("ANTHROPIC_MODEL_NAME", "claude-sonnet-4-6")
                 self.llm = ChatAnthropic(model=model_name, max_tokens=4096)
                 logger.info(f"Anthropic Claude initialized without context management: {model_name}")
         elif "openai" in llm_provider or "azure" in llm_provider:
