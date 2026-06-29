@@ -55,7 +55,9 @@ install-all:
 	uv pip install -e ".[dev,test,docs,a2a]"
 
 test:
-	cd kubently && python -m pytest tests/
+	# Unit tests only. Excludes integration/e2e (need a cluster).
+	uv run python -m pytest tests kubently/tests kubently/modules/middleware \
+		--ignore=tests/integration --ignore=tests/e2e
 
 lint:
 	cd kubently && python -m ruff check .

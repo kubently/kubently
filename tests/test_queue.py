@@ -10,7 +10,7 @@ import pytest_asyncio
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from kubently.api.queue import QueueModule
+from kubently.modules.queue.queue import QueueModule
 
 
 @pytest_asyncio.fixture
@@ -29,6 +29,23 @@ async def redis_mock():
     redis.publish = AsyncMock()
     redis.incrby = AsyncMock()
     redis.ltrim = AsyncMock()
+
+    # pubsub() is a SYNC call returning a pubsub object whose
+    # subscribe/unsubscribe/close are async and whose listen() is an
+    # async iterator. Default listen() yields nothing (blocks until cancelled).
+    pubsub = MagicMock()
+    pubsub.subscribe = AsyncMock()
+    pubsub.unsubscribe = AsyncMock()
+    pubsub.close = AsyncMock()
+
+    async def _empty_listen():
+        # Never yields; lets asyncio.timeout fire for timeout tests.
+        if False:
+            yield  # pragma: no cover
+        await asyncio.Event().wait()
+
+    pubsub.listen = MagicMock(side_effect=_empty_listen)
+    redis.pubsub = MagicMock(return_value=pubsub)
 
     return redis
 
@@ -186,28 +203,44 @@ async def test_wait_for_result_immediate(queue_module, redis_mock):
 
 @pytest.mark.asyncio
 async def test_wait_for_result_polling(queue_module, redis_mock):
-    """Test waiting for a result that appears after polling"""
+    """Test waiting for a result delivered via pub/sub notification.
+
+    Fast-path GET returns None, post-subscribe re-check GET returns None,
+    then a pub/sub 'message' arrives and the subsequent GET returns the result.
+    """
     result_data = {"success": True, "output": "Done"}
 
+    # 1st get: fast path (None), 2nd get: race re-check (None),
+    # 3rd get: after notification message (result present)
     redis_mock.get.side_effect = [None, None, json.dumps(result_data)]
 
-    with patch("asyncio.sleep", new_callable=AsyncMock):
-        result = await queue_module.wait_for_result("cmd-123", timeout=2)
+    async def _listen_with_message():
+        yield {"type": "subscribe", "channel": "result:ready:cmd-123", "data": 1}
+        yield {"type": "message", "channel": "result:ready:cmd-123", "data": "1"}
+
+    redis_mock.pubsub.return_value.listen = MagicMock(side_effect=_listen_with_message)
+
+    result = await queue_module.wait_for_result("cmd-123", timeout=2)
 
     assert result == result_data
     assert redis_mock.get.call_count == 3
+    redis_mock.pubsub.return_value.subscribe.assert_awaited_once_with("result:ready:cmd-123")
+    redis_mock.pubsub.return_value.unsubscribe.assert_awaited_once_with("result:ready:cmd-123")
+    redis_mock.pubsub.return_value.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_wait_for_result_timeout(queue_module, redis_mock):
-    """Test waiting for a result that times out"""
+    """Test waiting for a result that times out (no notification arrives)."""
+    # Result is never present; default listen() blocks until timeout fires.
     redis_mock.get.return_value = None
 
-    with patch("asyncio.sleep", new_callable=AsyncMock):
-        result = await queue_module.wait_for_result("cmd-123", timeout=0.5)
+    result = await queue_module.wait_for_result("cmd-123", timeout=0.1)
 
     assert result is None
     redis_mock.incrby.assert_any_call("metrics:commands_timeout:global", 1)
+    redis_mock.pubsub.return_value.unsubscribe.assert_awaited_once_with("result:ready:cmd-123")
+    redis_mock.pubsub.return_value.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio

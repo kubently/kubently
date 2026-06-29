@@ -10,7 +10,7 @@ import pytest
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from kubently.api.session import SessionModule
+from kubently.modules.session.session import SessionModule
 
 
 @pytest.fixture
@@ -358,7 +358,7 @@ async def test_publish_event(session_module, mock_redis):
 
     # Verify event was stored in history
     assert mock_redis.lpush.called
-    assert mock_redis.ltrim.called_with("session:events", 0, 999)
+    mock_redis.ltrim.assert_called_with("session:events", 0, 999)
 
 
 if __name__ == "__main__":
