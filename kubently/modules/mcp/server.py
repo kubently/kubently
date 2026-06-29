@@ -28,7 +28,9 @@ def _creds() -> tuple[str, str]:
 
 def build_mcp_server() -> FastMCP:
     """Build the Kubently MCP server with its tools registered."""
-    mcp = FastMCP("kubently")
+    # streamable_http_path="/" so that mounting the app at "/mcp" in main.py yields a clean
+    # "/mcp" endpoint (FastMCP's default internal path is "/mcp", which would give "/mcp/mcp").
+    mcp = FastMCP("kubently", streamable_http_path="/")
 
     @mcp.tool()
     async def list_clusters() -> list[str]:
