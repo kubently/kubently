@@ -22,7 +22,10 @@ See `.claude/.../memory/kubently-competitive-landscape.md` for the full competit
   relaxed to allow configmaps (secrets still blocked). Made `sseclient` optional / dropped
   dead `httpx` import so the executor is unit-testable. Tests:
   `tests/test_executor_enforcement.py` (2), `tests/test_dynamic_whitelist.py` (+1).
-- ⬜ #2 cloud-auth docs, #4 fan-out, mTLS — not started.
+- ✅ **#2 cloud-auth — DONE.** Added `executor.serviceAccount.annotations` passthrough to the
+  chart (`executor-serviceaccount.yaml` + values.yaml) so IRSA / GKE Workload Identity work
+  with zero code change. Docs: `docs/CLOUD_AUTH.md`. Verified via `helm template`.
+- ⬜ #4 fan-out, mTLS — not started (deferred/optional).
 
 ---
 
