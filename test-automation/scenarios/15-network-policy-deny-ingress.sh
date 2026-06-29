@@ -25,13 +25,13 @@ spec:
   template:
     metadata:
       labels:
-    app: server
+        app: server
     spec:
       containers:
       - name: nginx
-    image: nginx:latest
-    ports:
-    - containerPort: 80
+        image: nginx:latest
+        ports:
+        - containerPort: 80
 ---
 apiVersion: v1
 kind: Service

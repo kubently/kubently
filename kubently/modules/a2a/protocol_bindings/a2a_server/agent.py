@@ -3,16 +3,13 @@ import logging
 import os
 import uuid
 from collections.abc import AsyncIterable
-from typing import Any, List, Dict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
-from cnoe_agent_utils import LLMFactory
-from langchain_core.messages import AIMessage, ToolMessage, SystemMessage, HumanMessage
+from deepagents import create_deep_agent
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.checkpoint.redis.aio import AsyncRedisSaver
-from langgraph.prebuilt import create_react_agent
-from pydantic import BaseModel, Field
 
 from .tool_call_interceptor import get_tool_call_interceptor
 
@@ -41,11 +38,11 @@ def structured_log(log_data: dict, thread_id: str = None):
         # Add thread ID if provided
         if thread_id:
             log_data["thread_id"] = thread_id
-        
+
         # Add timestamp
         import datetime
-        log_data["timestamp"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        
+        log_data["timestamp"] = datetime.datetime.now(datetime.UTC).isoformat()
+
         # Log as formatted JSON
         logger.info(json.dumps(log_data, indent=2, default=str))
 
@@ -133,7 +130,7 @@ class KubentlyAgent:
             "command": command,
             "purpose": purpose,
             "findings": findings,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(UTC).isoformat()
         })
 
         # Log structured data for analysis
@@ -170,7 +167,6 @@ class KubentlyAgent:
         # Initialize memory in async context
         memory_initialized = False
         try:
-            import redis.asyncio as redis_async
 
             if self.redis_client:
                 # Test Redis connection first
@@ -209,15 +205,27 @@ class KubentlyAgent:
                 logger.info(f"Anthropic Claude initialized with context management: {model_name}")
                 logger.info("Context management will automatically clear tool results to prevent context overflow")
             else:
-                # Use standard factory initialization without context management
-                llm_factory = LLMFactory()
-                self.llm = llm_factory.get_llm()
-                logger.info("Anthropic Claude initialized without context management (feature disabled)")
+                # Anthropic without context-clearing: plain ChatAnthropic.
+                from langchain_anthropic import ChatAnthropic
+
+                model_name = os.getenv("ANTHROPIC_MODEL_NAME", "claude-sonnet-4-20250514")
+                self.llm = ChatAnthropic(model=model_name, max_tokens=4096)
+                logger.info(f"Anthropic Claude initialized without context management: {model_name}")
+        elif "openai" in llm_provider or "azure" in llm_provider:
+            from langchain_openai import ChatOpenAI
+
+            self.llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL_NAME", "gpt-4o"))
+            logger.info(f"OpenAI initialized: {llm_provider}")
+        elif "google" in llm_provider or "gemini" in llm_provider:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+
+            self.llm = ChatGoogleGenerativeAI(model=os.getenv("GOOGLE_MODEL_NAME", "gemini-2.0-flash"))
+            logger.info(f"Google Gemini initialized: {llm_provider}")
         else:
-            # For non-Anthropic models, use standard factory initialization
-            llm_factory = LLMFactory()
-            self.llm = llm_factory.get_llm()
-            logger.info(f"LLM initialized: {llm_provider or 'default'}")
+            raise ValueError(
+                f"Unsupported LLM_PROVIDER '{llm_provider}'. Set LLM_PROVIDER to one of: "
+                "anthropic-claude, openai, google-gemini."
+            )
 
         # Load system prompt from configuration
         from kubently.modules.config import get_prompt
@@ -227,13 +235,17 @@ class KubentlyAgent:
         # Initialize tools for kubectl operations
         await self._initialize_tools()
 
-        # Create the single ReAct agent with externalized system prompt
-        # Only use checkpointer if we have a Redis connection for centralized state
-        self.agent = create_react_agent(
+        # Build a deep agent (deepagents 0.6.x). Beyond a plain ReAct loop this gives
+        # the model a built-in planning tool (write_todos via TodoListMiddleware), a
+        # virtual filesystem, and sub-agent support — better suited to multi-step
+        # Kubernetes debugging. Returns a CompiledStateGraph, so the existing
+        # `self.agent.ainvoke({"messages": ...}, config)` call in run() is unchanged.
+        # Only attach the Redis checkpointer if we have a connection for shared state.
+        self.agent = create_deep_agent(
             self.llm,
-            tools=self.tools,
+            self.tools,
+            system_prompt=self.system_prompt,
             checkpointer=self.memory if self.memory else None,
-            prompt=self.system_prompt,
         )
 
         self._initialized = True
@@ -253,7 +265,7 @@ class KubentlyAgent:
 
         # Get the tool call interceptor
         interceptor = get_tool_call_interceptor()
-        
+
         @tool
         async def list_clusters() -> str:
             """List all available Kubernetes clusters.
@@ -264,14 +276,14 @@ class KubentlyAgent:
                 List of available cluster IDs
             """
             debug_print("list_clusters called")
-            
+
             # Record tool call
             tool_call_id = await interceptor.record_tool_call(
                 tool_name="list_clusters",
                 args={},
                 thread_id=getattr(self, '_current_thread_id', None)
             )
-            
+
             async with httpx.AsyncClient(timeout=30.0) as client:
                 try:
                     response = await client.get(
@@ -295,7 +307,7 @@ class KubentlyAgent:
                         await interceptor.record_tool_result(tool_call_id, None, error_msg)
                         return error_msg
                 except Exception as e:
-                    error_msg = f"Error listing clusters: {str(e)}"
+                    error_msg = f"Error listing clusters: {e!s}"
                     await interceptor.record_tool_result(tool_call_id, None, error_msg)
                     return error_msg
 
@@ -466,80 +478,14 @@ class KubentlyAgent:
                         return error_msg
 
                 except Exception as e:
-                    error_msg = f"Error executing command: {str(e)}"
+                    error_msg = f"Error executing command: {e!s}"
                     await interceptor.record_tool_result(tool_call_id, None, error_msg)
                     return error_msg
 
-        @tool
-        async def todo_write(todos: List[Dict[str, str]]) -> str:
-            """Manage debugging workflow tasks to track systematic investigation progress.
-
-            This tool helps you plan and track your debugging steps, ensuring thorough
-            investigation and giving visibility into your progress.
-
-            Args:
-                todos: List of todo items with fields:
-                    - content: Task description (e.g., "Check pod status")
-                    - activeForm: Present continuous form (e.g., "Checking pod status")
-                    - status: "pending", "in_progress", or "completed"
-
-            Example:
-                [
-                    {"content": "Check pod events", "activeForm": "Checking pod events", "status": "in_progress"},
-                    {"content": "Examine pod logs", "activeForm": "Examining pod logs", "status": "pending"},
-                    {"content": "Verify service endpoints", "activeForm": "Verifying service endpoints", "status": "pending"}
-                ]
-
-            Returns:
-                Confirmation message with progress summary
-            """
-            from .todo_manager import TodoManager
-
-            # Record tool call
-            tool_call_id = await interceptor.record_tool_call(
-                tool_name="todo_write",
-                args={"todos": todos},
-                thread_id=getattr(self, '_current_thread_id', None)
-            )
-
-            try:
-                # Get or create todo manager for this thread
-                thread_id = getattr(self, '_current_thread_id', 'default')
-                if not hasattr(self, '_todo_managers'):
-                    self._todo_managers = {}
-
-                if thread_id not in self._todo_managers:
-                    self._todo_managers[thread_id] = TodoManager(thread_id)
-
-                manager = self._todo_managers[thread_id]
-
-                # Clear existing todos and add new ones
-                manager.todos.clear()
-                manager._todo_counter = 0
-
-                for todo_dict in todos:
-                    manager.add_todo(
-                        content=todo_dict.get("content", ""),
-                        activeForm=todo_dict.get("activeForm", todo_dict.get("content", "")),
-                        status=todo_dict.get("status", "pending")
-                    )
-
-                # Get progress summary
-                summary = manager.get_progress_summary()
-                formatted_list = manager.format_for_display()
-
-                result = f"✅ Todo list updated successfully\n\n{formatted_list}"
-
-                await interceptor.record_tool_result(tool_call_id, result)
-                return result
-
-            except Exception as e:
-                error_msg = f"Error updating todo list: {str(e)}"
-                await interceptor.record_tool_result(tool_call_id, None, error_msg)
-                return error_msg
-
-        # Include all tools
-        self.tools = [list_clusters, execute_kubectl, todo_write]
+        # Note: planning/todo tracking is now provided natively by deepagents
+        # (write_todos via TodoListMiddleware), so the previous hand-rolled
+        # todo_write tool + TodoManager were removed.
+        self.tools = [list_clusters, execute_kubectl]
         logger.info(f"Initialized {len(self.tools)} tools")
 
     async def run(
@@ -619,16 +565,16 @@ class KubentlyAgent:
                 {"messages": lc_messages},
                 config=config
             )
-            
+
             # Extract the final message
             final_messages = result.get("messages", [])
             if final_messages:
                 last_message = final_messages[-1]
-                
+
                 # Handle response
                 if isinstance(last_message, AIMessage):
                     response_text = last_message.content
-                    
+
                     # Check for empty response (happens with various LLM providers)
                     if not response_text or not response_text.strip():
                         # Log the issue for debugging
@@ -657,7 +603,7 @@ class KubentlyAgent:
 
                         # Add a note about checking raw outputs
                         response_text += "\n\nPlease review the raw command outputs above to understand the issue."
-                    
+
                     yield {
                         "type": "message",
                         "content": response_text,
@@ -666,7 +612,7 @@ class KubentlyAgent:
                 else:
                     # Fallback response
                     yield {
-                        "type": "message", 
+                        "type": "message",
                         "content": "I can help you debug Kubernetes issues. Please specify which cluster you want to examine, or I can list the available clusters for you.",
                         "metadata": {"thread_id": actual_thread_id}
                     }
@@ -677,11 +623,11 @@ class KubentlyAgent:
                     "content": "I can help you debug Kubernetes issues. Please specify which cluster you want to examine, or I can list the available clusters for you.",
                     "metadata": {"thread_id": actual_thread_id}
                 }
-                
+
         except Exception as e:
             logger.error(f"Error in agent.run: {e}", exc_info=True)
             yield {
                 "type": "error",
-                "content": f"I encountered an error while processing your request: {str(e)}",
+                "content": f"I encountered an error while processing your request: {e!s}",
                 "metadata": {"thread_id": actual_thread_id}
             }

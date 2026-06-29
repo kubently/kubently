@@ -13,20 +13,22 @@ starlette>=0.31.0
 python-dotenv>=1.0.0
 click>=8.0.0
 
-# LangGraph and LangChain (for A2A)
-langgraph>=0.2.0
-langchain>=0.3.0
-langchain-core>=0.3.0
-langchain-community>=0.3.0
-langchain-anthropic>=0.3.0
-langchain-openai>=0.2.0
+# deepagents + LangChain 1.x stack (for A2A)
+# deepagents 0.6.x requires the LangChain 1.x line (langchain/langgraph/langchain-core 1.x).
+deepagents>=0.6.12
+langgraph>=1.0,<2
+langchain>=1.0,<2
+langchain-core>=1.0,<2
+langchain-anthropic>=1.4.7,<2   # deepagents floor; supports context-management betas
+langchain-openai>=1.0,<2
+langgraph-checkpoint-redis>=0.5.0  # AsyncRedisSaver, langgraph 1.x compatible
 langsmith>=0.1.0  # Production tracing and observability
 
-# LLM Provider Support
-cnoe-agent-utils>=0.1.0
+# LLM Provider Support (cnoe-agent-utils removed: it pins langchain-anthropic==1.4.3,
+# which conflicts with deepagents>=0.6.12; providers are constructed directly in agent.py)
 anthropic>=0.40.0
 openai>=1.50.0
-langchain-google-genai>=2.0.0
+langchain-google-genai>=4.2.5,<5  # deepagents floor
 
 # Optional MCP support
 langchain-mcp-adapters>=0.1.0
