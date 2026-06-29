@@ -51,3 +51,36 @@ def build_mcp_server() -> FastMCP:
         return await tools.execute_kubectl(api_url, api_key, cluster_id, command, namespace)
 
     return mcp
+
+
+def add_api_key_auth(app, auth_module):
+    """Wrap an ASGI app so it requires API-key auth — the same X-API-Key the CLI/A2A use.
+
+    Returns a new ASGI app to MOUNT in place of `app`. This is a plain ASGI wrapper rather
+    than Starlette `add_middleware`, because middleware added to a sub-app after
+    `streamable_http_app()` doesn't reliably run once the sub-app is mounted (the middleware
+    stack is built lazily). The wrapper is the mounted app, so it always runs.
+    """
+
+    async def asgi(scope, receive, send):
+        if scope.get("type") != "http":
+            await app(scope, receive, send)
+            return
+
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+        api_key = headers.get("x-api-key")
+        valid = False
+        if api_key:
+            valid, _ = await auth_module.verify_api_key(api_key)
+
+        if not valid:
+            from starlette.responses import JSONResponse
+
+            await JSONResponse({"error": "Unauthorized: valid X-API-Key required"}, status_code=401)(
+                scope, receive, send
+            )
+            return
+
+        await app(scope, receive, send)
+
+    return asgi

@@ -157,11 +157,14 @@ async def lifespan(app: FastAPI):
     # Exposes Kubently's multi-cluster troubleshooting as MCP tools for any MCP client.
     mcp_stack = None
     try:
-        from kubently.modules.mcp.server import build_mcp_server
+        from kubently.modules.auth import AuthModule
+        from kubently.modules.mcp.server import add_api_key_auth, build_mcp_server
 
         mcp_server = build_mcp_server()
         mcp_app = mcp_server.streamable_http_app()  # must run before accessing session_manager
-        app.mount("/mcp", mcp_app)
+        # Require the same API-key auth as the A2A endpoint (the CLI's X-API-Key).
+        authed_mcp = add_api_key_auth(mcp_app, AuthModule(redis_client))
+        app.mount("/mcp", authed_mcp)
         # Starlette doesn't run a mounted sub-app's lifespan, so start the MCP session
         # manager ourselves and keep it alive for the process lifetime.
         mcp_stack = AsyncExitStack()
