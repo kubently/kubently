@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] - 2026-06-30
+
+### Added
+- **MCP Server Documentation**
+  - New `docs/MCP.md` connect guide covering the MCP (Model Context Protocol) server:
+    streamable-HTTP endpoint at `/mcp`, `X-API-Key` authentication, auto-enablement
+    via the `a2a` extra, the two exposed tools (`list_clusters`, `execute_kubectl`),
+    and client configuration examples (generic streamable-HTTP, Claude Desktop/Cursor)
+  - Surfaced MCP as a supported connection method in `README.md` (alongside A2A) and
+    added it to the `docs/INDEX.md` documentation index
+  - Expanded the MCP mention in `docs/AGENTGATEWAY_SETUP.md` into a short section
+    linking to `docs/MCP.md`
+
+### Fixed
+- **Stale MCP Tool References**
+  - Corrected outdated MCP tool names in `docs/SYSTEM_DESIGN.md` and
+    `docs/ARCHITECTURE.md` (removed `create_debug_session`, `get_command_result`,
+    `close_session`, and the old `execute_kubectl` signature) to reflect the real
+    tools: `list_clusters()` and `execute_kubectl(cluster_id, command, namespace)`,
+    plus the correct `/mcp` streamable-HTTP + `X-API-Key` facts and a link to `MCP.md`
+
 ## [Unreleased] - 2025-12-03
 
 ### Added
