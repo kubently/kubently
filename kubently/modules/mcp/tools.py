@@ -1,61 +1,38 @@
 """
-MCP tool adapters for Kubently.
+MCP tool logic for Kubently.
 
-Thin async wrappers over the central API (the same endpoints the A2A agent uses).
-Keeping these free of the `mcp` SDK import makes them unit-testable and lets the
-API boot even when the SDK isn't installed.
+The MCP surface is a single natural-language tool: the caller delegates a question and
+Kubently's own troubleshooting agent answers — the same agent reached over A2A. This
+mirrors A2A rather than exposing raw kubectl, so Kubently's reasoning loop stays in the
+loop instead of being bypassed by the caller's LLM driving kubectl directly.
 
-Read-only safety is enforced downstream by the executor whitelist + RBAC, so these
-adapters stay deliberately thin.
+Kept free of the `mcp` SDK import so it stays unit-testable and the API boots even when
+the SDK isn't installed.
 """
 
-
-import httpx
-
-_TIMEOUT = 30.0
+import uuid
 
 
-async def list_clusters(api_url: str, api_key: str) -> list[str]:
-    """Return the IDs of clusters currently available for troubleshooting."""
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        response = await client.get(
-            f"{api_url}/debug/clusters",
-            headers={"X-Api-Key": api_key},
-        )
-        if response.status_code != 200:
-            return []
-        return response.json().get("clusters", [])
+async def ask_kubently(
+    agent,
+    query: str,
+    cluster_id: str | None = None,
+    conversation_id: str | None = None,
+) -> dict:
+    """Route a natural-language question through the Kubently agent and return its answer.
 
+    `conversation_id` doubles as the agent's memory thread_id; omit it to start a fresh
+    thread (a new id is generated and returned so the caller can continue the conversation).
 
-async def execute_kubectl(
-    api_url: str,
-    api_key: str,
-    cluster_id: str,
-    command: str,
-    namespace: str = "default",
-) -> str:
-    """Run a kubectl command against a cluster and return its output.
-
-    `command` is the kubectl command without the leading `kubectl` (e.g. "get pods").
+    MCP tool calls are request/response, so the agent's stream is drained to its final
+    message. `agent` is a `KubentlyAgent` (injected by the server so this stays SDK-free).
     """
-    parts = command.split()
-    if not parts:
-        return "Error: empty command"
-    verb, args = parts[0], parts[1:]
+    thread_id = conversation_id or str(uuid.uuid4())
+    messages = [{"role": "user", "content": query}]
 
-    payload = {
-        "cluster_id": cluster_id,
-        "command_type": verb,
-        "args": args,
-        "namespace": namespace,
-        "timeout_seconds": 30,
-    }
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        response = await client.post(
-            f"{api_url}/debug/execute",
-            headers={"X-Api-Key": api_key},
-            json=payload,
-        )
-        if response.status_code != 200:
-            return f"Error: HTTP {response.status_code}: {response.text}"
-        return response.json().get("output", "")
+    answer = ""
+    async for event in agent.run(messages, thread_id=thread_id, cluster_id=cluster_id):
+        if event.get("type") in ("message", "error"):
+            answer = event.get("content", answer)
+
+    return {"answer": answer, "thread_id": thread_id}

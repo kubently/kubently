@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Tests for the MCP server tool adapters (kubently.modules.mcp.tools).
+Tests for the MCP ask tool logic (kubently.modules.mcp.tools.ask_kubently).
 
-These adapters expose Kubently's multi-cluster troubleshooting over MCP by calling
-the same central API endpoints the A2A agent uses (/debug/clusters, /debug/execute).
-The logic under test is the request shape and response parsing; HTTP is faked.
+The tool routes a natural-language query through the Kubently agent and drains its
+stream to the final answer. The agent is faked; the logic under test is the drain
+(last message wins, errors surface) and the conversation_id -> thread_id mapping.
 """
 
 import os
@@ -17,92 +17,55 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from kubently.modules.mcp import tools
 
 
-class FakeResponse:
-    def __init__(self, status_code, payload):
-        self.status_code = status_code
-        self._payload = payload
-        self.text = str(payload)
+class FakeAgent:
+    """Records run() args and yields a scripted sequence of agent events."""
 
-    def json(self):
-        return self._payload
+    def __init__(self, events):
+        self._events = events
+        self.calls = []
 
-
-class FakeAsyncClient:
-    """Minimal async-context httpx.AsyncClient stand-in that records calls."""
-
-    def __init__(self, get_response=None, post_response=None, recorder=None):
-        self._get_response = get_response
-        self._post_response = post_response
-        self._rec = recorder if recorder is not None else {}
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    async def get(self, url, headers=None):
-        self._rec["get_url"] = url
-        self._rec["get_headers"] = headers
-        return self._get_response
-
-    async def post(self, url, headers=None, json=None):
-        self._rec["post_url"] = url
-        self._rec["post_headers"] = headers
-        self._rec["post_json"] = json
-        return self._post_response
+    async def run(self, messages, thread_id=None, cluster_id=None):
+        self.calls.append(
+            {"messages": messages, "thread_id": thread_id, "cluster_id": cluster_id}
+        )
+        for event in self._events:
+            yield event
 
 
 @pytest.mark.asyncio
-async def test_list_clusters_returns_ids(monkeypatch):
-    rec = {}
-    monkeypatch.setattr(
-        tools.httpx,
-        "AsyncClient",
-        lambda *a, **k: FakeAsyncClient(
-            get_response=FakeResponse(200, {"clusters": ["prod", "staging"]}), recorder=rec
-        ),
+async def test_ask_drains_to_final_message_and_reuses_conversation_id():
+    agent = FakeAgent(
+        [
+            {"type": "message", "content": "investigating...", "metadata": {}},
+            {"type": "message", "content": "final answer", "metadata": {}},
+        ]
     )
 
-    result = await tools.list_clusters("http://api:8080", "key123")
+    result = await tools.ask_kubently(
+        agent, "why crashlooping?", cluster_id="prod", conversation_id="conv-1"
+    )
 
-    assert result == ["prod", "staging"]
-    assert rec["get_url"] == "http://api:8080/debug/clusters"
-    assert rec["get_headers"]["X-Api-Key"] == "key123"
+    assert result == {"answer": "final answer", "thread_id": "conv-1"}
+    # conversation_id is passed through as the agent's memory thread_id, with cluster context.
+    assert agent.calls[0]["thread_id"] == "conv-1"
+    assert agent.calls[0]["cluster_id"] == "prod"
 
 
 @pytest.mark.asyncio
-async def test_execute_kubectl_posts_verb_and_args(monkeypatch):
-    rec = {}
-    monkeypatch.setattr(
-        tools.httpx,
-        "AsyncClient",
-        lambda *a, **k: FakeAsyncClient(
-            post_response=FakeResponse(200, {"output": "pod/foo Running"}), recorder=rec
-        ),
-    )
+async def test_ask_generates_thread_id_when_omitted():
+    agent = FakeAgent([{"type": "message", "content": "ok", "metadata": {}}])
 
-    result = await tools.execute_kubectl(
-        "http://api:8080", "key123", "prod", "get pods", namespace="kube-system"
-    )
+    result = await tools.ask_kubently(agent, "list clusters")
 
-    assert result == "pod/foo Running"
-    assert rec["post_url"] == "http://api:8080/debug/execute"
-    body = rec["post_json"]
-    assert body["cluster_id"] == "prod"
-    assert body["command_type"] == "get"
-    assert body["args"] == ["pods"]
-    assert body["namespace"] == "kube-system"
+    assert result["answer"] == "ok"
+    assert result["thread_id"]  # generated, non-empty, and handed back to the caller
+    assert agent.calls[0]["thread_id"] == result["thread_id"]
 
 
 @pytest.mark.asyncio
-async def test_execute_kubectl_surfaces_http_error(monkeypatch):
-    monkeypatch.setattr(
-        tools.httpx,
-        "AsyncClient",
-        lambda *a, **k: FakeAsyncClient(post_response=FakeResponse(404, {"detail": "no cluster"})),
-    )
+async def test_ask_surfaces_error_event():
+    agent = FakeAgent([{"type": "error", "content": "boom", "metadata": {}}])
 
-    result = await tools.execute_kubectl("http://api:8080", "key123", "ghost", "get pods")
+    result = await tools.ask_kubently(agent, "break", conversation_id="c")
 
-    assert "404" in result
+    assert result == {"answer": "boom", "thread_id": "c"}

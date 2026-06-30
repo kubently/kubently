@@ -11,6 +11,9 @@ import sys
 import pytest
 
 pytest.importorskip("mcp")
+# build_mcp_server now constructs Kubently's troubleshooting agent, which lives in the
+# same optional `a2a` extra as the mcp SDK; skip when that stack isn't installed.
+pytest.importorskip("langgraph.checkpoint.redis")
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -23,4 +26,4 @@ def test_build_mcp_server_registers_expected_tools(monkeypatch):
     server.streamable_http_app()  # session manager / tool manager initialized here
 
     names = sorted(tool.name for tool in asyncio.run(server.list_tools()))
-    assert names == ["execute_kubectl", "list_clusters"]
+    assert names == ["ask_kubently"]

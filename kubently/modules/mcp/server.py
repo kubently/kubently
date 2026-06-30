@@ -1,54 +1,62 @@
 """
-FastMCP server exposing Kubently's multi-cluster troubleshooting over MCP.
+FastMCP server exposing Kubently's troubleshooting agent over MCP.
 
-Any MCP client (Claude Desktop, Cursor, other agents) can connect and get tools to
-list clusters and run read-only kubectl against any registered cluster — the same
-fleet the A2A agent reaches. Read-only safety is enforced downstream by the executor
-whitelist + RBAC.
+Any MCP client (Claude Desktop, Cursor, other agents) connects and gets ONE
+natural-language tool: ask Kubently a question and its troubleshooting agent answers,
+investigating across the registered fleet on the caller's behalf. This mirrors the A2A
+surface over MCP transport rather than exposing raw kubectl, so Kubently's reasoning loop
+stays in the loop instead of the caller's LLM driving kubectl directly. Read-only safety
+is enforced downstream by the executor whitelist + RBAC.
 
 This module imports the `mcp` SDK; callers should import it lazily so the API still
 boots when the SDK isn't installed (see kubently/main.py).
 """
-
-import os
 
 from mcp.server.fastmcp import FastMCP
 
 from kubently.modules.mcp import tools
 
 
-def _creds() -> tuple[str, str]:
-    """Resolve the internal API URL + key at call time (same pattern as the A2A agent)."""
-    from kubently.modules.auth import AuthModule
+def build_mcp_server(redis_client=None) -> FastMCP:
+    """Build the Kubently MCP server with its single ask tool registered.
 
-    api_url = os.getenv("KUBENTLY_API_URL", "http://localhost:8080")
-    api_key = AuthModule.extract_first_api_key()
-    return api_url, api_key
+    `redis_client` is passed to the agent for conversation memory (same wiring as A2A).
+    One agent instance is reused across calls; `KubentlyAgent.run()` initializes lazily.
+    """
+    # Lazy import: the agent pulls in langchain/langgraph, which the API boots without
+    # when the optional `a2a` extra isn't installed.
+    from kubently.modules.a2a.protocol_bindings.a2a_server.agent import KubentlyAgent
 
+    agent = KubentlyAgent(redis_client=redis_client)
 
-def build_mcp_server() -> FastMCP:
-    """Build the Kubently MCP server with its tools registered."""
     # streamable_http_path="/" so that mounting the app at "/mcp" in main.py yields a clean
     # "/mcp" endpoint (FastMCP's default internal path is "/mcp", which would give "/mcp/mcp").
     mcp = FastMCP("kubently", streamable_http_path="/")
 
     @mcp.tool()
-    async def list_clusters() -> list[str]:
-        """List the Kubernetes clusters currently available for troubleshooting."""
-        api_url, api_key = _creds()
-        return await tools.list_clusters(api_url, api_key)
+    async def ask_kubently(
+        query: str,
+        cluster_id: str | None = None,
+        conversation_id: str | None = None,
+    ) -> dict:
+        """Ask Kubently to troubleshoot a Kubernetes problem, in natural language.
 
-    @mcp.tool()
-    async def execute_kubectl(cluster_id: str, command: str, namespace: str = "default") -> str:
-        """Run a read-only kubectl command against a cluster.
+        Kubently's agent investigates across the available clusters (running read-only
+        kubectl as needed) and returns a synthesized answer — you do NOT issue kubectl
+        yourself; describe the problem and let Kubently diagnose it.
 
         Args:
-            cluster_id: Target cluster (use list_clusters to discover IDs).
-            command: kubectl command without the leading `kubectl`, e.g. "get pods -o wide".
-            namespace: Namespace to use when the command doesn't specify one.
+            query: The question or problem in plain language, e.g.
+                   "why are pods crashlooping in the payments namespace on prod?".
+            cluster_id: Optional target cluster id. Omit to let Kubently choose or ask;
+                        if you don't know the id, just name the cluster in `query`.
+            conversation_id: Optional id to continue a prior troubleshooting thread —
+                             reuse the `thread_id` from a previous response. Omit to start fresh.
+
+        Returns:
+            {"answer": <markdown>, "thread_id": <id to continue the conversation>}
         """
-        api_url, api_key = _creds()
-        return await tools.execute_kubectl(api_url, api_key, cluster_id, command, namespace)
+        return await tools.ask_kubently(agent, query, cluster_id, conversation_id)
 
     return mcp
 
