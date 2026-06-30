@@ -144,31 +144,13 @@ class A2AModule:
 
             # Build and cache the FastAPI app
             self._app = a2a_app.build()
-            
-            # Add authentication middleware using the reusable middleware module
-            if self.redis_client:
-                from kubently.modules.auth import AuthModule
-                from kubently.modules.middleware import create_api_key_middleware
-                
-                # Create auth module and middleware
-                auth_module = AuthModule(self.redis_client)
-                auth_middleware = create_api_key_middleware(
-                    auth_module=auth_module,
-                    skip_paths={"/": ["GET"]},  # Skip auth for agent card endpoint
-                    error_format="jsonrpc"  # Use JSON-RPC error format for A2A
-                )
-                
-                # Register middleware with the app. A2AStarletteApplication.build()
-                # returns a Starlette app, which has no FastAPI-style @app.middleware
-                # decorator — use add_middleware(BaseHTTPMiddleware, dispatch=...),
-                # which works on both Starlette and FastAPI. auth_middleware's
-                # __call__(request, call_next) matches the dispatch signature.
-                from starlette.middleware.base import BaseHTTPMiddleware
-                self._app.add_middleware(BaseHTTPMiddleware, dispatch=auth_middleware)
 
-                logger.info("A2A sub-application created with authentication middleware")
-            else:
-                logger.warning("A2A app created without authentication (no Redis client)")
+            # NOTE: Auth is intentionally NOT added here. add_middleware() on this built
+            # sub-app does not reliably run once it is mounted under the main app (Starlette
+            # builds the middleware stack lazily), which previously left /a2a/ unauthenticated.
+            # API-key auth is enforced at the mount point in kubently/main.py via an explicit
+            # ASGI wrapper (add_api_key_auth). If A2A is ever run standalone via run_server(),
+            # wrap get_app() the same way there.
 
         return self._app
 

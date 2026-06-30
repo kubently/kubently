@@ -147,8 +147,15 @@ async def lifespan(app: FastAPI):
     if a2a_server:
         # A2A module provides its own mount configuration (black box interface)
         mount_path, a2a_app = a2a_server.get_mount_config()
-        app.mount(mount_path, a2a_app)
-        logger.info(f"A2A server mounted at {mount_path} on main port {config.get('port', 8080)}")
+        # Enforce API-key auth at the mount via an explicit ASGI wrapper. The A2A SDK's
+        # own add_middleware() doesn't run once the app is mounted (lazy middleware stack),
+        # which left /a2a/ open — this wrapper always runs. The agent card stays public.
+        from kubently.modules.auth import AuthModule
+        from kubently.modules.mcp.server import add_api_key_auth
+
+        authed_a2a = add_api_key_auth(a2a_app, AuthModule(redis_client), public_well_known=True)
+        app.mount(mount_path, authed_a2a)
+        logger.info(f"A2A server mounted at {mount_path} (API-key auth enforced at mount)")
     else:
         logger.error("Failed to initialize A2A server - this is a critical failure")
         raise RuntimeError("A2A server initialization failed")

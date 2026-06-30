@@ -53,17 +53,38 @@ def build_mcp_server() -> FastMCP:
     return mcp
 
 
-def add_api_key_auth(app, auth_module):
+def add_api_key_auth(app, auth_module, public_well_known=False):
     """Wrap an ASGI app so it requires API-key auth — the same X-API-Key the CLI/A2A use.
 
     Returns a new ASGI app to MOUNT in place of `app`. This is a plain ASGI wrapper rather
-    than Starlette `add_middleware`, because middleware added to a sub-app after
-    `streamable_http_app()` doesn't reliably run once the sub-app is mounted (the middleware
-    stack is built lazily). The wrapper is the mounted app, so it always runs.
+    than Starlette `add_middleware`, because middleware added to a sub-app after it is built
+    doesn't reliably run once the sub-app is mounted (the middleware stack is built lazily).
+    The wrapper IS the mounted app, so it always runs — this is also the fix for the A2A
+    mount, which had the same latent bypass.
+
+    public_well_known=True leaves GET requests to a `/.well-known/...` path unauthenticated
+    (the A2A agent card, which must stay publicly discoverable). Mounted sub-apps see the
+    FULL path in scope["path"] with the mount prefix in scope["root_path"], so we compare
+    the path relative to root_path.
+
+    Note: generic ASGI helper that happens to live here; reused by main.py for both /mcp
+    and /a2a. Move to modules/middleware if a third caller appears.
     """
+
+    def _is_public(scope):
+        if not public_well_known or scope.get("method") != "GET":
+            return False
+        path = scope.get("path", "")
+        root = scope.get("root_path", "")
+        rel = path[len(root):] if root and path.startswith(root) else path
+        return rel.startswith("/.well-known/")
 
     async def asgi(scope, receive, send):
         if scope.get("type") != "http":
+            await app(scope, receive, send)
+            return
+
+        if _is_public(scope):
             await app(scope, receive, send)
             return
 

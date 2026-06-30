@@ -28,7 +28,7 @@ See `.claude/.../memory/kubently-competitive-landscape.md` for the full competit
 - ✅ **MCP auth — DONE.** `/mcp` now requires the same `X-API-Key` as A2A, via an explicit
   ASGI wrapper (`add_api_key_auth` in `mcp/server.py`). Tests: `tests/test_mcp_auth.py` (3).
   E2E-verified: no-key → 401, valid key → tools work, write verb → blocked.
-- 🔴 **SECURITY (pre-existing, NOT yet fixed): A2A auth bypass.** `/a2a/` `message/stream`
+- ✅ **SECURITY: A2A auth bypass — FIXED.** (was: /a2a/ ran the agent with no key.) `/a2a/` `message/stream`
   invokes the agent with NO api key. Root cause: A2A's auth uses Starlette `add_middleware`
   on the sub-app before `mount()`, which doesn't run once mounted (lazy middleware stack) —
   same failure mode found for MCP. Fix: wrap `a2a_app` with an explicit ASGI auth wrapper
