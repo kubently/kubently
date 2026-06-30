@@ -161,13 +161,13 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("A2A server initialization failed")
 
     # Mount MCP server (optional - only if the `mcp` SDK is installed).
-    # Exposes Kubently's multi-cluster troubleshooting as MCP tools for any MCP client.
+    # Exposes Kubently's troubleshooting agent as a single natural-language MCP tool.
     mcp_stack = None
     try:
         from kubently.modules.auth import AuthModule
         from kubently.modules.mcp.server import add_api_key_auth, build_mcp_server
 
-        mcp_server = build_mcp_server()
+        mcp_server = build_mcp_server(redis_client=redis_client)
         mcp_app = mcp_server.streamable_http_app()  # must run before accessing session_manager
         # Require the same API-key auth as the A2A endpoint (the CLI's X-API-Key).
         authed_mcp = add_api_key_auth(mcp_app, AuthModule(redis_client))
