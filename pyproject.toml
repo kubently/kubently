@@ -100,6 +100,7 @@ a2a = [
     
     # Optional MCP support
     "langchain-mcp-adapters>=0.1.0",
+    "mcp>=1.2.0",  # serve Kubently as an MCP server (FastMCP + streamable-http)
     
     # Async support
     "aiohttp>=3.9.0",

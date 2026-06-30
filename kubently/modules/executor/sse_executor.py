@@ -11,7 +11,6 @@ DynamicCommandWhitelist configuration to the central API, enabling
 capability-aware agent behavior.
 """
 
-import asyncio
 import json
 import logging
 import os
@@ -20,11 +19,16 @@ import sys
 import time
 from queue import Queue
 from threading import Thread
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-import httpx
 import requests
-import sseclient
+
+# sseclient is only needed at runtime for the SSE stream; make it optional so the
+# command-execution logic stays importable (and unit-testable) without it.
+try:
+    import sseclient
+except ImportError:
+    sseclient = None
 
 # Optional import - DynamicCommandWhitelist may not be available in all deployments
 try:
@@ -71,6 +75,15 @@ class SSEKubentlyExecutor:
 
         # Track last heartbeat time
         self._last_heartbeat = 0
+
+        # Load the command whitelist for enforcement (defense-in-depth on top of RBAC).
+        # Always on when available; falls back to safe READ_ONLY defaults if no config file.
+        self._whitelist = None
+        if WHITELIST_AVAILABLE:
+            try:
+                self._whitelist = DynamicCommandWhitelist(config_path=self.whitelist_config_path)
+            except Exception as e:
+                logger.warning(f"Failed to load command whitelist ({e}); enforcement disabled")
 
         # Security validation: Warn if using HTTP in production
         if self.api_url.startswith("http://") and self.verify_ssl:
@@ -125,6 +138,9 @@ class SSEKubentlyExecutor:
         """
         Connect to SSE endpoint and listen for commands.
         """
+        if sseclient is None:
+            raise RuntimeError("sseclient is required to run the executor; install sseclient-py")
+
         url = f"{self.api_url}/executor/stream"
         logger.info(f"Connecting to SSE endpoint: {url}")
 
@@ -187,7 +203,7 @@ class SSEKubentlyExecutor:
             except Exception as e:
                 logger.error(f"Error processing command: {e}")
 
-    def _execute_command(self, command: Dict) -> None:
+    def _execute_command(self, command: dict) -> None:
         """
         Execute a command and send result back.
 
@@ -211,7 +227,7 @@ class SSEKubentlyExecutor:
         try:
             # Configure TLS verification
             verify_setting = self.ca_cert_path if self.ca_cert_path else self.verify_ssl
-            
+
             response = requests.post(
                 f"{self.api_url}/executor/results",
                 json=result,
@@ -226,7 +242,7 @@ class SSEKubentlyExecutor:
         except Exception as e:
             logger.error(f"Failed to submit result for {command_id}: {e}")
 
-    def _run_kubectl(self, args: List[str]) -> Dict:
+    def _run_kubectl(self, args: list[str]) -> dict:
         """
         Execute kubectl command.
 
@@ -236,6 +252,18 @@ class SSEKubentlyExecutor:
         Returns:
             Result dictionary with output and status
         """
+        # Enforce the whitelist before executing (defense-in-depth; RBAC is the backstop).
+        if self._whitelist is not None:
+            allowed, reason = self._whitelist.validate_command(args)
+            if not allowed:
+                logger.warning(f"Blocked by whitelist: {' '.join(args)} ({reason})")
+                return {
+                    "success": False,
+                    "error": f"Blocked by whitelist: {reason}",
+                    "status": "BLOCKED",
+                    "return_code": -1,
+                }
+
         try:
             # Prepend kubectl to args
             cmd = ["kubectl"] + args
@@ -284,18 +312,17 @@ class SSEKubentlyExecutor:
 
     # Capability Reporting Methods
 
-    def _get_capabilities_payload(self) -> Dict[str, Any]:
+    def _get_capabilities_payload(self) -> dict[str, Any]:
         """
         Gather capabilities from DynamicCommandWhitelist or use defaults.
 
         Returns:
             Dictionary with capability data for the API
         """
-        # Try to use DynamicCommandWhitelist if available
-        if WHITELIST_AVAILABLE:
+        # Reuse the whitelist loaded in __init__ (avoids a second config-watcher thread)
+        if self._whitelist is not None:
             try:
-                whitelist = DynamicCommandWhitelist(config_path=self.whitelist_config_path)
-                summary = whitelist.get_config_summary()
+                summary = self._whitelist.get_config_summary()
                 return {
                     "mode": summary.get("mode", "readOnly"),
                     "allowed_verbs": summary.get("allowed_verbs", []),
