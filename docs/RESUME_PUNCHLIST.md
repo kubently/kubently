@@ -28,13 +28,12 @@ See `.claude/.../memory/kubently-competitive-landscape.md` for the full competit
 - ✅ **MCP auth — DONE.** `/mcp` now requires the same `X-API-Key` as A2A, via an explicit
   ASGI wrapper (`add_api_key_auth` in `mcp/server.py`). Tests: `tests/test_mcp_auth.py` (3).
   E2E-verified: no-key → 401, valid key → tools work, write verb → blocked.
-- ✅ **SECURITY: A2A auth bypass — FIXED.** (was: /a2a/ ran the agent with no key.) `/a2a/` `message/stream`
-  invokes the agent with NO api key. Root cause: A2A's auth uses Starlette `add_middleware`
-  on the sub-app before `mount()`, which doesn't run once mounted (lazy middleware stack) —
-  same failure mode found for MCP. Fix: wrap `a2a_app` with an explicit ASGI auth wrapper
-  (mirror `add_api_key_auth`) in `main.py` before `app.mount(mount_path, a2a_app)`, and drop
-  the ineffective `add_middleware` in `modules/a2a/__init__.py`. Verify: `POST /a2a/` without
-  key must 401.
+- ✅ **SECURITY: A2A auth bypass — FIXED.** Was: `/a2a/` `message/stream` ran the agent with
+  NO api key (root cause: A2A's Starlette `add_middleware` on the sub-app didn't run once
+  mounted — lazy middleware stack, same failure mode as MCP). Fix: wrap `a2a_app` with the
+  shared ASGI auth wrapper (`add_api_key_auth(..., public_well_known=True)`) at the mount in
+  `main.py`; removed the ineffective `add_middleware` in `modules/a2a/__init__.py`. E2E-verified:
+  agent card no-key → 200 (public), `message/stream` no-key/bad-key → 401, valid key → agent runs.
 - ⬜ #4 fan-out, mTLS — not started (deferred/optional).
 
 ---
