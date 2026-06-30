@@ -19,6 +19,7 @@ Kubently (*Kubernetes + Agentically*) enables AI agents to troubleshoot Kubernet
 
 - **Multi-LLM Support**: Compatible with Google Gemini, OpenAI, Anthropic, and other providers
 - **A2A Protocol**: Industry-standard agent-to-agent communication for complex workflows
+- **MCP Server**: Optional [Model Context Protocol](docs/MCP.md) endpoint so MCP clients (Claude Desktop, Cursor, custom agents) get direct tool access
 - **Natural Language Interface**: Conversational Kubernetes troubleshooting and debugging
 - **Comprehensive Analysis**: Automated issue detection, root cause analysis, and solution recommendations
 - **Security-First**: API key authentication, OAuth/OIDC support, and TLS with cert-manager
@@ -122,6 +123,7 @@ helm install kubently deployment/helm -f deployment/helm/test-values.yaml
 ### Usage & Operations
 - **[CLI Admin Guide](docs/GETTING_STARTED.md#step-5-register-and-deploy-executors)** - Managing clusters and executors
 - **[Test Queries](docs/TEST_QUERIES.md)** - Example API requests and A2A protocol usage
+- **[MCP Connect Guide](docs/MCP.md)** - Connect MCP clients (Claude Desktop, Cursor, custom agents)
 - **[Environment Variables](docs/ENVIRONMENT_VARIABLES.md)** - Configuration reference
 
 ### Architecture & Development
