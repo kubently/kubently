@@ -385,11 +385,13 @@ Each module must adhere to these interface principles:
 ## A2A Integration Patterns
 
 ### MCP Tool Exposure
-When integrated via MCP (Model Context Protocol), Kubently exposes the following tools:
-- `create_debug_session(cluster_id, correlation_id)`
-- `execute_kubectl(session_id, command, timeout)`
-- `get_command_result(result_id)`
-- `close_session(session_id)`
+When integrated via MCP (Model Context Protocol), Kubently exposes its MCP server
+over streamable HTTP at `/mcp` (authenticated with the `X-API-Key` header). It
+exposes the following tools:
+- `list_clusters() -> list[str]`
+- `execute_kubectl(cluster_id, command, namespace="default") -> str`
+
+See [MCP.md](MCP.md) for the full connect guide.
 
 ### Request/Response Headers
 For A2A communication, include:

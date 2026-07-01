@@ -263,6 +263,14 @@ class CommandAnalyzer:
             if arg.startswith("-"):
                 continue
 
+            # Typed reference like "deployment.apps/nginx" or "pod/foo":
+            # extract the resource type (strip the ".group" suffix and "/name").
+            if "/" in arg:
+                resource_type = arg.split("/", 1)[0].split(".", 1)[0]
+                if resource_type:
+                    resources.append(resource_type)
+                continue
+
             # Check if it matches resource patterns
             for resource_type, pattern in self.RESOURCE_PATTERNS.items():
                 if pattern.match(arg):
@@ -270,7 +278,7 @@ class CommandAnalyzer:
                     break
             else:
                 # Could be a resource name or type
-                if i == 1 and not "/" in arg:
+                if i == 1:
                     # Likely a resource type
                     resources.append(arg)
 

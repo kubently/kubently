@@ -11,6 +11,12 @@ This guide covers deploying [kgateway/agentgateway](https://kgateway.dev/docs/ag
 - **Traffic Management**: Load balancing, retries, timeouts for agent traffic
 - **Security**: Centralized authentication, TLS termination, CORS handling
 
+Kubently also exposes an optional **MCP (Model Context Protocol) server** over
+streamable HTTP at `/mcp`, alongside the A2A endpoint at `/a2a/`. Agentgateway can
+route MCP traffic to this endpoint just as it does A2A traffic — the same
+`X-API-Key` authentication applies. For the tools exposed, client configuration,
+and authentication details, see the [MCP Connect Guide](MCP.md).
+
 ### Architecture
 
 ```

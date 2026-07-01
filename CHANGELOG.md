@@ -1,5 +1,52 @@
 # Changelog
 
+## [Unreleased] - 2026-06-30
+
+### Changed
+- **MCP Server: single natural-language tool instead of raw kubectl**
+  - Replaced the two granular MCP tools (`list_clusters`, `execute_kubectl`) with a
+    single `ask_kubently(query, cluster_id?, conversation_id?)` tool that routes the
+    question through Kubently's own `KubentlyAgent` and returns
+    `{"answer": <markdown>, "thread_id": <id>}`. MCP now mirrors the A2A surface over
+    MCP transport — Kubently does the reasoning — rather than letting the caller's LLM
+    drive kubectl directly (which bypassed Kubently's troubleshooting loop)
+  - `build_mcp_server(redis_client)` now constructs and reuses one agent instance,
+    sharing the same Redis-backed conversation memory as A2A; `conversation_id` maps to
+    the agent's `thread_id`. The MCP tool stream is drained to the final answer
+  - Removed the HTTP adapter layer in `kubently/modules/mcp/tools.py` (the agent talks
+    to the queue/session modules directly); updated `docs/MCP.md` and tests accordingly
+
+### Fixed
+- **API Docker build: removed flaky apt/gcc step**
+  - Deleted the `apt-get update && apt-get install gcc` layer from
+    `deployment/docker/api/Dockerfile`. All dependencies (including the `a2a` extra)
+    install from prebuilt wheels on linux/amd64 and linux/arm64, so no build toolchain
+    is needed. This removes a network round-trip to the Debian mirrors that was
+    intermittently failing the build with `apt-get` exit code 100, and speeds the build
+    up. (Executor image is unchanged — it's Alpine/musl, where compilation is still needed.)
+- **MCP endpoint trailing slash documented**
+  - `docs/MCP.md` now specifies the endpoint as `/mcp/` (with trailing slash, same as
+    `/a2a/`); a bare `/mcp` returns a `307` redirect that some HTTP clients mishandle.
+
+### Added
+- **MCP Server Documentation**
+  - New `docs/MCP.md` connect guide covering the MCP (Model Context Protocol) server:
+    streamable-HTTP endpoint at `/mcp`, `X-API-Key` authentication, auto-enablement
+    via the `a2a` extra, the two exposed tools (`list_clusters`, `execute_kubectl`),
+    and client configuration examples (generic streamable-HTTP, Claude Desktop/Cursor)
+  - Surfaced MCP as a supported connection method in `README.md` (alongside A2A) and
+    added it to the `docs/INDEX.md` documentation index
+  - Expanded the MCP mention in `docs/AGENTGATEWAY_SETUP.md` into a short section
+    linking to `docs/MCP.md`
+
+### Fixed
+- **Stale MCP Tool References**
+  - Corrected outdated MCP tool names in `docs/SYSTEM_DESIGN.md` and
+    `docs/ARCHITECTURE.md` (removed `create_debug_session`, `get_command_result`,
+    `close_session`, and the old `execute_kubectl` signature) to reflect the real
+    tools: `list_clusters()` and `execute_kubectl(cluster_id, command, namespace)`,
+    plus the correct `/mcp` streamable-HTTP + `X-API-Key` facts and a link to `MCP.md`
+
 ## [Unreleased] - 2025-12-03
 
 ### Added

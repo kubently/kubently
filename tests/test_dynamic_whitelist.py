@@ -151,6 +151,22 @@ class TestDynamicCommandWhitelist:
         assert is_valid is False
         assert "restricted" in reason
 
+    def test_default_readonly_allows_configmaps_blocks_secrets(self):
+        """Default READ_ONLY config should permit configmap reads but still block secrets.
+
+        Configmaps are bread-and-butter for troubleshooting and are allowed by the
+        executor's RBAC, so the whitelist default must not regress them when enforcement
+        is turned on. Secrets stay restricted.
+        """
+        whitelist = DynamicCommandWhitelist(config_path="/nonexistent/path")
+
+        ok_cm, _ = whitelist.validate_command(["get", "configmaps"])
+        ok_secret, reason = whitelist.validate_command(["get", "secrets"])
+
+        assert ok_cm is True
+        assert ok_secret is False
+        assert "restricted" in reason
+
     def test_security_modes(self):
         """Test different security modes have correct defaults."""
         # Test READ_ONLY mode
@@ -270,11 +286,12 @@ class TestCommandAnalyzer:
         is_safe, reason = self.analyzer.is_safe_for_mode(args, "readOnly")
         assert is_safe is True
 
-        # Exec not safe for readOnly
+        # Exec not safe for readOnly (rejected via the risk-level check before the
+        # category check; either way the reason names the read-only mode).
         args = ["exec", "pod/test", "ls"]
         is_safe, reason = self.analyzer.is_safe_for_mode(args, "readOnly")
         assert is_safe is False
-        assert "not allowed in read-only mode" in reason
+        assert "read-only mode" in reason
 
         # Exec safe for extendedReadOnly
         is_safe, reason = self.analyzer.is_safe_for_mode(args, "extendedReadOnly")
@@ -334,7 +351,9 @@ class TestLearningEngine:
             )
 
         # Add some safe patterns
-        for i in range(10):
+        # Confidence is safe_patterns / (safe_patterns + rejections); with 20
+        # rejections above, need >= 20 safe patterns to clear min_confidence=0.5.
+        for i in range(25):
             pattern_hash = f"pattern-{i}"
             self.engine.patterns[pattern_hash] = Pattern(
                 template="port-forward pod/<NAME> 8080:80",

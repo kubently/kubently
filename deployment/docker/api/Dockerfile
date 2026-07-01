@@ -6,10 +6,9 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 ENV UV_SYSTEM_PYTHON=1
 ENV UV_COMPILE_BYTECODE=1
 
-# Install build dependencies for compiled packages
-RUN apt-get update && apt-get install -y \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
+# No build toolchain needed: all deps (incl. the a2a extra) install from prebuilt
+# wheels on linux/amd64 and linux/arm64. If a future dep needs compilation, add back:
+#   RUN apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
