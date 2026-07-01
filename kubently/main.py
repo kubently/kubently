@@ -15,7 +15,7 @@ import json
 import logging
 import os
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncGenerator, Optional, Tuple
 
@@ -147,11 +147,40 @@ async def lifespan(app: FastAPI):
     if a2a_server:
         # A2A module provides its own mount configuration (black box interface)
         mount_path, a2a_app = a2a_server.get_mount_config()
-        app.mount(mount_path, a2a_app)
-        logger.info(f"A2A server mounted at {mount_path} on main port {config.get('port', 8080)}")
+        # Enforce API-key auth at the mount via an explicit ASGI wrapper. The A2A SDK's
+        # own add_middleware() doesn't run once the app is mounted (lazy middleware stack),
+        # which left /a2a/ open — this wrapper always runs. The agent card stays public.
+        from kubently.modules.auth import AuthModule
+        from kubently.modules.mcp.server import add_api_key_auth
+
+        authed_a2a = add_api_key_auth(a2a_app, AuthModule(redis_client), public_well_known=True)
+        app.mount(mount_path, authed_a2a)
+        logger.info(f"A2A server mounted at {mount_path} (API-key auth enforced at mount)")
     else:
         logger.error("Failed to initialize A2A server - this is a critical failure")
         raise RuntimeError("A2A server initialization failed")
+
+    # Mount MCP server (optional - only if the `mcp` SDK is installed).
+    # Exposes Kubently's troubleshooting agent as a single natural-language MCP tool.
+    mcp_stack = None
+    try:
+        from kubently.modules.auth import AuthModule
+        from kubently.modules.mcp.server import add_api_key_auth, build_mcp_server
+
+        mcp_server = build_mcp_server(redis_client=redis_client)
+        mcp_app = mcp_server.streamable_http_app()  # must run before accessing session_manager
+        # Require the same API-key auth as the A2A endpoint (the CLI's X-API-Key).
+        authed_mcp = add_api_key_auth(mcp_app, AuthModule(redis_client))
+        app.mount("/mcp", authed_mcp)
+        # Starlette doesn't run a mounted sub-app's lifespan, so start the MCP session
+        # manager ourselves and keep it alive for the process lifetime.
+        mcp_stack = AsyncExitStack()
+        await mcp_stack.enter_async_context(mcp_server.session_manager.run())
+        logger.info("MCP server mounted at /mcp")
+    except ImportError:
+        logger.info("mcp package not installed; MCP server not mounted")
+    except Exception as e:
+        logger.warning(f"Failed to mount MCP server: {e}")
 
     logger.info("Kubently API started successfully")
 
@@ -160,7 +189,8 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down Kubently API...")
 
-
+    if mcp_stack:
+        await mcp_stack.aclose()
     if redis_client:
         await redis_client.close()
     logger.info("Kubently API shutdown complete")

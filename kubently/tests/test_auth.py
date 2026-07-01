@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from kubently.api.auth import AuthModule
+from kubently.modules.auth.auth import AuthModule
 
 
 @pytest.fixture
@@ -32,7 +32,6 @@ def auth_module(redis_mock):
         os.environ,
         {
             "API_KEYS": "test-key,orchestrator:service-key,monitoring:monitor-key",
-            "AGENT_TOKEN_CLUSTER_1": "static-token-123",
         },
         clear=False,
     ):
@@ -48,25 +47,10 @@ async def test_verify_agent_valid_token_from_redis(auth_module, redis_mock):
     # Mock Redis to return the token
     redis_mock.get.return_value = token.encode("utf-8")
 
-    result = await auth_module.verify_agent(token, cluster_id)
+    result = await auth_module.verify_executor(token, cluster_id)
 
     assert result is True
-    redis_mock.get.assert_called_once_with(f"agent:token:{cluster_id}")
-
-
-@pytest.mark.asyncio
-async def test_verify_agent_static_token(auth_module, redis_mock):
-    """Test agent verification falls back to environment variable."""
-    cluster_id = "cluster-1"
-    token = "static-token-123"
-
-    # Redis returns None, should fall back to static token
-    redis_mock.get.return_value = None
-
-    result = await auth_module.verify_agent(token, cluster_id)
-
-    assert result is True
-    redis_mock.get.assert_called_once_with(f"agent:token:{cluster_id}")
+    redis_mock.get.assert_called_once_with(f"executor:token:{cluster_id}")
 
 
 @pytest.mark.asyncio
@@ -77,7 +61,7 @@ async def test_verify_agent_invalid_token(auth_module, redis_mock):
 
     redis_mock.get.return_value = None
 
-    result = await auth_module.verify_agent(token, cluster_id)
+    result = await auth_module.verify_executor(token, cluster_id)
 
     assert result is False
 
@@ -85,7 +69,7 @@ async def test_verify_agent_invalid_token(auth_module, redis_mock):
 @pytest.mark.asyncio
 async def test_verify_agent_empty_token(auth_module):
     """Test agent verification with empty token."""
-    result = await auth_module.verify_agent("", "test-cluster")
+    result = await auth_module.verify_executor("", "test-cluster")
     assert result is False
 
 
@@ -164,21 +148,21 @@ async def test_create_agent_token(auth_module, redis_mock):
     """Test agent token creation."""
     cluster_id = "new-cluster"
 
-    token = await auth_module.create_agent_token(cluster_id)
+    token = await auth_module.create_executor_token(cluster_id)
 
     # Verify token format and length
     assert isinstance(token, str)
     assert len(token) > 30  # token_urlsafe(32) produces ~43 chars
 
     # Verify Redis storage
-    redis_mock.set.assert_called_once_with(f"agent:token:{cluster_id}", token)
+    redis_mock.set.assert_called_once_with(f"executor:token:{cluster_id}", token)
 
     # Verify audit log
     redis_mock.lpush.assert_called()
     call_args = redis_mock.lpush.call_args[0]
     assert call_args[0] == "auth:audit"
     event = json.loads(call_args[1])
-    assert event["type"] == "agent_token_created"
+    assert event["type"] == "executor_token_created"
     assert event["data"]["cluster_id"] == cluster_id
 
 
@@ -187,16 +171,16 @@ async def test_revoke_agent_token(auth_module, redis_mock):
     """Test agent token revocation."""
     cluster_id = "revoke-cluster"
 
-    await auth_module.revoke_agent_token(cluster_id)
+    await auth_module.revoke_executor_token(cluster_id)
 
     # Verify Redis deletion
-    redis_mock.delete.assert_called_once_with(f"agent:token:{cluster_id}")
+    redis_mock.delete.assert_called_once_with(f"executor:token:{cluster_id}")
 
     # Verify audit log
     redis_mock.lpush.assert_called()
     call_args = redis_mock.lpush.call_args[0]
     event = json.loads(call_args[1])
-    assert event["type"] == "agent_token_revoked"
+    assert event["type"] == "executor_token_revoked"
     assert event["data"]["cluster_id"] == cluster_id
 
 
@@ -238,27 +222,6 @@ async def test_load_api_keys_various_formats():
 
 
 @pytest.mark.asyncio
-async def test_load_static_tokens_various_formats():
-    """Test loading static tokens with various cluster ID formats."""
-    with patch.dict(
-        os.environ,
-        {
-            "AGENT_TOKEN_PROD_CLUSTER": "token1",
-            "AGENT_TOKEN_DEV": "token2",
-            "AGENT_TOKEN_TEST_ENV_1": "token3",
-            "OTHER_VAR": "ignored",
-        },
-        clear=True,
-    ):
-        auth = AuthModule(AsyncMock())
-
-        assert auth.static_agent_tokens["prod-cluster"] == "token1"
-        assert auth.static_agent_tokens["dev"] == "token2"
-        assert auth.static_agent_tokens["test-env-1"] == "token3"
-        assert "other-var" not in auth.static_agent_tokens
-
-
-@pytest.mark.asyncio
 async def test_constant_time_comparison(auth_module, redis_mock):
     """Test that token comparison is constant-time for security."""
     cluster_id = "timing-test"
@@ -268,13 +231,13 @@ async def test_constant_time_comparison(auth_module, redis_mock):
     redis_mock.get.return_value = correct_token.encode("utf-8")
 
     # Both should use secrets.compare_digest internally
-    result1 = await auth_module.verify_agent(correct_token, cluster_id)
+    result1 = await auth_module.verify_executor(correct_token, cluster_id)
     assert result1 is True
 
     # Test with incorrect token of different length
-    result2 = await auth_module.verify_agent("wrong", cluster_id)
+    result2 = await auth_module.verify_executor("wrong", cluster_id)
     assert result2 is False
 
     # Test with incorrect token of same length
-    result3 = await auth_module.verify_agent("incorrect-tok-123", cluster_id)
+    result3 = await auth_module.verify_executor("incorrect-tok-123", cluster_id)
     assert result3 is False

@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from api.models import (
+from kubently.modules.api.models import (
     AgentCommand,
     Command,
     CommandResult,
@@ -48,15 +48,15 @@ class TestCreateSessionRequest:
         """Test that invalid cluster IDs are rejected."""
         with pytest.raises(ValidationError) as exc_info:
             CreateSessionRequest(cluster_id="Production-Cluster")
-        assert "string does not match regex" in str(exc_info.value)
+        assert "should match pattern" in str(exc_info.value)
 
         with pytest.raises(ValidationError) as exc_info:
             CreateSessionRequest(cluster_id="-invalid")
-        assert "string does not match regex" in str(exc_info.value)
+        assert "should match pattern" in str(exc_info.value)
 
         with pytest.raises(ValidationError) as exc_info:
             CreateSessionRequest(cluster_id="invalid-")
-        assert "string does not match regex" in str(exc_info.value)
+        assert "should match pattern" in str(exc_info.value)
 
     def test_ttl_bounds(self):
         """Test TTL validation bounds."""
@@ -112,7 +112,7 @@ class TestExecuteCommandRequest:
     def test_forbidden_flags_in_args(self):
         """Test that dangerous flags are rejected."""
         dangerous_args = [
-            ["get", "pods", "--token=secret"],
+            ["get", "pods", "scale"],  # Forbidden word in args
             ["get", "pods", "--DELETE"],  # Case insensitive check
             ["describe", "pod", "test", "delete"],  # Forbidden word in args
         ]

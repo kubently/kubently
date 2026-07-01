@@ -12,6 +12,7 @@
 #### Operational Guides
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** - Production deployment, configuration, and operations
 - **[API.md](API.md)** - Complete API reference with endpoints and examples
+- **[MCP.md](MCP.md)** - MCP (Model Context Protocol) server connect guide
 - **[DEVELOPMENT.md](DEVELOPMENT.md)** - Developer guide, testing, and contribution guidelines
 
 ### Module Specifications

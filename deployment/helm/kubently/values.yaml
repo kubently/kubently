@@ -128,6 +128,15 @@ executor:
   #     apiUrl: "http://kubently-api.central-cluster.svc.cluster.local:8080"
   apiUrl: ""
 
+  # ServiceAccount annotations for the executor pod's cloud identity.
+  # This is how you wire cloud IAM to the executor with NO code changes — kubectl
+  # and cloud SDKs in the executor pick up credentials automatically:
+  #   AWS IRSA:               eks.amazonaws.com/role-arn: arn:aws:iam::<acct>:role/<role>
+  #   GKE Workload Identity:  iam.gke.io/gcp-service-account: <gsa>@<project>.iam.gserviceaccount.com
+  # See docs/CLOUD_AUTH.md.
+  serviceAccount:
+    annotations: {}
+
   # ----------------------------------------------------------------------------
   # Security & Command Whitelist
   # ----------------------------------------------------------------------------

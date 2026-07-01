@@ -279,28 +279,31 @@ Executor: 100MB-256MB RAM, 0.1 CPU
 
 ### Multi-Agent System (MAS) Integration
 
-Kubently exposes MCP-compatible tools for agent-to-agent communication:
+Kubently exposes an MCP (Model Context Protocol) server over streamable HTTP at
+`/mcp`, authenticated with the `X-API-Key` header. It exposes the following tools
+for agent-to-agent communication:
 
 ```python
-# MCP Tool Registration
+# MCP Tools (streamable HTTP at /mcp, X-API-Key auth)
 tools = [
     {
-        "name": "create_debug_session",
-        "parameters": {
-            "cluster_id": "string",
-            "correlation_id": "string"
-        }
+        "name": "list_clusters",
+        "parameters": {},
+        "returns": "list[str]"  # available cluster IDs
     },
     {
         "name": "execute_kubectl",
         "parameters": {
-            "session_id": "string",
-            "command": "string",
-            "timeout": "integer"
-        }
+            "cluster_id": "string",
+            "command": "string",     # kubectl command without leading 'kubectl'
+            "namespace": "string"    # default: "default"
+        },
+        "returns": "string"
     }
 ]
 ```
+
+See [MCP.md](MCP.md) for the full connect guide.
 
 ### A2A Communication Pattern
 
