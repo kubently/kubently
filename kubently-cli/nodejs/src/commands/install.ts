@@ -155,8 +155,7 @@ async function runInstall(config: Config, opts: InstallOpts): Promise<void> {
   config.setApiKey(apiKey);
   config.save();
   console.log(chalk.green('\n✓ Kubently installed. CLI config saved to ~/.kubently/config.json'));
-  console.log(chalk.gray(`  Port-forward is running in the background (pid ${portForward.pid}).`));
-  console.log(chalk.gray('  Re-create it later with:'));
+  console.log(chalk.gray('  The API is reachable while a port-forward is running; start one any time with:'));
   console.log(chalk.gray(`  kubectl -n ${namespace} port-forward svc/kubently-api 8080:8080\n`));
 
   // 6. Straight into the chat

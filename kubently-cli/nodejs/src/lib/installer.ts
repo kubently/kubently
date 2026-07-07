@@ -44,12 +44,6 @@ export interface HelmOpts {
 
 export function buildHelmArgs(o: HelmOpts): string[] {
   const chart = o.chartPath ? [o.chartPath] : ['kubently', '--repo', HELM_REPO_URL];
-  // ponytail: pin the Anthropic model — the published :latest API image still defaults
-  // to a retired model id; drop this once the image is republished from current main
-  const modelPin =
-    o.provider === 'anthropic-claude'
-      ? ['--set', 'api.env.ANTHROPIC_MODEL_NAME=claude-sonnet-4-6']
-      : [];
   return [
     'upgrade',
     '--install',
@@ -63,7 +57,6 @@ export function buildHelmArgs(o: HelmOpts): string[] {
     'api.existingSecret=kubently-api-keys',
     '--set',
     `api.env.LLM_PROVIDER=${o.provider}`,
-    ...modelPin,
     '--set',
     'executor.enabled=true',
     '--set',
