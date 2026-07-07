@@ -1,0 +1,30 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "name": "io.github.kubently/kubently",
+  "description": "Troubleshoot Kubernetes clusters agentically — natural-language cluster diagnosis via the ask_kubently tool",
+  "repository": {
+    "url": "https://github.com/kubently/kubently",
+    "source": "github"
+  },
+  "version_detail": {
+    "version": "2.3.0"
+  },
+  "packages": [
+    {
+      "registry_name": "npm",
+      "name": "@kubently/cli",
+      "version": "2.3.0",
+      "runtime_hint": "npx",
+      "package_arguments": [
+        { "type": "positional", "value": "mcp" }
+      ],
+      "environment_variables": []
+    }
+  ],
+  "remotes": [
+    {
+      "transport_type": "streamable-http",
+      "url": "https://<your-kubently-host>/mcp/"
+    }
+  ]
+}
