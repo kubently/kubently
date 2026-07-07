@@ -15,6 +15,7 @@ import {
   getSecretValue,
   preflight,
   providerEnvVar,
+  restartExecutor,
   run,
   sanitizeClusterId,
   startPortForward,
@@ -110,8 +111,10 @@ async function runInstall(config: Config, opts: InstallOpts): Promise<void> {
   applySecret(namespace, 'kubently-llm-secrets', { [envVar]: llmKey });
   spinner.succeed('Namespace and secrets ready');
 
-  // 2. Helm install (waits for deployments)
-  const executorToken = genToken(32);
+  // 2. Helm install (waits for deployments). Reuse the existing executor token on
+  // rerun — rotating it strands the running executor pod on the old value (401 loop).
+  const executorToken =
+    getSecretValue(namespace, 'kubently-executor-token', 'token') ?? genToken(32);
   spinner = ora('Installing Kubently via Helm (this can take a few minutes)').start();
   run(
     'helm',
@@ -135,8 +138,11 @@ async function runInstall(config: Config, opts: InstallOpts): Promise<void> {
   spinner.succeed('API is up (port-forwarded to localhost:8080)');
 
   // 4. Wait for the executor to register (the chart's sync-executor-tokens init
-  // container seeds executor:token:{clusterId} into Redis from the Helm secret)
+  // container seeds executor:token:{clusterId} into Redis from the Helm secret).
+  // Restart the executor first: pods don't roll on secret change, so a rerun or
+  // recovery install would otherwise leave it authenticating with a stale token.
   spinner = ora('Waiting for the executor to connect').start();
+  restartExecutor(namespace);
   const admin = new KubentlyAdminClient(LOCAL_API_URL, apiKey);
   await waitFor(async () => {
     const { clusters } = await admin.listClusters();
