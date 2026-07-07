@@ -46,6 +46,7 @@ api:
   
   env:
     LOG_LEVEL: "INFO"
+    # SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/..."  # enables /webhooks/alertmanager -> Slack diagnosis
     MAX_COMMANDS_PER_FETCH: "10"
     COMMAND_TIMEOUT: "30"
     SESSION_TTL: "300"

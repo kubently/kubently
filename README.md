@@ -69,6 +69,25 @@ Then ask Claude things like *"use kubently to figure out why payments pods are
 crashlooping"*. Any MCP client works — see [docs/MCP.md](docs/MCP.md) for
 Cursor and generic configuration.
 
+### Proactive diagnosis (Alertmanager → Slack)
+
+Set `api.env.SLACK_WEBHOOK_URL` to a Slack incoming-webhook URL and point
+Alertmanager at Kubently:
+
+```yaml
+receivers:
+  - name: kubently
+    webhook_configs:
+      - url: https://<your-kubently-host>/webhooks/alertmanager
+        http_config:
+          http_headers:            # Alertmanager >= 0.28
+            X-API-Key:
+              secrets: ["<your-api-key>"]
+```
+
+Each firing alert is diagnosed by the agent and the result is posted to Slack —
+the bot often explains the root cause before you've opened your laptop.
+
 **📖 See [QUICK_START.md](docs/QUICK_START.md) for full quick-start guide**
 
 **📚 See [GETTING_STARTED.md](docs/GETTING_STARTED.md) for production deployment**
