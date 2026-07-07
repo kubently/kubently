@@ -50,6 +50,44 @@ prompts for it, or reads `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` /
 `--chart ./deployment/helm/kubently` to install from a local checkout, and
 `kubently install --help` for everything else.
 
+### Use from Claude Code / Cursor (MCP)
+
+Already ran `kubently install`? Add Kubently to Claude Code:
+
+```bash
+claude mcp add kubently -- kubently mcp
+```
+
+Or connect directly over HTTP (no bridge process):
+
+```bash
+claude mcp add --transport http kubently http://localhost:8080/mcp/ \
+  --header "X-API-Key: <your-api-key>"
+```
+
+Then ask Claude things like *"use kubently to figure out why payments pods are
+crashlooping"*. Any MCP client works — see [docs/MCP.md](docs/MCP.md) for
+Cursor and generic configuration.
+
+### Proactive diagnosis (Alertmanager → Slack)
+
+Set `api.env.SLACK_WEBHOOK_URL` to a Slack incoming-webhook URL and point
+Alertmanager at Kubently:
+
+```yaml
+receivers:
+  - name: kubently
+    webhook_configs:
+      - url: https://<your-kubently-host>/webhooks/alertmanager
+        http_config:
+          http_headers:            # Alertmanager >= 0.28
+            X-API-Key:
+              secrets: ["<your-api-key>"]
+```
+
+Each firing alert is diagnosed by the agent and the result is posted to Slack —
+the bot often explains the root cause before you've opened your laptop.
+
 **📖 See [QUICK_START.md](docs/QUICK_START.md) for full quick-start guide**
 
 **📚 See [GETTING_STARTED.md](docs/GETTING_STARTED.md) for production deployment**

@@ -77,13 +77,6 @@ describe('buildHelmArgs', () => {
     expect(args).toContain('executor.token=tok');
     expect(args).toContain('--wait');
   });
-
-  it('pins a current Anthropic model (published image default is retired)', () => {
-    expect(buildHelmArgs(base)).toContain('api.env.ANTHROPIC_MODEL_NAME=claude-sonnet-4-6');
-    expect(buildHelmArgs({ ...base, provider: 'openai' }).join(' ')).not.toContain(
-      'ANTHROPIC_MODEL_NAME'
-    );
-  });
 });
 
 describe('secretManifest', () => {

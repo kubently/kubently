@@ -5,6 +5,7 @@ import chalk from 'chalk';
 import figlet from 'figlet';
 import { initCommand } from './commands/init.js';
 import { installCommand } from './commands/install.js';
+import { mcpCommand } from './commands/mcp.js';
 import { clusterCommands } from './commands/cluster.js';
 import { debugCommand } from './commands/debug.js';
 import { createLoginCommand } from './commands/login.js';
@@ -46,8 +47,9 @@ program
   .option('--a2a-path <path>', 'Custom A2A endpoint path (default: /a2a)')
   .option('--debug', 'Enable debug output', false)
   .hook('preAction', (thisCommand) => {
-    // Show banner for main commands (not subcommands)
-    if (thisCommand.name() === 'kubently' && process.argv.length > 2) {
+    // Show banner for main commands (not subcommands).
+    // Never for `mcp`: an MCP client owns stdout — any stray output corrupts the JSON-RPC stream.
+    if (thisCommand.name() === 'kubently' && process.argv.length > 2 && process.argv[2] !== 'mcp') {
       showBanner();
     }
     
@@ -73,6 +75,7 @@ program
 
 // Add commands
 program.addCommand(installCommand(config));
+program.addCommand(mcpCommand(config));
 program.addCommand(initCommand(config));
 program.addCommand(createLoginCommand());
 program.addCommand(clusterCommands(config));

@@ -182,6 +182,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to mount MCP server: {e}")
 
+    # Proactive mode: Alertmanager webhook -> agent diagnosis -> Slack incoming webhook.
+    # Auth accepts X-API-Key or Authorization Bearer (verify_dual_auth); the agent stack
+    # is imported lazily inside the background task, so mounting is cheap.
+    try:
+        from kubently.modules.webhook import create_router as create_webhook_router
+
+        app.include_router(create_webhook_router(verify_dual_auth, redis_client=redis_client))
+        logger.info("Alertmanager webhook mounted at /webhooks/alertmanager")
+    except Exception as e:
+        logger.warning(f"Failed to mount alertmanager webhook: {e}")
+
     logger.info("Kubently API started successfully")
 
     yield
