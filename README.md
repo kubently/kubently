@@ -30,36 +30,25 @@ Kubently (*Kubernetes + Agentically*) enables AI agents to troubleshoot Kubernet
 
 ### For Users: Get Started in 5 Minutes
 
+Point `kubectl` at any cluster (kind, minikube, or real) and run:
+
 ```bash
-# Install CLI
-npm i -g @kubently/cli
-
-# Deploy to your cluster
-git clone https://github.com/kubently/kubently.git
-cd kubently
-kubectl create namespace kubently
-
-# Create secrets (LLM API key + admin key)
-./secrets/generate-redis-password.sh
-kubectl create secret generic kubently-llm-secrets -n kubently \
-  --from-literal=ANTHROPIC_API_KEY="your-key"
-export ADMIN_KEY=$(openssl rand -hex 32)
-kubectl create secret generic kubently-api-keys -n kubently \
-  --from-literal=keys="admin:${ADMIN_KEY}"
-
-# Deploy with Helm
-helm install kubently ./deployment/helm/kubently \
-  --namespace kubently \
-  -f deployment/helm/quick-start-values.yaml
-
-# Configure CLI
-kubently init
-# API URL: http://localhost:8080 (or your ingress URL)
-# API Key: <your admin key>
-
-# Start troubleshooting
-kubently debug
+npm install -g @kubently/cli
+kubently install
 ```
+
+That's it. The CLI installs Kubently via Helm, wires up secrets and the
+executor, port-forwards the API, and drops you into a debug chat:
+
+```
+kubently> why is my nginx pod crashlooping?
+```
+
+You'll need an LLM API key (Anthropic, OpenAI, or Google) — the installer
+prompts for it, or reads `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` /
+`GOOGLE_API_KEY` from your environment. Use `--provider` to pick the LLM,
+`--chart ./deployment/helm/kubently` to install from a local checkout, and
+`kubently install --help` for everything else.
 
 **📖 See [QUICK_START.md](docs/QUICK_START.md) for full quick-start guide**
 

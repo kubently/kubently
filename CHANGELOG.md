@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] - 2026-07-06
+
+### Added
+- **`kubently install`: one-command onboarding (CLI 2.2.0)**
+  - Installs Kubently via Helm into the current kubectl context: creates the
+    namespace and all three secrets (API keys, Redis password, LLM key),
+    registers the executor token through the admin API, port-forwards the API,
+    saves CLI config, and drops straight into a debug chat
+  - `--chart <path>` installs from a local checkout; default pulls from the
+    published Helm repo. `--provider`, `--llm-api-key`, `--yes`, `--no-chat`
+    cover non-interactive use
+- **Helm chart published to GitHub Pages**
+  - New `release-chart.yml` workflow publishes `deployment/helm/kubently` to
+    https://kubently.github.io/kubently via helm/chart-releaser-action on
+    pushes to main
+
 ## [Unreleased] - 2026-06-30
 
 ### Changed
