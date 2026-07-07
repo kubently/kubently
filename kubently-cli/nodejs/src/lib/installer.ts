@@ -152,13 +152,6 @@ export function startPortForward(namespace: string, localPort = 8080): ChildProc
   );
 }
 
-export function restartExecutor(namespace: string): void {
-  run('kubectl', ['-n', namespace, 'rollout', 'restart', 'deploy/kubently-executor']);
-  run('kubectl', [
-    '-n', namespace, 'rollout', 'status', 'deploy/kubently-executor', '--timeout=120s',
-  ]);
-}
-
 /** Poll `check` until it returns true or the deadline passes. */
 export async function waitFor(
   check: () => Promise<boolean>,

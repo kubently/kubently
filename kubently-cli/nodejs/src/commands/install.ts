@@ -15,7 +15,6 @@ import {
   getSecretValue,
   preflight,
   providerEnvVar,
-  restartExecutor,
   run,
   sanitizeClusterId,
   startPortForward,
@@ -135,11 +134,10 @@ async function runInstall(config: Config, opts: InstallOpts): Promise<void> {
   );
   spinner.succeed('API is up (port-forwarded to localhost:8080)');
 
-  // 4. Register the executor token (the glue Helm doesn't do), bounce executor
-  spinner = ora('Registering executor with the API').start();
+  // 4. Wait for the executor to register (the chart's sync-executor-tokens init
+  // container seeds executor:token:{clusterId} into Redis from the Helm secret)
+  spinner = ora('Waiting for the executor to connect').start();
   const admin = new KubentlyAdminClient(LOCAL_API_URL, apiKey);
-  await admin.createAgentToken(clusterId, executorToken);
-  restartExecutor(namespace);
   await waitFor(async () => {
     const { clusters } = await admin.listClusters();
     return clusters.some((c) => c.id === clusterId && c.connected);
