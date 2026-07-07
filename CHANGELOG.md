@@ -16,6 +16,17 @@
     https://kubently.github.io/kubently via helm/chart-releaser-action on
     pushes to main
 
+### Fixed
+- **Chart: `api.enabled` now defaults to true** — values.yaml was missing the
+  key entirely, so a default `helm install` silently deployed no API server
+  (all api templates are gated on it)
+- **Docker publish workflow actually publishes `:latest`** — the tag list only
+  produced `:main` (`type=ref`); added `type=raw,value=latest` on the default
+  branch, plus multi-arch builds (linux/amd64 + linux/arm64 via QEMU). Note:
+  pushes from main had also been failing with `permission_denied:
+  write_package` since Dec 2025 — the stale ghcr packages must be recreated by
+  the workflow (or granted Actions write access) for this to take effect
+
 ## [Unreleased] - 2026-06-30
 
 ### Changed

@@ -2,6 +2,9 @@
 
 # API Configuration (includes A2A server)
 api:
+  # Core component — set to false only for executor-only deployments on remote clusters
+  enabled: true
+
   replicaCount: 3  # Can scale horizontally with connection registry
   
   image:
