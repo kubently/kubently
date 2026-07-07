@@ -104,6 +104,23 @@ The agent only ever runs read-only kubectl.
 
 ## Connecting a Client
 
+### Kubently CLI bridge (easiest, stdio clients)
+
+If you've run `kubently install` (or `kubently init`), the CLI already knows your
+API URL and key. `kubently mcp` runs a local stdio↔HTTP bridge (via
+[`mcp-remote`](https://www.npmjs.com/package/mcp-remote)), so any stdio-only MCP
+client can connect without knowing the endpoint:
+
+```bash
+# Claude Code
+claude mcp add kubently -- kubently mcp
+
+# Any stdio MCP client config
+{ "command": "kubently", "args": ["mcp"] }
+```
+
+Point it at a different deployment with `kubently mcp --api-url <url> --api-key <key>`.
+
 > **Caveat**: MCP remote-HTTP client config formats vary between clients and
 > change over time. The examples below use the common `mcpServers` streamable-HTTP
 > shape, but you should check your client's current documentation for the exact

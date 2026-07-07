@@ -3,6 +3,10 @@
 ## [Unreleased] - 2026-07-06
 
 ### Added
+- **`kubently mcp`: stdio MCP bridge (CLI 2.3.0)** — `claude mcp add kubently -- kubently mcp`
+  proxies stdio to the deployed `/mcp/` endpoint via mcp-remote, reading URL/key from CLI
+  config. Plus `server.json` manifest for the official MCP registry and README/MCP.md
+  connect guides
 - **`kubently install`: one-command onboarding (CLI 2.2.0)**
   - Installs Kubently via Helm into the current kubectl context: creates the
     namespace and all three secrets (API keys, Redis password, LLM key),

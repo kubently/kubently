@@ -50,6 +50,25 @@ prompts for it, or reads `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` /
 `--chart ./deployment/helm/kubently` to install from a local checkout, and
 `kubently install --help` for everything else.
 
+### Use from Claude Code / Cursor (MCP)
+
+Already ran `kubently install`? Add Kubently to Claude Code:
+
+```bash
+claude mcp add kubently -- kubently mcp
+```
+
+Or connect directly over HTTP (no bridge process):
+
+```bash
+claude mcp add --transport http kubently http://localhost:8080/mcp/ \
+  --header "X-API-Key: <your-api-key>"
+```
+
+Then ask Claude things like *"use kubently to figure out why payments pods are
+crashlooping"*. Any MCP client works — see [docs/MCP.md](docs/MCP.md) for
+Cursor and generic configuration.
+
 **📖 See [QUICK_START.md](docs/QUICK_START.md) for full quick-start guide**
 
 **📚 See [GETTING_STARTED.md](docs/GETTING_STARTED.md) for production deployment**
