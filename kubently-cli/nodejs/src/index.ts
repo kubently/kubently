@@ -4,6 +4,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import figlet from 'figlet';
 import { initCommand } from './commands/init.js';
+import { installCommand } from './commands/install.js';
 import { clusterCommands } from './commands/cluster.js';
 import { debugCommand } from './commands/debug.js';
 import { createLoginCommand } from './commands/login.js';
@@ -71,6 +72,7 @@ program
   });
 
 // Add commands
+program.addCommand(installCommand(config));
 program.addCommand(initCommand(config));
 program.addCommand(createLoginCommand());
 program.addCommand(clusterCommands(config));

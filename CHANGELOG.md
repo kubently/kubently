@@ -1,5 +1,32 @@
 # Changelog
 
+## [Unreleased] - 2026-07-06
+
+### Added
+- **`kubently install`: one-command onboarding (CLI 2.2.0)**
+  - Installs Kubently via Helm into the current kubectl context: creates the
+    namespace and all three secrets (API keys, Redis password, LLM key),
+    registers the executor token through the admin API, port-forwards the API,
+    saves CLI config, and drops straight into a debug chat
+  - `--chart <path>` installs from a local checkout; default pulls from the
+    published Helm repo. `--provider`, `--llm-api-key`, `--yes`, `--no-chat`
+    cover non-interactive use
+- **Helm chart published to GitHub Pages**
+  - New `release-chart.yml` workflow publishes `deployment/helm/kubently` to
+    https://kubently.github.io/kubently via helm/chart-releaser-action on
+    pushes to main
+
+### Fixed
+- **Chart: `api.enabled` now defaults to true** — values.yaml was missing the
+  key entirely, so a default `helm install` silently deployed no API server
+  (all api templates are gated on it)
+- **Docker publish workflow actually publishes `:latest`** — the tag list only
+  produced `:main` (`type=ref`); added `type=raw,value=latest` on the default
+  branch, plus multi-arch builds (linux/amd64 + linux/arm64 via QEMU). Note:
+  pushes from main had also been failing with `permission_denied:
+  write_package` since Dec 2025 — the stale ghcr packages must be recreated by
+  the workflow (or granted Actions write access) for this to take effect
+
 ## [Unreleased] - 2026-06-30
 
 ### Changed
