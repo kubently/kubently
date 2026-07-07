@@ -67,6 +67,8 @@ describe('buildHelmArgs', () => {
 
   it('wires executor, api-keys secret, provider, and waits', () => {
     const args = buildHelmArgs(base);
+    // api.enabled has no default in values.yaml — omitting it renders no API deployment
+    expect(args).toContain('api.enabled=true');
     expect(args).toContain('api.existingSecret=kubently-api-keys');
     expect(args).toContain('api.env.LLM_PROVIDER=anthropic-claude');
     expect(args).toContain('executor.enabled=true');

@@ -52,6 +52,8 @@ export function buildHelmArgs(o: HelmOpts): string[] {
     '-n',
     o.namespace,
     '--set',
+    'api.enabled=true',
+    '--set',
     'api.existingSecret=kubently-api-keys',
     '--set',
     `api.env.LLM_PROVIDER=${o.provider}`,
