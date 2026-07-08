@@ -3,6 +3,14 @@
 ## [Unreleased] - 2026-07-08
 
 ### Fixed
+- **Fresh-install executor race (CLI 2.3.3, chart 1.0.1)** — `kubently install`
+  restarted the executor on every run; on first installs the rolling update briefly
+  ran old+new executor pods with the same cluster identity and the old pod's SSE
+  disconnect could clobber the new pod's registration, timing out the "waiting for
+  executor" step. The restart now only happens on reruns (stale-token recovery), and
+  the executor Deployment uses `strategy: Recreate`
+
+### Fixed
 - **`kubently install` chat handoff 404 (CLI 2.3.2)** — the post-install chat passed the
   bare API URL to the debug session, but the A2A client expects the full `/a2a/` URL
   (as `kubently debug` builds); every question failed with "Endpoint not found".
