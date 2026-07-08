@@ -10,6 +10,10 @@ spec:
   # Always 1 replica - each executor represents a unique cluster identity
   # Multiple replicas would create duplicate agents for the same cluster
   replicas: 1
+  # Recreate: a rolling update briefly runs old+new pods with the same cluster
+  # identity; the old pod's SSE disconnect can clobber the new pod's registration
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "kubently.selectorLabels" . | nindent 6 }}
