@@ -21,7 +21,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          registry-url: 'https://registry.npmjs.org'
+          # no registry-url: it writes an .npmrc authToken entry (placeholder when the
+          # secret is absent) that preempts OIDC trusted publishing
 
       # Trusted publishing (OIDC) needs npm >= 11.5; runners ship older
       - name: Update npm
