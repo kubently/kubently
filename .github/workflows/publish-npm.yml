@@ -20,13 +20,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          # no registry-url: it writes an .npmrc authToken entry (placeholder when the
-          # secret is absent) that preempts OIDC trusted publishing
-
-      # Trusted publishing (OIDC) needs npm >= 11.5; runners ship older
-      - name: Update npm
-        run: npm install -g npm@latest
+          # Node 24 bundles npm >= 11.5 (required for OIDC trusted publishing).
+          # No registry-url: it writes an .npmrc authToken entry (placeholder when the
+          # secret is absent) that preempts OIDC. No manual npm upgrade: in-place
+          # `npm install -g npm@latest` corrupts the toolcache npm (missing sigstore).
+          node-version: '24'
 
       - name: Install dependencies
         working-directory: kubently-cli/nodejs
