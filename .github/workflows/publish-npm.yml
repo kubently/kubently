@@ -10,8 +10,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      id-token: write  # Required for provenance
+      contents: write  # create the GitHub release
+      id-token: write  # OIDC trusted publishing + provenance
 
     steps:
       - name: Checkout repository
@@ -46,22 +46,9 @@ jobs:
         run: npm publish --provenance --access public
 
       - name: Create GitHub Release
-        uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: CLI ${{ github.ref }}
-          body: |
-            ## Kubently CLI Release
-
-            Published to npm as [@kubently/cli](https://www.npmjs.com/package/@kubently/cli)
-
-            ### Installation
-            ```bash
-            npm install -g @kubently/cli
-            ```
-
-            See [CHANGELOG.md](kubently-cli/nodejs/CHANGELOG.md) for details.
-          draft: false
-          prerelease: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "CLI ${GITHUB_REF_NAME}" \
+            --notes "Published to npm as [@kubently/cli](https://www.npmjs.com/package/@kubently/cli) — \`npm install -g @kubently/cli\`. See CHANGELOG.md for details."
