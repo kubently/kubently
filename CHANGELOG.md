@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased] - 2026-07-08
+
+### Fixed
+- **`kubently install` chat handoff 404 (CLI 2.3.2)** — the post-install chat passed the
+  bare API URL to the debug session, but the A2A client expects the full `/a2a/` URL
+  (as `kubently debug` builds); every question failed with "Endpoint not found".
+  Standalone `kubently debug` was unaffected
+
 ## [Unreleased] - 2026-07-06
 
 ### Added

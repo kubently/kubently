@@ -158,9 +158,9 @@ async function runInstall(config: Config, opts: InstallOpts): Promise<void> {
   console.log(chalk.gray('  The API is reachable while a port-forward is running; start one any time with:'));
   console.log(chalk.gray(`  kubectl -n ${namespace} port-forward svc/kubently-api 8080:8080\n`));
 
-  // 6. Straight into the chat
+  // 6. Straight into the chat (runDebugSession expects the full /a2a/ URL, same as debug.ts)
   if (opts.chat) {
-    await runDebugSession(LOCAL_API_URL, apiKey, clusterId);
+    await runDebugSession(`${LOCAL_API_URL}/a2a/`, apiKey, clusterId);
   }
   portForward.kill();
 }
