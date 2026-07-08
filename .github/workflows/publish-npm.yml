@@ -20,8 +20,12 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
+
+      # Trusted publishing (OIDC) needs npm >= 11.5; runners ship older
+      - name: Update npm
+        run: npm install -g npm@latest
 
       - name: Install dependencies
         working-directory: kubently-cli/nodejs
@@ -35,11 +39,12 @@ jobs:
         working-directory: kubently-cli/nodejs
         run: npm run build
 
+      # Auth via npm Trusted Publishing (OIDC) — no token/secret needed.
+      # One-time setup: npmjs.com -> @kubently/cli -> Settings -> Trusted Publisher
+      # (GitHub Actions: kubently/kubently, workflow publish-npm.yml)
       - name: Publish to npm
         working-directory: kubently-cli/nodejs
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
         uses: actions/create-release@v1
