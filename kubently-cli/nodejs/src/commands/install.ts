@@ -116,16 +116,31 @@ async function runInstall(config: Config, opts: InstallOpts): Promise<void> {
   const existingToken = getSecretValue(namespace, 'kubently-executor-token', 'token');
   const executorToken = existingToken ?? genToken(32);
   spinner = ora('Installing Kubently via Helm (this can take a few minutes)').start();
-  run(
-    'helm',
-    buildHelmArgs({
-      namespace,
-      clusterId,
-      executorToken,
-      provider: opts.provider,
-      chartPath: opts.chart,
-    })
-  );
+  const helmArgs = buildHelmArgs({
+    namespace,
+    clusterId,
+    executorToken,
+    provider: opts.provider,
+    chartPath: opts.chart,
+  });
+  try {
+    run('helm', helmArgs);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    // Upgrading a live Deployment to strategy Recreate can hit "rollingUpdate:
+    // Forbidden": helm's three-way merge can't drop the live-defaulted
+    // rollingUpdate field (it was never in the old manifest). Recreate the
+    // executor deployment and retry once.
+    if (msg.includes('Forbidden') && msg.includes('strategy')) {
+      spinner.text = 'Upgrade conflict — recreating executor deployment and retrying';
+      run('kubectl', [
+        '-n', namespace, 'delete', 'deployment', 'kubently-executor', '--ignore-not-found',
+      ]);
+      run('helm', helmArgs);
+    } else {
+      throw error;
+    }
+  }
   spinner.succeed('Helm release installed');
 
   // 3. Port-forward + wait for API

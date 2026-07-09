@@ -2,6 +2,18 @@
 
 ## [Unreleased] - 2026-07-08
 
+### Fixed (2026-07-09)
+- **Ctrl+C now exits the debug chat immediately (CLI 2.3.4)** — three layered causes:
+  ora's spinner breaks readline keypress flow while animating (even with
+  discardStdin false), so Ctrl+C was swallowed mid-operation; replaced with a
+  static status line. SIGINT now hard-exits instead of leaving in-flight
+  requests holding a half-dead process that replays buffered keystrokes
+- **`kubently install` reruns recover from the Recreate upgrade conflict** —
+  upgrading a live executor Deployment to `strategy: Recreate` (chart 1.0.2)
+  hits "rollingUpdate: Forbidden" (helm three-way merge can't drop the
+  live-defaulted field); the installer now recreates the deployment and
+  retries once
+
 ### Fixed
 - **Fresh-install executor race (CLI 2.3.3, chart 1.0.1)** — `kubently install`
   restarted the executor on every run; on first installs the rolling update briefly
