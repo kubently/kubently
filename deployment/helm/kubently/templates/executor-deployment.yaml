@@ -11,9 +11,12 @@ spec:
   # Multiple replicas would create duplicate agents for the same cluster
   replicas: 1
   # Recreate: a rolling update briefly runs old+new pods with the same cluster
-  # identity; the old pod's SSE disconnect can clobber the new pod's registration
+  # identity; the old pod's SSE disconnect can clobber the new pod's registration.
+  # rollingUpdate must be explicitly nulled or upgrades from a live RollingUpdate
+  # deployment fail ("rollingUpdate: Forbidden" during helm's three-way merge).
   strategy:
     type: Recreate
+    rollingUpdate: null
   selector:
     matchLabels:
       {{- include "kubently.selectorLabels" . | nindent 6 }}

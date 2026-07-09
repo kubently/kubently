@@ -1,7 +1,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import * as readline from 'readline';
-import ora from 'ora';
 import { Config } from '../lib/config.js';
 import { KubentlyA2ASession } from '../lib/a2aClient.js';
 
@@ -119,7 +118,14 @@ export async function runDebugSession(
       
       // Process in next tick to let event handler complete
       setImmediate(async () => {
-        const spinner = ora('Waiting for Kubently agent...').start();
+        // Static status line, deliberately NOT an ora spinner: ora (even with
+        // discardStdin: false) breaks readline's keypress flow while animating,
+        // swallowing Ctrl+C exactly when users want to bail out of a slow call.
+        console.log(chalk.gray('⏳ Waiting for Kubently agent... (Ctrl+C to quit)'));
+        const spinner = {
+          succeed: (t: string) => console.log(chalk.green(`✔ ${t}`)),
+          fail: (t: string) => console.log(chalk.red(`✖ ${t}`)),
+        };
 
         try {
           const result = await session.sendMessage(command);
@@ -151,10 +157,24 @@ export async function runDebugSession(
       });
     });
 
-    rl.on('SIGINT', () => {
+    // Hard exit on Ctrl+C: rl.close() alone leaves in-flight agent requests
+    // (SSE/axios sockets) holding the event loop — the process lingers with the
+    // terminal half-released, replaying buffered keystrokes into a dead prompt.
+    const exitNow = () => {
       console.log(chalk.yellow('\n\n👋 Goodbye!'));
       rl.close();
-    });
+      process.exit(0);
+    };
+    rl.on('SIGINT', exitNow);
+    // Catch the signal path too (e.g. forwarded by spinner/stdin handlers)
+    process.once('SIGINT', exitNow);
+    // In raw mode Ctrl+C arrives as a data byte (ETX); readline only surfaces it
+    // while idle at the prompt. Catch it at the stream level so Ctrl+C also works
+    // mid-operation (spinner running, agent request in flight).
+    const etxListener = (chunk: Buffer | string) => {
+      if (chunk.includes('\x03')) exitNow();
+    };
+    process.stdin.on('data', etxListener);
 
     rl.on('close', () => {
       isClosing = true;
