@@ -1,6 +1,6 @@
 {
   "name": "@kubently/cli",
-  "version": "2.3.4",
+  "version": "2.3.5",
   "mcpName": "io.github.kubently/kubently",
   "description": "Modern Node.js CLI for Kubently - Troubleshooting Kubernetes Agentically",
   "type": "module",

@@ -3,6 +3,10 @@
 ## [Unreleased] - 2026-07-08
 
 ### Fixed (2026-07-09)
+- **Multi-line paste no longer garbles the chat (CLI 2.3.5)** — lines arriving
+  while an operation is in flight are queued and processed sequentially (echoed
+  at a fresh prompt) instead of spamming "please wait" interleaved with the
+  streaming response
 - **Ctrl+C now exits the debug chat immediately (CLI 2.3.4)** — three layered causes:
   ora's spinner breaks readline keypress flow while animating (even with
   discardStdin false), so Ctrl+C was swallowed mid-operation; replaced with a
