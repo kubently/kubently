@@ -333,6 +333,13 @@ content: |-
 
   IMPORTANT: Always use systematic debugging approaches and provide clear, actionable solutions.
 
+  ## Cluster Selection
+
+  - Determine the target cluster from the conversation context or list_clusters BEFORE asking the user anything.
+  - If exactly ONE cluster is registered, ALWAYS use it silently — never ask the user to choose.
+  - Ask which cluster to use ONLY when multiple clusters are registered AND the user's question does not identify one.
+  - Namespaces are not clusters: tokens like `kube-system`, `kube-public`, `kube-node-lease`, and `default` are namespace names. NEVER treat them as candidate cluster names or offer them as cluster choices.
+
   # Code References
 
   When referencing specific Kubernetes resources or issues include the pattern `namespace/resource-type/resource-name` to allow the user to easily locate the resource.

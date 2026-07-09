@@ -3,6 +3,12 @@
 ## [Unreleased] - 2026-07-08
 
 ### Fixed (2026-07-09)
+- **Agent no longer asks "which cluster" on single-cluster deployments (chart 1.0.3)** —
+  the system prompt had no cluster-selection guidance, so the agent sometimes
+  offered namespace names (e.g. `kube-system`) as cluster candidates or asked to
+  disambiguate with only one cluster registered. New "Cluster Selection" prompt
+  section: use the sole registered cluster silently; namespaces are never
+  cluster candidates
 - **Multi-line paste no longer garbles the chat (CLI 2.3.5)** — lines arriving
   while an operation is in flight are queued and processed sequentially (echoed
   at a fresh prompt) instead of spamming "please wait" interleaved with the
