@@ -26,9 +26,9 @@ make lint           # Run linters
 ### Deployment & Testing
 
 ```bash
-# Deploy to Kind cluster (preferred method)
-./deploy-test.sh              # Deploys + runs automated tests
-RUN_TESTS=false ./deploy-test.sh  # Skip tests
+# Deploy to Kind cluster (preferred method; builds images from HEAD)
+ANTHROPIC_API_KEY=sk-... ./deployment/scripts/kind-e2e.sh
+BUILD=false ./deployment/scripts/kind-e2e.sh   # Skip image rebuild
 
 # Test manually
 bash test-a2a.sh              # Basic A2A protocol tests
@@ -160,7 +160,7 @@ POST http://localhost:8080/a2a/
 
 ## Critical Development Rules
 
-1. **Deployment**: Always use `./deploy-test.sh` - handles secrets, configuration, and testing correctly
+1. **Deployment**: Use `./deployment/scripts/kind-e2e.sh` for local dev (builds from HEAD, handles secrets); end users use `kubently install`
 2. **Helm First**: Update `deployment/helm/test-values.yaml` instead of manual kubectl changes
 3. **Tool Tracing**: All A2A tools must implement interceptor tracing (required for test automation)
 4. **No Ad-Hoc Test Scripts**: Use existing test infrastructure (`test-a2a.sh`, curl, test-automation/). If you create test_*.py files, delete them after use
@@ -368,7 +368,7 @@ See `docs/LANGSMITH_TRACING.md` for production observability setup.
 ## Testing Workflow
 
 1. Make changes
-2. `./deploy-test.sh` (deploys + runs tests)
+2. `ANTHROPIC_API_KEY=sk-... ./deployment/scripts/kind-e2e.sh` (deploys + smoke tests)
 3. `./test-automation/run_tests.sh test-and-analyze --api-key test-api-key` (comprehensive)
 4. Review `test-results-*/analysis/report.md`
 5. Fix issues based on AI recommendations

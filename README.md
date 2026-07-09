@@ -95,8 +95,8 @@ the bot often explains the root cause before you've opened your laptop.
 ### For Developers: Local Testing
 
 ```bash
-# Deploy with automated testing
-./deploy-test.sh
+# Deploy to a local kind cluster (builds images from HEAD)
+ANTHROPIC_API_KEY=sk-... ./deployment/scripts/kind-e2e.sh
 
 # Run comprehensive test suite
 ./test-automation/run_tests.sh test-and-analyze --api-key test-api-key
