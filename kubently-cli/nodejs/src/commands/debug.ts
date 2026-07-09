@@ -71,14 +71,28 @@ export async function runDebugSession(
     
     rl.prompt();
 
+    // Lines that arrive while an operation is in flight (multi-line pastes,
+    // impatient typing) queue up and run sequentially instead of spamming
+    // "please wait" interleaved with streamed output.
+    const inputQueue: string[] = [];
+
     rl.on('line', (line: string) => {
       const command = line.trim();
-      
+
       if (!command) {
         if (!isClosing) rl.prompt();
         return;
       }
 
+      if (pendingOperation) {
+        inputQueue.push(command);
+        return;
+      }
+
+      handleCommand(command);
+    });
+
+    function handleCommand(command: string) {
       switch (command.toLowerCase()) {
         case 'exit':
         case 'quit':
@@ -105,12 +119,6 @@ export async function runDebugSession(
            console.log();
            if (!isClosing) rl.prompt();
            return;
-      }
-
-      // CRITICAL: Don't process if already processing
-      if (pendingOperation) {
-        console.log(chalk.yellow('⚠️  Please wait for the current operation to complete.'));
-        return;
       }
 
       // Mark as processing immediately
@@ -149,13 +157,19 @@ export async function runDebugSession(
           pendingOperation = false;
           if (isClosing) {
             rl.close();
+          } else if (inputQueue.length > 0) {
+            // Drain queued lines (e.g. from a multi-line paste) sequentially,
+            // echoing each so the transcript reads like normal input
+            const next = inputQueue.shift()!;
+            console.log(chalk.magenta('kubently> ') + next);
+            handleCommand(next);
           } else {
             // Ensure readline is active and ready for next input
             ensureReadlineActive();
           }
         }
       });
-    });
+    }
 
     // Hard exit on Ctrl+C: rl.close() alone leaves in-flight agent requests
     // (SSE/axios sockets) holding the event loop — the process lingers with the
