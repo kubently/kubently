@@ -2,6 +2,14 @@
 
 ## [Unreleased] - 2026-07-08
 
+### Fixed (2026-07-17)
+- **Second message in a conversation no longer fails with "Received multiple
+  non-consecutive system messages"** — with a cluster selected, the A2A agent
+  injected the cluster context as a `system` message every turn; the checkpointer
+  replays it mid-history on turn 2+ and langchain-anthropic rejects it. Context
+  is now injected as a `user` message (legal anywhere in history). Affects all
+  multi-turn chats on v2.3.5.
+
 ### Fixed (2026-07-09)
 - **Agent no longer asks "which cluster" on single-cluster deployments (chart 1.0.3)** —
   the system prompt had no cluster-selection guidance, so the agent sometimes
