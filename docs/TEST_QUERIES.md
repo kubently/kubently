@@ -109,12 +109,57 @@ curl -L -X POST http://localhost:8080/a2a/ \
       "message": {
         "messageId": "msg-2",
         "role": "user",
-        "parts": [{"partId": "part-1", "text": "show me the api pods"}]
-      },
-      "contextId": "'$CONTEXT_ID'"
+        "parts": [{"partId": "part-1", "text": "show me the api pods"}],
+        "contextId": "'$CONTEXT_ID'"
+      }
     },
     "id": 2
   }'
+```
+
+**Note**: `contextId` goes *inside* the `message` object (this is where the CLI puts it).
+
+### Multi-Turn with Cluster Selected (metadata extension)
+
+The CLI sends the selected cluster on every message via the A2A metadata
+extension (`params.metadata.clusterId`). A follow-up turn on the same context
+with this metadata set is the regression shape for the v2.3.5 bug where turn 2
+always failed with "Received multiple non-consecutive system messages"
+(per-turn system-role cluster-context injection colliding with the checkpointer
+history). `test-a2a.sh` Test 3 and the kind-e2e.sh smoke cover this.
+
+```bash
+curl -L -X POST http://localhost:8080/a2a/ \
+  -H "Content-Type: application/json" \
+  -H "X-Api-Key: test-api-key" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "message/stream",
+    "params": {
+      "message": {
+        "messageId": "msg-2",
+        "role": "user",
+        "parts": [{"partId": "part-1", "text": "now show me the services"}],
+        "contextId": "'$CONTEXT_ID'"
+      },
+      "metadata": {"clusterId": "kind"}
+    },
+    "id": 2
+  }'
+```
+
+**Expected Response**: A normal answer — NOT "I encountered an error while processing your request: ... non-consecutive system messages".
+
+The Python test client supports the same flow:
+
+```bash
+# Turn 1 (cluster selected, no context yet) — note the context_id in the JSON output
+python3 test-automation/a2a_test_client.py http://localhost:8080 test-api-key \
+  "list pods in the kubently namespace" "" "kind"
+
+# Turn 2 (same context, cluster still selected)
+python3 test-automation/a2a_test_client.py http://localhost:8080 test-api-key \
+  "now show me the services in that namespace" "<context_id-from-turn-1>" "kind"
 ```
 
 ## Direct API Testing

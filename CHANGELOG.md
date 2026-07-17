@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] - 2026-07-17
+
+### Fixed
+- **Second turn in a conversation no longer fails with "Received multiple
+  non-consecutive system messages" (shipped broken in v2.3.5)** — with a cluster
+  selected, the A2A agent injected the cluster context as a *system*-role message
+  on every turn; the LangGraph checkpointer replays prior turns, so from turn 2
+  the injected SystemMessage landed mid-history and the LLM rejected the request.
+  The context is now injected as a user-role message
+  (`kubently/modules/a2a/protocol_bindings/a2a_server/agent.py`)
+
+### Added
+- **Multi-turn E2E regression coverage** — `test-a2a.sh` Test 3 and a
+  `kind-e2e.sh` smoke step now send a follow-up message on the same `contextId`
+  with `metadata.clusterId` set (exactly what the CLI sends) and assert the
+  second response is not an error. `test-automation/a2a_test_client.py` gained
+  optional `[context_id] [cluster_id]` args to support this; multi-turn +
+  metadata request shapes documented in `docs/TEST_QUERIES.md`
+
 ## [Unreleased] - 2026-07-08
 
 ### Fixed (2026-07-09)

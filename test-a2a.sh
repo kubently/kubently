@@ -154,8 +154,120 @@ else
   fi
 fi
 
-# Test 3: Invalid API key
-echo -e "\n${YELLOW}Test 3: Authentication with invalid API key${NC}"
+# Test 3: Multi-turn conversation with cluster selected
+# Regression test: with a cluster selected (A2A metadata clusterId), the per-turn
+# cluster-context injection used to be a system-role message; combined with the
+# LangGraph checkpointer history the second turn always failed with
+# "Received multiple non-consecutive system messages" (fixed in v2.3.5+ by
+# injecting the context as a user-role message).
+echo -e "\n${YELLOW}Test 3: Multi-turn conversation on same context (cluster selected)${NC}"
+
+if check_a2a_client; then
+  # Use Python A2A test client
+  echo "Using Python A2A test client..."
+  response1=$(python3 test-automation/a2a_test_client.py \
+    "http://localhost:8080" \
+    "test-api-key" \
+    "list pods in the kubently namespace" \
+    "" \
+    "kind" 2>/dev/null)
+
+  context_id=$(echo "$response1" | python3 -c "import sys, json; print(json.load(sys.stdin).get('context_id') or '')")
+
+  if [ -z "$context_id" ]; then
+    echo -e "${RED}❌ Test 3 failed: No contextId returned from first message${NC}"
+    echo "Response: $(echo "$response1" | python3 -c "import sys, json; print(json.load(sys.stdin).get('final_text', ''))")"
+    exit 1
+  fi
+  echo "First turn OK (contextId: $context_id), sending follow-up on same context..."
+
+  response2=$(python3 test-automation/a2a_test_client.py \
+    "http://localhost:8080" \
+    "test-api-key" \
+    "now show me the services in that namespace" \
+    "$context_id" \
+    "kind" 2>/dev/null)
+
+  status2=$(echo "$response2" | python3 -c "import sys, json; print(json.load(sys.stdin).get('status', ''))")
+  final_text2=$(echo "$response2" | python3 -c "import sys, json; print(json.load(sys.stdin).get('final_text', ''))")
+
+  if [ "$status2" != "success" ]; then
+    echo -e "${RED}❌ Test 3 failed: A2A client error on follow-up turn${NC}"
+    echo "Response: $response2"
+    exit 1
+  elif [[ -z "$final_text2" ]] || [[ $final_text2 == *"I encountered an error"* ]] || [[ $final_text2 == *"non-consecutive"* ]]; then
+    echo -e "${RED}❌ Test 3 failed: Follow-up turn returned an error (multi-turn regression)${NC}"
+    echo "Response: ${final_text2:0:300}"
+    exit 1
+  else
+    echo -e "${GREEN}✅ Test 3 passed: Follow-up turn on same context succeeded${NC}"
+  fi
+else
+  # Fallback to curl
+  echo "A2A Python client not available, using curl fallback..."
+  response1=$(curl -sL -X POST http://localhost:8080/a2a/ \
+    -H "Content-Type: application/json" \
+    -H "X-Api-Key: test-api-key" \
+    -d '{
+      "jsonrpc": "2.0",
+      "method": "message/stream",
+      "params": {
+        "message": {
+          "messageId": "test-3a-'$(date +%s)'",
+          "role": "user",
+          "parts": [{"partId": "p1", "text": "list pods in the kubently namespace"}]
+        },
+        "metadata": {"clusterId": "kind"}
+      },
+      "id": 3
+    }' 2>/dev/null)
+
+  context_id=$(echo "$response1" | grep -o '"contextId":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+  if [ -z "$context_id" ]; then
+    echo -e "${RED}❌ Test 3 failed: No contextId returned from first message${NC}"
+    echo "Response: ${response1:0:300}"
+    exit 1
+  fi
+  echo "First turn OK (contextId: $context_id), sending follow-up on same context..."
+
+  response2=$(curl -sL -X POST http://localhost:8080/a2a/ \
+    -H "Content-Type: application/json" \
+    -H "X-Api-Key: test-api-key" \
+    -d '{
+      "jsonrpc": "2.0",
+      "method": "message/stream",
+      "params": {
+        "message": {
+          "messageId": "test-3b-'$(date +%s)'",
+          "role": "user",
+          "parts": [{"partId": "p1", "text": "now show me the services in that namespace"}],
+          "contextId": "'$context_id'"
+        },
+        "metadata": {"clusterId": "kind"}
+      },
+      "id": 4
+    }' 2>/dev/null)
+
+  status_text=$(echo "$response2" | grep '"status-update"' | grep -o '"text":"[^"]*"' | cut -d'"' -f4 | tail -1)
+  artifact_text=$(echo "$response2" | grep '"artifact-update"' | grep -o '"text":"[^"]*"' | cut -d'"' -f4 | tail -1)
+
+  if [[ $response2 == *"I encountered an error"* ]] || [[ $response2 == *"non-consecutive"* ]]; then
+    echo -e "${RED}❌ Test 3 failed: Follow-up turn returned an error (multi-turn regression)${NC}"
+    echo "Status text: ${status_text:0:300}"
+    echo "Artifact text: ${artifact_text:0:300}"
+    exit 1
+  elif [ -z "$status_text" ] && [ -z "$artifact_text" ]; then
+    echo -e "${RED}❌ Test 3 failed: Follow-up turn returned no response text${NC}"
+    echo "Response: ${response2:0:300}"
+    exit 1
+  else
+    echo -e "${GREEN}✅ Test 3 passed: Follow-up turn on same context succeeded${NC}"
+  fi
+fi
+
+# Test 4: Invalid API key
+echo -e "\n${YELLOW}Test 4: Authentication with invalid API key${NC}"
 response=$(curl -sL -X POST http://localhost:8080/a2a/ \
   -H "Content-Type: application/json" \
   -H "X-Api-Key: invalid-key" \
@@ -164,18 +276,18 @@ response=$(curl -sL -X POST http://localhost:8080/a2a/ \
     "method": "message/stream",
     "params": {
       "message": {
-        "messageId": "test-3",
+        "messageId": "test-4",
         "role": "user",
         "parts": [{"partId": "p1", "text": "test"}]
       }
     },
-    "id": 3
+    "id": 5
   }' 2>/dev/null)
 
 if [[ $response == *"Invalid API key"* ]] || [[ $response == *"Unauthorized"* ]]; then
-  echo -e "${GREEN}✅ Test 3 passed: Authentication properly rejects invalid key${NC}"
+  echo -e "${GREEN}✅ Test 4 passed: Authentication properly rejects invalid key${NC}"
 else
-  echo -e "${RED}❌ Test 3 failed: Authentication not working properly${NC}"
+  echo -e "${RED}❌ Test 4 failed: Authentication not working properly${NC}"
   echo "Response: $response"
   exit 1
 fi

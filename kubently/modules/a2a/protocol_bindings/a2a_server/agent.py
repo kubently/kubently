@@ -508,12 +508,14 @@ class KubentlyAgent:
         # Store thread ID for tool call tracking
         self._current_thread_id = thread_id
 
-        # If cluster_id is specified, inject context at the start
+        # If cluster_id is specified, inject context at the start.
+        # Must be role "user", not "system": the checkpointer replays prior turns'
+        # messages, so a per-turn SystemMessage lands mid-history on turn 2+ and the
+        # LLM rejects it ("Received multiple non-consecutive system messages").
         if cluster_id:
             logger.info(f"Cluster context provided: {cluster_id}")
-            # Prepend a system-style context to inform the agent
             cluster_context = {
-                "role": "system",
+                "role": "user",
                 "content": f"IMPORTANT CONTEXT: The user has selected cluster '{cluster_id}' for this session. "
                            f"Use this cluster_id in all execute_kubectl calls unless the user explicitly "
                            f"requests a different cluster. Do NOT ask which cluster to use - it has been specified."

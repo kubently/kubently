@@ -135,6 +135,30 @@ else
   grn "agent round-trip OK"
 fi
 
+# Regression: a follow-up turn on the same contextId with a cluster selected
+# (metadata.clusterId, as the CLI sends it) used to always fail with "Received
+# multiple non-consecutive system messages" — per-turn system-role cluster
+# context colliding with the checkpointer history (v2.3.5).
+step "Smoke: multi-turn follow-up on same context (clusterId selected)"
+resp1=$(curl -s -m 90 -X POST http://localhost:8080/a2a/ \
+  -H "Content-Type: application/json" -H "X-API-Key: test-api-key" \
+  -d "{\"jsonrpc\":\"2.0\",\"id\":\"2\",\"method\":\"message/stream\",\"params\":{\"message\":{\"messageId\":\"smoke-mt-1\",\"role\":\"user\",\"parts\":[{\"partId\":\"p1\",\"text\":\"List pods in the kubently namespace.\"}]},\"metadata\":{\"clusterId\":\"$CLUSTER_ID\"}}}")
+ctx=$(printf '%s' "$resp1" | grep -o '"contextId":"[^"]*"' | head -1 | cut -d'"' -f4)
+if [ -z "$ctx" ]; then
+  red "multi-turn FAILED — no contextId in first response"; printf '%s\n' "$resp1" | grep -o '"text":"[^"]*"' | head -3; fail=1
+else
+  resp2=$(curl -s -m 90 -X POST http://localhost:8080/a2a/ \
+    -H "Content-Type: application/json" -H "X-API-Key: test-api-key" \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":\"3\",\"method\":\"message/stream\",\"params\":{\"message\":{\"messageId\":\"smoke-mt-2\",\"role\":\"user\",\"parts\":[{\"partId\":\"p1\",\"text\":\"Now list the services in that namespace.\"}],\"contextId\":\"$ctx\"},\"metadata\":{\"clusterId\":\"$CLUSTER_ID\"}}}")
+  if printf '%s' "$resp2" | grep -qiE "non-consecutive|encountered an error|error code: 4"; then
+    red "multi-turn follow-up FAILED (second turn errored). Response:"; printf '%s\n' "$resp2" | grep -o '"text":"[^"]*"' | head -3; fail=1
+  elif ! printf '%s' "$resp2" | grep -q '"text":"'; then
+    red "multi-turn follow-up FAILED (no response text). Raw:"; printf '%.300s\n' "$resp2"; fail=1
+  else
+    grn "multi-turn follow-up OK"
+  fi
+fi
+
 cat <<EOF
 
 $( [ "$fail" = 0 ] && grn "Baseline up." || red "Baseline came up with FAILURES (see above)." )  context=kind-$CLUSTER  ns=$NS  cluster_id=$CLUSTER_ID  api=http://localhost:8080

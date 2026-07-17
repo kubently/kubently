@@ -21,9 +21,17 @@ async def send_a2a_message(
     base_url: str,
     api_key: str,
     query: str,
-    timeout: int = 30
+    timeout: int = 30,
+    context_id: Optional[str] = None,
+    cluster_id: Optional[str] = None,
 ) -> dict:
-    """Send a message via A2A protocol and collect the response."""
+    """Send a message via A2A protocol and collect the response.
+
+    Args:
+        context_id: Reuse an existing conversation context (multi-turn follow-up).
+        cluster_id: Selected cluster, sent via the A2A metadata extension
+            (params.metadata.clusterId), matching the CLI's behavior.
+    """
     
     # Ensure URL ends with /a2a
     if not base_url.endswith('/a2a'):
@@ -36,20 +44,26 @@ async def send_a2a_message(
         timeout=timeout
     ) as client:
         # Create A2A message
+        message = {
+            "messageId": str(uuid.uuid4()),
+            "role": "user",
+            "parts": [{
+                "partId": "p1",
+                "text": query
+            }]
+        }
+        if context_id:
+            message["contextId"] = context_id
+
+        params = {"message": message}
+        if cluster_id:
+            params["metadata"] = {"clusterId": cluster_id}
+
         request = {
             "jsonrpc": "2.0",
             "id": 1,
             "method": "message/stream",
-            "params": {
-                "message": {
-                    "messageId": str(uuid.uuid4()),
-                    "role": "user",
-                    "parts": [{
-                        "partId": "p1",
-                        "text": query
-                    }]
-                }
-            }
+            "params": params
         }
         
         # Collect response
@@ -158,16 +172,22 @@ async def send_a2a_message(
 
 async def main():
     """Main entry point for command-line usage."""
-    if len(sys.argv) != 4:
-        print("Usage: python a2a_test_client.py <base_url> <api_key> <query>")
+    if len(sys.argv) < 4 or len(sys.argv) > 6:
+        print("Usage: python a2a_test_client.py <base_url> <api_key> <query> [context_id] [cluster_id]")
+        print("  context_id: pass a contextId from a prior response to continue that conversation")
+        print("  cluster_id: selected cluster, sent as A2A metadata (clusterId)")
         sys.exit(1)
-    
+
     base_url = sys.argv[1]
     api_key = sys.argv[2]
     query = sys.argv[3]
-    
-    result = await send_a2a_message(base_url, api_key, query)
-    
+    context_id = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else None
+    cluster_id = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else None
+
+    result = await send_a2a_message(
+        base_url, api_key, query, context_id=context_id, cluster_id=cluster_id
+    )
+
     # Output JSON result
     print(json.dumps(result, indent=2))
 
