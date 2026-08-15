@@ -45,6 +45,7 @@
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
 | `A2A_EXTERNAL_URL` | - | No | External URL for A2A agent card (e.g., `https://api.example.com/a2a/`) |
+| `KUBENTLY_MAX_FLEET_CLUSTERS` | `10` | No | Max clusters per `execute_kubectl_multi` fan-out call (each cluster adds up to ~4KB to the agent context) |
 | `A2A_SERVER_DEBUG` | `false` | No | Enable A2A debug logging |
 
 ### LLM Configuration (for A2A)
