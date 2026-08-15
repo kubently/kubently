@@ -5,10 +5,11 @@ without pulling the langchain/a2a stack that agent.py requires.
 """
 
 import asyncio
+import os
 
 import httpx
 
-MAX_FLEET_CLUSTERS = 10
+MAX_FLEET_CLUSTERS = 10  # default; override per-deploy with KUBENTLY_MAX_FLEET_CLUSTERS
 PER_CLUSTER_OUTPUT_CAP = 4000
 _TRUNCATION_NOTE = "\n[truncated — run execute_kubectl on {cluster_id} for full output]"
 
@@ -100,10 +101,11 @@ async def run_fleet_command(
         clusters = await _resolve_clusters(client, api_url, api_key, cluster_ids)
         if not clusters:
             return "No clusters are currently registered."
-        if len(clusters) > MAX_FLEET_CLUSTERS:
+        max_clusters = int(os.getenv("KUBENTLY_MAX_FLEET_CLUSTERS", str(MAX_FLEET_CLUSTERS)))
+        if len(clusters) > max_clusters:
             return (
                 f"Error: {len(clusters)} clusters requested; fleet fan-out is capped at "
-                f"{MAX_FLEET_CLUSTERS} per call. Narrow the cluster list and batch the query."
+                f"{max_clusters} per call. Narrow the cluster list and batch the query."
             )
         results = await asyncio.gather(
             *(_execute_on_cluster(client, api_url, api_key, c, payload_base) for c in clusters)

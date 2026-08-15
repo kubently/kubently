@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased] - 2026-08-15 (later)
+
+### Added
+- **Fleet fan-out cap is configurable** — `KUBENTLY_MAX_FLEET_CLUSTERS` env var
+  overrides the default 10-cluster cap per `execute_kubectl_multi` call (read at
+  call time; the cap bounds agent-context growth at ~4KB per cluster)
+- **`scripts/cli-evidence.sh`** — captures a real `kubently debug` session
+  (ANSI-stripped) and posts it as a PR verification-evidence comment via
+  `gh pr comment`; `DRY_RUN=1` prints instead of posting
+
 ## [Unreleased] - 2026-08-15
 
 ### Added

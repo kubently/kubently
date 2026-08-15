@@ -145,6 +145,19 @@ async def test_run_fleet_command_cap():
     assert "capped at" in out
 
 
+async def test_run_fleet_command_cap_env_override(monkeypatch):
+    monkeypatch.setenv("KUBENTLY_MAX_FLEET_CLUSTERS", "2")
+    client = _mock_client(
+        ["a", "b", "c"],
+        {c: httpx.Response(200, json={"output": "ok"}) for c in ["a", "b", "c"]},
+    )
+    out = await run_fleet_command(API, KEY, ["a", "b", "c"], PAYLOAD, client=client)
+    assert "capped at 2" in out
+    monkeypatch.setenv("KUBENTLY_MAX_FLEET_CLUSTERS", "3")
+    out = await run_fleet_command(API, KEY, ["a", "b", "c"], PAYLOAD, client=client)
+    assert "=== cluster: c ===" in out
+
+
 async def test_run_fleet_command_no_clusters():
     client = _mock_client([], {})
     out = await run_fleet_command(API, KEY, ["all"], PAYLOAD, client=client)
