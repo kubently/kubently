@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 
 MAX_ALERTS_PER_PAYLOAD = 3  # ponytail: cap fan-out per webhook; add Redis-keyed dedup if Slack gets noisy
 
+# asyncio holds only weak references to tasks, so a fire-and-forget task can be
+# garbage-collected mid-flight. A diagnosis runs for minutes; without a strong ref
+# the symptom is "the Slack message just never arrives", with nothing in the log.
+_background: set[asyncio.Task] = set()
+
 
 def firing_alerts(payload) -> list[dict]:
     alerts = payload.get("alerts") if isinstance(payload, dict) else None
@@ -82,7 +87,9 @@ def create_router(verify_api_key, redis_client=None) -> APIRouter:
         payload = await request.json()
         alerts = firing_alerts(payload)
         for alert in alerts[:MAX_ALERTS_PER_PAYLOAD]:
-            asyncio.create_task(_diagnose_and_post(_agent, alert, slack_url))
+            task = asyncio.create_task(_diagnose_and_post(_agent, alert, slack_url))
+            _background.add(task)
+            task.add_done_callback(_background.discard)
         if len(alerts) > MAX_ALERTS_PER_PAYLOAD:
             logger.warning(
                 "Alertmanager payload had %d firing alerts; diagnosing first %d",
