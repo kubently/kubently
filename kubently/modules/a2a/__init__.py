@@ -9,6 +9,8 @@ Can be disabled or replaced with different protocol implementations.
 Runs in same process but maintains complete separation.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from threading import Thread
@@ -31,12 +33,14 @@ except Exception as e:  # Broad catch to avoid breaking the main API on optional
     logger.info(f"A2A support disabled at import time: {e}")
 
 
-class SimplePushNotificationSender(PushNotificationSender):
-    """Simple push notification sender."""
+if A2A_AVAILABLE:
 
-    async def send_notification(self, task: Task) -> None:
-        """Log notifications for debugging."""
-        logger.debug(f"Push notification for task {task.id}: {task.status.state}")
+    class SimplePushNotificationSender(PushNotificationSender):
+        """Simple push notification sender."""
+
+        async def send_notification(self, task: Task) -> None:
+            """Log notifications for debugging."""
+            logger.debug(f"Push notification for task {task.id}: {task.status.state}")
 
 
 class A2AModule:

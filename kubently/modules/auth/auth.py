@@ -9,6 +9,7 @@ without affecting other modules.
 import hashlib
 import json
 import os
+import re
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Dict, Optional, Tuple
@@ -53,8 +54,9 @@ class AuthModule:
                 "Set this to the same value as the kubently-api-keys secret (format: key or service:key)."
             )
 
-        # Get first entry
-        first_entry = api_keys_env.split(",")[0].strip()
+        # Get first entry (keys may be comma- or newline-separated; the
+        # kubently-api-keys secret docs use newlines)
+        first_entry = re.split(r"[,\n]", api_keys_env)[0].strip()
 
         if not first_entry:
             raise ValueError("API_KEYS environment variable is empty")
@@ -85,7 +87,8 @@ class AuthModule:
         keys = {}
         api_keys_env = os.environ.get("API_KEYS", "")
 
-        for entry in api_keys_env.split(","):
+        # Keys may be comma- or newline-separated (secret docs use newlines)
+        for entry in re.split(r"[,\n]", api_keys_env):
             entry = entry.strip()
             if not entry:
                 continue

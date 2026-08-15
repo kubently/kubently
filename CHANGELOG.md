@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased] - 2026-08-15
+
+### Added
+- **Fleet fan-out: `execute_kubectl_multi` (chart 1.0.4)** — one read-only kubectl
+  command runs across many clusters in parallel (`["all"]` targets every registered
+  cluster, capped at 10). Per-cluster output is hard-truncated at 4KB with a
+  drill-down hint and empty results collapse to one line, so fleet calls stay
+  context-safe. New "Fleet Queries" prompt section steers the agent to it for
+  fleet-wide questions. README repositioned around multi-cluster troubleshooting.
+
+### Fixed
+- **Newline-separated API keys no longer break all authentication** — the
+  secret-management docs show the `kubently-api-keys` secret with one key per
+  line, but every `API_KEYS` parser split on commas only, fusing newline-joined
+  keys into one garbage key (every client got 401). All three parse sites
+  (`AuthModule._load_api_keys`, `AuthModule.extract_first_api_key`,
+  `EnvConfigProvider.get_auth_config`) now accept commas and newlines
+- **`kubently.modules.a2a` no longer crashes on import when the a2a-sdk is
+  absent** — the optional-dependency guard set `A2A_AVAILABLE = False` but a
+  module-level class definition (and an eagerly evaluated return annotation)
+  still referenced the guarded names, raising `NameError` instead of degrading
+  gracefully
+
 ## [Unreleased] - 2026-07-08
 
 ### Fixed (2026-07-17)

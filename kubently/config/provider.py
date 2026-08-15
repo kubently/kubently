@@ -1,5 +1,6 @@
 """Configuration provider following Black Box Design principles."""
 import os
+import re
 from dataclasses import dataclass
 from typing import Optional, Protocol, List
 
@@ -98,7 +99,8 @@ class EnvConfigProvider:
                 "Example: admin:your-generated-key"
             )
 
-        api_keys = api_keys_env.split(",")
+        # Keys may be comma- or newline-separated (secret docs use newlines)
+        api_keys = re.split(r"[,\n]", api_keys_env)
 
         return AuthConfig(
             api_keys_enabled=True,  # Required for authentication

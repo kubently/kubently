@@ -482,10 +482,64 @@ class KubentlyAgent:
                     await interceptor.record_tool_result(tool_call_id, None, error_msg)
                     return error_msg
 
+        from kubently.modules.a2a.protocol_bindings.a2a_server.fleet import (
+            build_execute_payload,
+            run_fleet_command,
+        )
+
+        @tool
+        async def execute_kubectl_multi(
+            cluster_ids: list[str],
+            command: str,
+            namespace: str = "default",
+        ) -> str:
+            """Run one read-only kubectl command across MANY clusters in parallel.
+
+            Use this for fleet-wide questions ("across all clusters", "which clusters
+            have X"). Pass ["all"] to target every registered cluster (capped at 10).
+            Results are grouped per cluster; empty results collapse to one line and
+            long outputs are truncated — drill into a specific cluster with
+            execute_kubectl when you need full output.
+
+            Keep fleet commands filtered and token-efficient (e.g.
+            "get pods --field-selector status.phase!=Running").
+
+            Args:
+                cluster_ids: Target clusters, or ["all"] for every registered cluster
+                command: Full kubectl command (verb, resource, flags) — read-only only
+                namespace: Namespace to scope to ("all" adds -A)
+
+            Returns:
+                Aggregated output, one "=== cluster: <id> ===" section per cluster
+            """
+            try:
+                validate_kubectl_command(command, allow_write=False)
+            except ValueError as e:
+                return str(e)
+
+            debug_print(
+                f"execute_kubectl_multi called: cluster_ids={cluster_ids}, command={command}"
+            )
+            tool_call_id = await interceptor.record_tool_call(
+                tool_name="execute_kubectl_multi",
+                args={"cluster_ids": cluster_ids, "command": command, "namespace": namespace},
+                thread_id=getattr(self, "_current_thread_id", None),
+            )
+            try:
+                output = await run_fleet_command(
+                    api_url, api_key, cluster_ids, build_execute_payload(command, namespace)
+                )
+                await interceptor.record_tool_result(tool_call_id, output)
+                return output
+            except Exception as e:
+                error_msg = f"Error executing fleet command: {e!s}"
+                await interceptor.record_tool_result(tool_call_id, None, error_msg)
+                return error_msg
+
         # Note: planning/todo tracking is now provided natively by deepagents
         # (write_todos via TodoListMiddleware), so the previous hand-rolled
         # todo_write tool + TodoManager were removed.
-        self.tools = [list_clusters, execute_kubectl]
+        self.tools = [list_clusters, execute_kubectl, execute_kubectl_multi]
         logger.info(f"Initialized {len(self.tools)} tools")
 
     async def run(
