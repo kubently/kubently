@@ -9,4 +9,18 @@ metadata:
 data:
   system.prompt.yaml: |
 {{ .Files.Get "prompts/system.prompt.yaml" | indent 4 }}
+  fleet_report.prompt.yaml: |
+{{- if .Values.fleetReport.query }}
+    version: 1
+    name: kubently_fleet_health_digest
+    role: system
+    metadata:
+      owner: kubently
+      description: Fleet health digest query (overridden via fleetReport.query)
+    variables: []
+    content: |-
+{{ .Values.fleetReport.query | indent 6 }}
+{{- else }}
+{{ .Files.Get "prompts/fleet_report.prompt.yaml" | indent 4 }}
+{{- end }}
 {{- end }}

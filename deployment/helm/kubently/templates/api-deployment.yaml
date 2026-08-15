@@ -172,6 +172,8 @@ spec:
         {{- end }}
         - name: KUBENTLY_A2A_PROMPT_FILE
           value: "/etc/kubently/prompts/system.prompt.yaml"
+        - name: KUBENTLY_FLEET_REPORT_PROMPT_FILE
+          value: "/etc/kubently/prompts/fleet_report.prompt.yaml"
         volumeMounts:
         - name: prompt-config
           mountPath: /etc/kubently/prompts

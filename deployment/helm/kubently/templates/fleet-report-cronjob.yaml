@@ -1,0 +1,58 @@
+{{- if and .Values.api.enabled .Values.fleetReport.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "kubently.fullname" . }}-fleet-report
+  labels:
+    {{- include "kubently.labels" . | nindent 4 }}
+    app.kubernetes.io/component: fleet-report
+spec:
+  schedule: {{ .Values.fleetReport.schedule | quote }}
+  suspend: {{ .Values.fleetReport.suspend }}
+  # A digest takes minutes; never let a slow run stack on the next schedule.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # The endpoint ACKs 202 and diagnoses in the background, so this Job only
+      # needs to land the POST.
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "kubently.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: fleet-report
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: trigger
+            # Reuses the API image (already pulled on the node, ships httpx)
+            # rather than adding a curl image to the deployment's pull set.
+            image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag | default .Chart.AppVersion }}"
+            imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+            env:
+            - name: API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.api.existingSecret | default (printf "%s-api-keys" (include "kubently.fullname" .)) }}
+                  key: keys
+            - name: KUBENTLY_API_URL
+              value: "http://{{ include "kubently.fullname" . }}-api:{{ .Values.api.service.port }}"
+            command:
+            - python
+            - -c
+            - |
+              import os, sys, httpx
+              # API_KEYS holds every configured key (comma- or newline-separated);
+              # any one of them authenticates this call.
+              key = next(k.strip() for k in os.environ["API_KEYS"].replace(",", "\n").split("\n") if k.strip())
+              key = key.split(":")[-1]  # tolerate the "service:key" form
+              r = httpx.post(
+                  f"{os.environ['KUBENTLY_API_URL']}/webhooks/fleet-report",
+                  headers={"X-API-Key": key},
+                  timeout=30,
+              )
+              print(r.status_code, r.text)
+              sys.exit(0 if r.status_code == 202 else 1)
+{{- end }}

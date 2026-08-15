@@ -1,0 +1,36 @@
+version: 1
+name: kubently_fleet_health_digest
+# NOTE: `role` must literally be "system" (PromptSpec validator in
+# kubently/modules/config/prompts.py). The role passed to get_prompt()
+# ("fleet_report") only selects the KUBENTLY_FLEET_REPORT_PROMPT_FILE env var.
+role: system
+metadata:
+  owner: kubently
+  description: Query driving the scheduled fleet health digest posted to Slack
+variables: []
+content: |-
+  Check the health of every registered cluster.
+
+  For each cluster, report:
+  - pods whose containers are not ready, or are restarting, or are in a waiting
+    state such as CrashLoopBackOff, ImagePullBackOff, ErrImagePull or
+    CreateContainerConfigError. Include the restart count and the reason.
+  - Warning events from the last hour
+  - nodes that are not Ready
+
+  IMPORTANT: do NOT find failing pods with
+  `--field-selector status.phase!=Running,status.phase!=Succeeded`. A pod stuck
+  in CrashLoopBackOff has `status.phase=Running`, so that filter silently misses
+  the most common failure there is. Select on readiness and restarts instead —
+  for example `get pods -A -o wide` and look at the READY and STATUS columns, or
+  `-o custom-columns` over `.status.containerStatuses[*].ready` and
+  `.restartCount`.
+
+  Format the answer for Slack:
+  - one short section per cluster, cluster name first
+  - a cluster with nothing wrong gets a single line saying it is healthy
+  - no preamble, no closing summary
+  - if the entire fleet is healthy, say so in one line and stop
+
+  Prioritise problems that look new or are getting worse. Do not suggest fixes
+  unless the cause is obvious from what you already gathered.

@@ -92,6 +92,43 @@ receivers:
 Each firing alert is diagnosed by the agent and the result is posted to Slack —
 the bot often explains the root cause before you've opened your laptop.
 
+### Scheduled fleet health digest
+
+Alerts are reactive. A digest sweeps *every* registered cluster on a schedule and
+posts one summary to the same Slack webhook — healthy clusters collapse to a
+single line, so what's left is what needs you.
+
+```yaml
+fleetReport:
+  enabled: true
+  schedule: "0 13 * * 1-5"   # weekday mornings
+```
+
+Preview it before you schedule it — `dry_run` returns the digest and posts
+nothing:
+
+```bash
+curl -X POST https://<your-kubently-host>/webhooks/fleet-report \
+  -H "X-API-Key: <your-api-key>" -H 'Content-Type: application/json' \
+  -d '{"dry_run": true}'
+```
+
+The digest question is yours to change. Pass `query` in that request to try one
+immediately, then keep the wording you like via `fleetReport.query` in values:
+
+```yaml
+fleetReport:
+  query: |-
+    Check every cluster for pods restarting more than 5 times and for PVCs above
+    85% usage. One line per healthy cluster. No preamble.
+```
+
+To run the real scheduled path once — image, secrets, in-cluster URL and all:
+
+```bash
+kubectl create job --from=cronjob/kubently-fleet-report fleet-report-test -n kubently
+```
+
 **📖 See [QUICK_START.md](docs/QUICK_START.md) for full quick-start guide**
 
 **📚 See [GETTING_STARTED.md](docs/GETTING_STARTED.md) for production deployment**
