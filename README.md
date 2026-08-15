@@ -13,15 +13,19 @@ Kubently - Troubleshooting Kubernetes Agentically
 
 ## Overview
 
-Kubently (*Kubernetes + Agentically*) enables AI agents to troubleshoot Kubernetes clusters through natural language conversations. By implementing the [A2A (Agent-to-Agent) protocol](https://a2a-protocol.org/latest/), Kubently allows multiple agents to collaborate in diagnosing and resolving cluster issues autonomously.
+Kubently (*Kubernetes + Agentically*) is a **free, self-hosted, vendor-neutral multi-cluster Kubernetes troubleshooter**. Ask one question, get AI-diagnosed answers from every cluster in your fleet in parallel — including clusters you can't reach directly: executors dial **outbound** to the central API, so there's no inbound ingress, no shared kubeconfig, and no per-cluster credentials to distribute.
+
+Agents collaborate over the [A2A (Agent-to-Agent) protocol](https://a2a-protocol.org/latest/), and any MCP client (Claude Code, Cursor, Claude Desktop) can use Kubently as a tool out of the box.
 
 ## Key Features
 
+- **Multi-Cluster Fleet Troubleshooting**: One question fans out across all registered clusters in parallel
+- **Outbound-Dial Executors**: Reach clusters behind firewalls/NAT — no inbound ingress, no shared kubeconfig
+- **Natural Language Interface**: Conversational Kubernetes troubleshooting and debugging
+- **Comprehensive Analysis**: Automated issue detection, root cause analysis, and solution recommendations
 - **Multi-LLM Support**: Compatible with Google Gemini, OpenAI, Anthropic, and other providers
 - **A2A Protocol**: Industry-standard agent-to-agent communication for complex workflows
 - **MCP Server**: Optional [Model Context Protocol](docs/MCP.md) endpoint so MCP clients (Claude Desktop, Cursor, custom agents) get direct tool access
-- **Natural Language Interface**: Conversational Kubernetes troubleshooting and debugging
-- **Comprehensive Analysis**: Automated issue detection, root cause analysis, and solution recommendations
 - **Security-First**: API key authentication, OAuth/OIDC support, and TLS with cert-manager
 - **Persistent Sessions**: Redis-backed conversation history and context management
 - **Extensive Tool Suite**: kubectl integration, log analysis, resource inspection, and more
