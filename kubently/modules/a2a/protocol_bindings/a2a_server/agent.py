@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
+from .fleet import cap_output
 from .tool_call_interceptor import get_tool_call_interceptor
 
 # Configure logging
@@ -326,7 +327,10 @@ class KubentlyAgent:
 
             TOKEN EFFICIENCY FIRST:
             - Minimize output tokens by using targeted kubectl flags
-            - Use "--field-selector" to filter resources (e.g., "status.phase!=Running")
+            - Use "--field-selector" for genuine field lookups (e.g., "status.phase=Pending"
+              for scheduling problems, "involvedObject.name=<pod>" for events)
+            - NEVER use "--field-selector status.phase!=Running" to find broken pods: a
+              CrashLoopBackOff pod reports phase=Running, so that filter hides it
             - Use "-o custom-columns" to retrieve only needed fields
             - Use "-o wide" for quick overview with essential columns
             - Use "describe" instead of "-o json" for comprehensive resource details
@@ -334,8 +338,9 @@ class KubentlyAgent:
             - Default output is usually sufficient and most token-efficient
 
             TOKEN-EFFICIENT EXAMPLES:
-            - Find problematic pods: "get pods -A --field-selector status.phase!=Running,status.phase!=Succeeded"
-            - Custom columns: "get pods -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,RESTARTS:.status.containerStatuses[0].restartCount"
+            - Find problematic pods: "get pods -A -o wide" (READY shows 0/1, STATUS shows
+              CrashLoopBackOff/ImagePullBackOff/Error — catches every failure mode)
+            - Custom columns: "get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[*].ready,RESTARTS:.status.containerStatuses[*].restartCount,REASON:.status.containerStatuses[*].state.waiting.reason"
             - Wide format: "get pods -o wide"
             - Describe (comprehensive): "describe pod pod-name"
             - Events (default output): "get events --sort-by='.lastTimestamp'"
@@ -462,7 +467,21 @@ class KubentlyAgent:
                     )
                     if response.status_code == 200:
                         result = response.json()
-                        output = result.get("output", "")
+                        # HTTP 200 does not mean the command ran: an unreachable
+                        # executor returns 200 with status=timeout, output=null.
+                        # Surface that as an error instead of empty output, which
+                        # the agent would otherwise read as "nothing is wrong".
+                        exec_status, exec_error = result.get("status"), result.get("error")
+                        if exec_error or (exec_status and exec_status != "success"):
+                            error_msg = cap_output(
+                                f"Error: {exec_error or f'command status: {exec_status}'}"
+                            )
+                            await interceptor.record_tool_result(tool_call_id, None, error_msg)
+                            return error_msg
+                        # Cap before anything downstream sees it: the model, the
+                        # interceptor trace and the investigation log all get the
+                        # same bounded text the agent actually reasons over.
+                        output = cap_output(result.get("output") or "")
                         debug_print(f"Tool successful: {output[:100]}...")
 
                         # Update investigation tracking with findings
@@ -472,7 +491,7 @@ class KubentlyAgent:
                         await interceptor.record_tool_result(tool_call_id, output)
                         return output
                     else:
-                        error_msg = f"Error: HTTP {response.status_code}: {response.text}"
+                        error_msg = cap_output(f"Error: HTTP {response.status_code}: {response.text}")
                         debug_print(f"Tool failed: {error_msg}")
                         await interceptor.record_tool_result(tool_call_id, None, error_msg)
                         return error_msg
@@ -501,8 +520,10 @@ class KubentlyAgent:
             long outputs are truncated — drill into a specific cluster with
             execute_kubectl when you need full output.
 
-            Keep fleet commands filtered and token-efficient (e.g.
-            "get pods --field-selector status.phase!=Running").
+            Keep fleet commands filtered and token-efficient (e.g. "get pods -A -o wide").
+            Do NOT sweep for failures with "--field-selector status.phase!=Running":
+            CrashLoopBackOff pods report phase=Running, so entire clusters come back
+            looking healthy while their pods crash on a loop.
 
             Args:
                 cluster_ids: Target clusters, or ["all"] for every registered cluster

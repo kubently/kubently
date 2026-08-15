@@ -1,4 +1,4 @@
-"""Fleet fan-out: run one read-only kubectl command across many clusters concurrently.
+"""Fleet fan-out plus the shared output-size caps for kubectl tool results.
 
 Deliberately import-light (stdlib + httpx only) so unit tests can import it
 without pulling the langchain/a2a stack that agent.py requires.
@@ -11,7 +11,26 @@ import httpx
 
 MAX_FLEET_CLUSTERS = 10  # default; override per-deploy with KUBENTLY_MAX_FLEET_CLUSTERS
 PER_CLUSTER_OUTPUT_CAP = 4000
+SINGLE_CLUSTER_OUTPUT_CAP = 20000  # default; override with KUBENTLY_MAX_OUTPUT_CHARS
 _TRUNCATION_NOTE = "\n[truncated — run execute_kubectl on {cluster_id} for full output]"
+_NARROW_HINT = (
+    "\n[truncated at {cap} chars — re-run narrowed: --field-selector, "
+    "-o custom-columns=..., -o jsonpath=..., -l <selector>, or --tail for logs]"
+)
+
+
+def cap_output(text: str, cap: int | None = None) -> str:
+    """Hard-cap one tool result so a single careless call can't flood agent context.
+
+    The checkpointer replays full history every turn, so an uncapped result costs
+    tokens on every subsequent turn, not just the one that produced it.
+    """
+    if cap is None:
+        cap = int(os.getenv("KUBENTLY_MAX_OUTPUT_CHARS", str(SINGLE_CLUSTER_OUTPUT_CAP)))
+    text = text or ""
+    if len(text) <= cap:
+        return text
+    return text[:cap] + _NARROW_HINT.format(cap=cap)
 
 
 def build_execute_payload(command: str, namespace: str = "default") -> dict:
@@ -80,7 +99,15 @@ async def _execute_on_cluster(
             json={**payload_base, "cluster_id": cluster_id},
         )
         if resp.status_code == 200:
-            return (cluster_id, True, resp.json().get("output", ""))
+            # HTTP 200 does NOT mean the command ran: an unreachable executor
+            # comes back 200 with status=timeout and output=null. Trusting the
+            # status code alone turns "cluster is down" into an empty result,
+            # which collapses to "(no matching resources)" and reads as healthy.
+            data = resp.json()
+            status, error = data.get("status"), data.get("error")
+            if error or (status and status != "success"):
+                return (cluster_id, False, error or f"command status: {status}")
+            return (cluster_id, True, data.get("output") or "")
         return (cluster_id, False, f"HTTP {resp.status_code}: {resp.text[:200]}")
     except Exception as e:  # per-cluster isolation: one bad cluster never sinks the batch
         return (cluster_id, False, str(e))
