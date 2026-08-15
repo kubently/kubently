@@ -32,6 +32,15 @@ execute_kubectl_multi(cluster_ids: list[str], command: str, namespace: str = "de
   per-cluster error isolation: an unreachable/erroring cluster reports its error
   inline under its header; the rest of the batch still returns.
 - Output grouped by cluster: `=== cluster: prod-east ===` sections.
+- **Output size control** (fleet calls must not blow the context window; history
+  is replayed every turn by the checkpointer):
+  - Per-cluster output hard-truncated at 4,000 chars, appended with
+    `[truncated — run execute_kubectl on <cluster-id> for full output]` so the
+    agent knows the drill-down path. Fan-out is for triage; single-cluster
+    `execute_kubectl` is for detail.
+  - Empty results collapse to one line (`(no matching resources)`) so healthy
+    clusters cost ~nothing and failures dominate the response.
+  - Worst case: 10 clusters × 4KB ≈ 10k tokens per fleet call.
 - Interceptor tracing (`record_tool_call` / `record_tool_result`) per the repo's
   tool-tracing rule, one call covering the batch with per-cluster results.
 
@@ -49,7 +58,8 @@ single-cluster `execute_kubectl` otherwise.
 ## Testing
 
 - Unit: aggregation formatting, `["all"]` resolution, fan-out cap, per-cluster
-  error isolation (one cluster 500s → others still report).
+  error isolation (one cluster 500s → others still report), truncation at the
+  per-cluster cap, empty-result collapse.
 - E2E: kind-based smoke with 2 registered clusters, one fleet query returning
   both sections.
 
