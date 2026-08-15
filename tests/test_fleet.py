@@ -67,3 +67,85 @@ def test_format_fleet_results_joins_sections():
     out = format_fleet_results([("a", True, "ok"), ("b", False, "down")])
     assert "=== cluster: a ===\nok" in out
     assert "=== cluster: b ===\nERROR: down" in out
+
+
+import json  # noqa: E402
+
+import httpx  # noqa: E402
+
+from kubently.modules.a2a.protocol_bindings.a2a_server.fleet import (  # noqa: E402
+    MAX_FLEET_CLUSTERS,
+    run_fleet_command,
+)
+
+API = "http://api.test"
+KEY = "k"
+PAYLOAD = {"command_type": "get", "args": ["pods"], "namespace": None, "timeout_seconds": 30}
+
+
+def _mock_client(clusters, per_cluster):
+    """MockTransport serving /debug/clusters and /debug/execute.
+
+    per_cluster: cluster_id -> httpx.Response for its /debug/execute call.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/debug/clusters":
+            return httpx.Response(200, json={"clusters": clusters})
+        if request.url.path == "/debug/execute":
+            cluster_id = json.loads(request.content)["cluster_id"]
+            return per_cluster[cluster_id]
+        return httpx.Response(404)
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+async def test_run_fleet_command_aggregates_named_clusters():
+    client = _mock_client(
+        ["a", "b"],
+        {
+            "a": httpx.Response(200, json={"output": "pod-a Running"}),
+            "b": httpx.Response(200, json={"output": "pod-b CrashLoopBackOff"}),
+        },
+    )
+    out = await run_fleet_command(API, KEY, ["a", "b"], PAYLOAD, client=client)
+    assert "=== cluster: a ===\npod-a Running" in out
+    assert "=== cluster: b ===\npod-b CrashLoopBackOff" in out
+
+
+async def test_run_fleet_command_resolves_all():
+    client = _mock_client(
+        ["a", "b"],
+        {
+            "a": httpx.Response(200, json={"output": "x"}),
+            "b": httpx.Response(200, json={"output": "y"}),
+        },
+    )
+    out = await run_fleet_command(API, KEY, ["all"], PAYLOAD, client=client)
+    assert "=== cluster: a ===" in out and "=== cluster: b ===" in out
+
+
+async def test_run_fleet_command_error_isolation():
+    client = _mock_client(
+        ["a", "b"],
+        {
+            "a": httpx.Response(500, text="boom"),
+            "b": httpx.Response(200, json={"output": "fine"}),
+        },
+    )
+    out = await run_fleet_command(API, KEY, ["a", "b"], PAYLOAD, client=client)
+    assert "=== cluster: a ===\nERROR: HTTP 500" in out
+    assert "=== cluster: b ===\nfine" in out
+
+
+async def test_run_fleet_command_cap():
+    many = [f"c{i}" for i in range(MAX_FLEET_CLUSTERS + 1)]
+    client = _mock_client(many, {})
+    out = await run_fleet_command(API, KEY, many, PAYLOAD, client=client)
+    assert "capped at" in out
+
+
+async def test_run_fleet_command_no_clusters():
+    client = _mock_client([], {})
+    out = await run_fleet_command(API, KEY, ["all"], PAYLOAD, client=client)
+    assert out == "No clusters are currently registered."
