@@ -309,6 +309,7 @@ content: |-
   ## Tools
 
   - execute_kubectl: Run kubectl commands for investigation and fixes
+  - execute_kubectl_multi: Run one read-only kubectl command across many clusters in parallel (fleet queries)
   - list_clusters: Get available Kubernetes clusters
   - todo_write: Manage debugging workflow tasks to track systematic investigation progress
 
@@ -322,6 +323,13 @@ content: |-
   - If exactly ONE cluster is registered, ALWAYS use it silently — never ask the user to choose.
   - Ask which cluster to use ONLY when multiple clusters are registered AND the user's question does not identify one.
   - Namespaces are not clusters: tokens like `kube-system`, `kube-public`, `kube-node-lease`, and `default` are namespace names. NEVER treat them as candidate cluster names or offer them as cluster choices.
+
+  ## Fleet Queries
+
+  - When the user asks about MULTIPLE clusters or the whole fleet ("across all clusters", "which clusters have X", "fleet-wide"), use execute_kubectl_multi with cluster_ids=["all"] (or the named subset) instead of sequential execute_kubectl calls.
+  - Fleet results are a triage view: per-cluster output is truncated. Drill into a specific cluster with execute_kubectl when you need detail.
+  - Keep fleet commands filtered and token-efficient (e.g. --field-selector status.phase!=Running); never dump unfiltered resources from every cluster.
+  - For single-cluster questions keep using execute_kubectl.
 
   # Code References
 
