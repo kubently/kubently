@@ -3,6 +3,25 @@ entries:
   kubently:
   - apiVersion: v2
     appVersion: 1.0.0
+    created: "2026-08-16T03:29:10.049391843Z"
+    description: Kubently - Troubleshooting Kubernetes Agentically
+    digest: f969f52b6146e99de6245a6764a2bf9cd36c56be906d8709a92f7111ca240ffd
+    home: https://github.com/kubently/kubently
+    keywords:
+    - kubernetes
+    - debugging
+    - ai
+    - troubleshooting
+    maintainers:
+    - email: team@kubently.com
+      name: Kubently Team
+    name: kubently
+    type: application
+    urls:
+    - https://github.com/kubently/kubently/releases/download/kubently-1.0.5/kubently-1.0.5.tgz
+    version: 1.0.5
+  - apiVersion: v2
+    appVersion: 1.0.0
     created: "2026-08-15T16:35:33.603812196Z"
     description: Kubently - Troubleshooting Kubernetes Agentically
     digest: c29fb43b88645fbf52bac918f59a987fe1f9610d1eedf992d3a972a3f392bdab
@@ -96,4 +115,4 @@ entries:
     urls:
     - https://github.com/kubently/kubently/releases/download/kubently-1.0.0/kubently-1.0.0.tgz
     version: 1.0.0
-generated: "2026-08-15T16:35:33.603833748Z"
+generated: "2026-08-16T03:29:10.049421569Z"
