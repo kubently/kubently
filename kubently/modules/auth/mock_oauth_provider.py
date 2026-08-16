@@ -333,10 +333,24 @@ def create_mock_oauth_app() -> FastAPI:
         """Token endpoint."""
         form = await request.form()
         grant_type = form.get("grant_type")
-        
+
         if grant_type == "urn:ietf:params:oauth:grant-type:device_code":
             device_code = form.get("device_code")
-            return provider.device_token(device_code)
+            try:
+                return provider.device_token(device_code)
+            except HTTPException as e:
+                # RFC 8628 §3.5: token errors are HTTP 400 with {"error": "<code>"} —
+                # NOT FastAPI's {"detail": ...}. Real IdPs (and the CLI's poll loop)
+                # speak the spec shape; without this remap the CLI treats
+                # authorization_pending as fatal instead of continuing to poll.
+                error_map = {
+                    "authorization_pending": "authorization_pending",
+                    "access_denied": "access_denied",
+                    "Device code expired": "expired_token",
+                    "Invalid device_code": "invalid_grant",
+                }
+                code = error_map.get(str(e.detail), "invalid_grant")
+                return JSONResponse(status_code=400, content={"error": code})
         
         elif grant_type == "refresh_token":
             refresh_token = form.get("refresh_token")

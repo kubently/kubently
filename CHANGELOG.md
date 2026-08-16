@@ -2,6 +2,16 @@
 
 ## [Unreleased] - 2026-08-15 (later)
 
+### Fixed
+- **Mock OAuth provider now speaks RFC 8628** — the device-flow token endpoint
+  returned FastAPI-style `{"detail": ...}` errors (428 for pending), so the
+  spec-compliant CLI treated `authorization_pending` as fatal and the
+  `kubently login` device flow could never complete against the local harness.
+  Token errors are now HTTP 400 `{"error": "<code>"}` per spec. CLI device flow
+  verified end-to-end: device code → approval → RS256 JWT stored in
+  ~/.kubently/auth.json, signature validated against the provider JWKS.
+  (Harness also needs `python-multipart` for its form endpoints.)
+
 ### Added
 - **Scheduled fleet health digest (#54, chart 1.0.5)** — a Helm CronJob POSTs
   `/webhooks/fleet-report` on a schedule; the agent sweeps every registered
