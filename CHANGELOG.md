@@ -3,6 +3,14 @@
 ## [Unreleased] - 2026-08-15 (later)
 
 ### Fixed
+- **Executors can no longer answer another cluster's commands (result injection)**
+  — `/executor/results` stored a result for any `command_id` an authenticated
+  executor submitted, with no check that the command was issued to that
+  executor's cluster. Executors run inside customer clusters (customer-
+  controlled), so a malicious one could inject fabricated kubectl output into
+  another tenant's in-flight diagnosis. Commands are now bound to their target
+  cluster at publish time (`command:cluster:{id}`, TTL-bounded) and results from
+  any other cluster — or for unknown/expired ids — are rejected with 403
 - **Conversation threads are now private to the caller (cross-tenant memory
   leak)** — the A2A `contextId` is client-supplied and was passed straight to
   the LangGraph checkpointer as its thread namespace, so any caller could resume
