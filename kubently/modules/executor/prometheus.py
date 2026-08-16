@@ -140,8 +140,9 @@ class PrometheusRunner:
         except requests.exceptions.Timeout:
             return self._error(
                 f"Prometheus query timed out after {self.timeout}s. "
-                "Narrow the query (shorter range, larger step, tighter selectors)."
-            , status="TIMEOUT")
+                "Narrow the query (shorter range, larger step, tighter selectors).",
+                status="TIMEOUT",
+            )
         except requests.exceptions.RequestException as e:
             return self._error(f"Could not reach Prometheus at {self.base_url}: {e}")
 
