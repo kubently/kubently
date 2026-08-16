@@ -48,6 +48,16 @@
 | `KUBENTLY_MAX_FLEET_CLUSTERS` | `10` | No | Max clusters per `execute_kubectl_multi` fan-out call (each cluster adds up to ~4KB to the agent context) |
 | `A2A_SERVER_DEBUG` | `false` | No | Enable A2A debug logging |
 
+### Prometheus Metrics Tool (optional)
+
+When `PROMETHEUS_URL` is set on the API server, the agent registers the read-only `query_prometheus` tool and injects metrics guidance into the system prompt. When unset (default), the tool does not exist and the prompt never mentions metrics.
+
+The API never dials this URL itself — queries execute on each cluster's executor against the executor's own `PROMETHEUS_URL` (see Executor Configuration below). On the API side the variable only switches the tool on.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `PROMETHEUS_URL` | - | No | Presence enables the `query_prometheus` agent tool. Set via Helm `prometheus.url` |
+
 ### LLM Configuration (for A2A)
 
 | Variable | Default | Required | Description |
@@ -91,6 +101,18 @@
 | `WHITELIST_PATH` | `/etc/kubently/whitelist.yaml` | No | Path to whitelist configuration |
 | `REFRESH_INTERVAL` | `30` | No | Whitelist refresh interval in seconds |
 | `TIMEOUT_SECONDS` | `30` | No | Command execution timeout |
+
+### Prometheus Metrics Tool (optional)
+
+The executor performs metric queries locally (read-only GETs against `/api/v1/query` and `/api/v1/query_range` only). The base URL comes exclusively from this local configuration — the control plane never supplies one. When unset (default), metric queries are answered with a clear "not configured" error.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `PROMETHEUS_URL` | - | No | Prometheus base URL reachable from the executor pod, e.g. `http://prometheus-operated.monitoring.svc.cluster.local:9090`. Set via Helm `prometheus.url` |
+| `PROMETHEUS_TIMEOUT` | `30` | No | Query timeout in seconds |
+| `PROMETHEUS_MAX_SERIES` | `50` | No | Max series returned per query (excess truncated with a note) |
+| `PROMETHEUS_MAX_SAMPLES` | `2000` | No | Max total samples per range-query result (evenly downsampled with a note) |
+| `PROMETHEUS_MAX_OUTPUT_CHARS` | `20000` | No | Hard cap on serialized result size |
 
 ## Deployment-Specific Variables
 
