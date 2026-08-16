@@ -215,7 +215,13 @@ class KubentlyAgent:
         elif "openai" in llm_provider or "azure" in llm_provider:
             from langchain_openai import ChatOpenAI
 
-            self.llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL_NAME", "gpt-4o"))
+            # Cap completion tokens (parity with the Anthropic branch's 4096).
+            # Matters for OpenAI-compatible brokers like OpenRouter, which
+            # reserve max_tokens against the account balance per request.
+            self.llm = ChatOpenAI(
+                model=os.getenv("OPENAI_MODEL_NAME", "gpt-4o"),
+                max_tokens=int(os.getenv("OPENAI_MAX_TOKENS", "4096")),
+            )
             logger.info(f"OpenAI initialized: {llm_provider}")
         elif "google" in llm_provider or "gemini" in llm_provider:
             from langchain_google_genai import ChatGoogleGenerativeAI
