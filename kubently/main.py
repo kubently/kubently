@@ -33,6 +33,7 @@ from kubently.modules.api import (
     CreateSessionRequest,
     ExecuteCommandRequest,
     ExecutionStatus,
+    PrometheusQueryRequest,
     SessionResponse,
     SessionStatus,
 )
@@ -713,6 +714,92 @@ async def execute_command(
         session_id=request.session_id,
         cluster_id=request.cluster_id,
         status=result.get("status", ExecutionStatus.SUCCESS),
+        correlation_id=x_correlation_id or request.correlation_id,
+        output=result.get("output"),
+        error=result.get("error"),
+        execution_time_ms=result.get("execution_time_ms"),
+        executed_at=result.get("executed_at"),
+    )
+
+
+@app.post("/debug/prometheus", response_model=CommandResponse)
+async def execute_prometheus_query(
+    request: PrometheusQueryRequest,
+    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+):
+    """
+    Run a read-only PromQL query on a cluster's Prometheus.
+
+    The query rides the same outbound channel as kubectl commands (Redis
+    pub/sub -> executor SSE -> result POST): the executor inside the target
+    cluster performs the HTTP GET against its locally configured
+    PROMETHEUS_URL. This API never contacts Prometheus directly and never
+    forwards a URL — only the validated query parameters.
+
+    Returns:
+        200: Query result (or executor-side error, e.g. Prometheus not configured)
+        404: Cluster not found
+        401: Unauthorized
+    """
+    if not redis_client or not queue_module:
+        raise HTTPException(503, "Service not initialized")
+
+    # Same cluster validation as /debug/execute: fail fast with the list of
+    # valid clusters instead of queueing a command nothing will pick up.
+    token_key = f"executor:token:{request.cluster_id}"
+    if not await redis_client.exists(token_key):
+        valid_clusters = sorted(
+            (k.decode() if isinstance(k, bytes) else k).replace("executor:token:", "")
+            for k in await redis_client.keys("executor:token:*")
+        )
+        error_msg = f"Cluster '{request.cluster_id}' not found."
+        if valid_clusters:
+            error_msg += f" Available clusters: {', '.join(valid_clusters)}"
+        else:
+            error_msg += " No clusters are currently registered."
+        raise HTTPException(404, error_msg)
+
+    cluster_active_key = f"cluster:active:{request.cluster_id}"
+    await redis_client.setex(cluster_active_key, 60, "1")
+
+    command = {
+        "id": str(uuid.uuid4()),
+        "tool": "prometheus",
+        "request": {
+            "query_type": request.query_type.value,
+            "query": request.query,
+            "time": request.time,
+            "start": request.start,
+            "end": request.end,
+            "step": request.step,
+        },
+        "timeout": request.timeout_seconds or 30,
+        "correlation_id": x_correlation_id or request.correlation_id,
+    }
+
+    channel = f"executor-commands:{request.cluster_id}"
+    await redis_client.publish(channel, json.dumps(command))
+    logger.info(f"Published prometheus query {command['id']} to channel {channel}")
+
+    timeout = request.timeout_seconds or config.get("command_timeout")
+    result = await queue_module.wait_for_result(command["id"], timeout=timeout)
+
+    if not result:
+        return CommandResponse(
+            command_id=command["id"],
+            session_id=None,
+            cluster_id=request.cluster_id,
+            status=ExecutionStatus.TIMEOUT,
+            correlation_id=x_correlation_id or request.correlation_id,
+            error="Prometheus query timeout (no executor picked it up in time)",
+        )
+
+    return CommandResponse(
+        command_id=command["id"],
+        session_id=None,
+        cluster_id=request.cluster_id,
+        status=ExecutionStatus.SUCCESS if result.get("success") else ExecutionStatus.FAILURE,
         correlation_id=x_correlation_id or request.correlation_id,
         output=result.get("output"),
         error=result.get("error"),
