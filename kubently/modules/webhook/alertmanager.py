@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 
 MAX_ALERTS_PER_PAYLOAD = 3  # ponytail: cap fan-out per webhook; add Redis-keyed dedup if Slack gets noisy
 
+# asyncio holds only weak references to tasks, so a fire-and-forget task can be
+# garbage-collected mid-flight. A diagnosis runs for minutes; without a strong ref
+# the symptom is "the Slack message just never arrives", with nothing in the log.
+_background: set[asyncio.Task] = set()
+
 
 def firing_alerts(payload) -> list[dict]:
     alerts = payload.get("alerts") if isinstance(payload, dict) else None
@@ -39,13 +44,20 @@ def build_query(alert: dict) -> str:
     lead = " ".join(parts) + (f": {summary}" if summary else "")
     return (
         f"{lead}. Diagnose the root cause and suggest a fix. "
-        "Be concise; this will be posted to Slack."
+        "Be concise; this will be posted to Slack. Format as Slack mrkdwn, which "
+        "is NOT markdown: bold is *single asterisk* (never **double**), there are "
+        "no `#` headings, no `---` rules and no tables. Code fences take no "
+        "language hint — use ``` alone, not ```bash."
     )
 
 
 def format_slack_message(alert: dict, answer: str) -> dict:
+    from .fleet_report import to_slack_mrkdwn
+
     name = alert.get("labels", {}).get("alertname", "alert")
-    return {"text": f":rotating_light: *Kubently diagnosis for `{name}`*\n\n{answer}"}
+    return {
+        "text": f":rotating_light: *Kubently diagnosis for `{name}`*\n\n{to_slack_mrkdwn(answer)}"
+    }
 
 
 async def _diagnose_and_post(agent_factory, alert: dict, slack_url: str) -> None:
@@ -82,7 +94,9 @@ def create_router(verify_api_key, redis_client=None) -> APIRouter:
         payload = await request.json()
         alerts = firing_alerts(payload)
         for alert in alerts[:MAX_ALERTS_PER_PAYLOAD]:
-            asyncio.create_task(_diagnose_and_post(_agent, alert, slack_url))
+            task = asyncio.create_task(_diagnose_and_post(_agent, alert, slack_url))
+            _background.add(task)
+            task.add_done_callback(_background.discard)
         if len(alerts) > MAX_ALERTS_PER_PAYLOAD:
             logger.warning(
                 "Alertmanager payload had %d firing alerts; diagnosing first %d",

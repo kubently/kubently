@@ -95,6 +95,45 @@ def test_webhook_accepts_firing_alerts(monkeypatch):
     assert resp.json() == {"accepted": 1}
 
 
+def test_background_task_reference_retained_while_in_flight(monkeypatch):
+    """asyncio keeps only weak refs to tasks, so a fire-and-forget diagnosis can be
+    garbage-collected mid-run — the Slack message then silently never arrives.
+
+    Asserting from *inside* the running task is the invariant that matters: at
+    that moment the task must be reachable from the module's strong-ref set.
+    Tasks are all created in one synchronous loop before any of them runs, so a
+    capped 3-alert payload must have all 3 held at once.
+    """
+    import kubently.modules.webhook.alertmanager as am
+
+    observed = []
+
+    async def fake_diag(agent_factory, alert, url):
+        observed.append(len(am._background))
+
+    monkeypatch.setattr(am, "_diagnose_and_post", fake_diag)
+    many = {"alerts": [PAYLOAD["alerts"][0]] * 10}
+    client = TestClient(make_app(monkeypatch))
+    assert client.post("/webhooks/alertmanager", json=many).status_code == 202
+
+    assert observed, "background task never ran"
+    assert min(observed) >= 1, "a task ran with no strong reference held"
+    assert max(observed) == am.MAX_ALERTS_PER_PAYLOAD, "not every task was retained"
+
+
+def test_background_tasks_released_after_completion(monkeypatch):
+    """The done-callback must drain the set, or it grows without bound."""
+    import kubently.modules.webhook.alertmanager as am
+
+    async def fake_diag(agent_factory, alert, url):
+        pass
+
+    monkeypatch.setattr(am, "_diagnose_and_post", fake_diag)
+    client = TestClient(make_app(monkeypatch))
+    client.post("/webhooks/alertmanager", json=PAYLOAD)
+    assert am._background == set()
+
+
 def test_webhook_caps_alert_fanout(monkeypatch):
     import kubently.modules.webhook.alertmanager as am
 

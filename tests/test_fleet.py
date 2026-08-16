@@ -8,7 +8,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from kubently.modules.a2a.protocol_bindings.a2a_server.fleet import (  # noqa: E402
     PER_CLUSTER_OUTPUT_CAP,
+    SINGLE_CLUSTER_OUTPUT_CAP,
     build_execute_payload,
+    cap_output,
     format_fleet_results,
     format_section,
 )
@@ -61,6 +63,25 @@ def test_format_section_truncates_at_cap():
     assert "[truncated — run execute_kubectl on prod-east for full output]" in s
     # header + capped body + truncation note; nowhere near the raw size
     assert len(s) < PER_CLUSTER_OUTPUT_CAP + 200
+
+
+def test_cap_output_passes_through_small():
+    assert cap_output("pod-a Running") == "pod-a Running"
+    assert cap_output("") == ""
+    assert cap_output(None) == ""
+
+
+def test_cap_output_truncates_with_narrowing_hint():
+    out = cap_output("x" * (SINGLE_CLUSTER_OUTPUT_CAP + 5000))
+    assert "--field-selector" in out
+    assert f"truncated at {SINGLE_CLUSTER_OUTPUT_CAP} chars" in out
+    assert len(out) < SINGLE_CLUSTER_OUTPUT_CAP + 200
+
+
+def test_cap_output_env_override(monkeypatch):
+    monkeypatch.setenv("KUBENTLY_MAX_OUTPUT_CHARS", "10")
+    assert cap_output("x" * 9) == "x" * 9
+    assert cap_output("x" * 50).startswith("x" * 10 + "\n[truncated at 10 chars")
 
 
 def test_format_fleet_results_joins_sections():
@@ -136,6 +157,45 @@ async def test_run_fleet_command_error_isolation():
     out = await run_fleet_command(API, KEY, ["a", "b"], PAYLOAD, client=client)
     assert "=== cluster: a ===\nERROR: HTTP 500" in out
     assert "=== cluster: b ===\nfine" in out
+
+
+async def test_run_fleet_command_reports_unreachable_cluster_as_error():
+    """An executor that never answers must not read as a healthy cluster.
+
+    /debug/execute answers HTTP 200 with status=timeout and output=null when no
+    executor picks the command up. Trusting the status code turned that into an
+    empty result, which collapses to "(no matching resources)" — i.e. a cluster
+    that is down reported as one with nothing wrong. Shape copied from a real
+    response against a stale cluster registration.
+    """
+    client = _mock_client(
+        ["live", "stale"],
+        {
+            "live": httpx.Response(200, json={"status": "success", "output": "pod-a Running"}),
+            "stale": httpx.Response(
+                200,
+                json={
+                    "status": "timeout",
+                    "output": None,
+                    "error": "Command execution timeout",
+                },
+            ),
+        },
+    )
+    out = await run_fleet_command(API, KEY, ["live", "stale"], PAYLOAD, client=client)
+    assert "=== cluster: stale ===\nERROR: Command execution timeout" in out
+    assert "no matching resources" not in out
+    assert "=== cluster: live ===\npod-a Running" in out
+
+
+async def test_run_fleet_command_empty_output_still_collapses():
+    """A genuinely empty success is still the cheap one-liner (guards the fix
+    above from swinging too far and flagging healthy clusters as errors)."""
+    client = _mock_client(
+        ["a"], {"a": httpx.Response(200, json={"status": "success", "output": ""})}
+    )
+    out = await run_fleet_command(API, KEY, ["a"], PAYLOAD, client=client)
+    assert out == "=== cluster: a === (no matching resources)"
 
 
 async def test_run_fleet_command_cap():

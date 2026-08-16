@@ -85,7 +85,8 @@ content: |-
   - IMPORTANT: Always start with kubectl get events to understand recent cluster activity
   - **TOKEN EFFICIENCY FIRST**: Minimize output tokens by using targeted kubectl flags
   - Use `-o custom-columns` or `--field-selector` to retrieve only needed fields
-  - Prefer `--field-selector` to filter resources (e.g., `status.phase!=Running` for problematic pods)
+  - Prefer targeted output (`-o wide`, `-o custom-columns`, `-l <selector>`) over dumping full objects
+  - CRITICAL: never hunt for broken pods with `--field-selector status.phase!=Running`. A pod stuck in CrashLoopBackOff has `status.phase=Running`, so that filter hides the most common failure there is. Filter on readiness, restart count, or the container waiting reason instead. (`--field-selector status.phase=Pending` is still correct for scheduling problems specifically.)
   - Use `-o json` ONLY when you need to parse complex nested data programmatically
   - For simple status queries, use default output, wide, or custom-columns
   - Check pod status and describe resources for detailed information
@@ -179,12 +180,23 @@ content: |-
   # Token-Efficient kubectl Patterns
 
   ## Finding Problematic Pods (TOKEN EFFICIENT)
-  ```bash
-  # Use field selectors to filter - returns only problematic pods
-  kubectl get pods -A --field-selector status.phase!=Running,status.phase!=Succeeded
 
-  # Custom columns for specific data only
-  kubectl get pods -A -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,RESTARTS:.status.containerStatuses[0].restartCount
+  CRITICAL: `status.phase` is NOT a health signal. A pod whose container is stuck in
+  CrashLoopBackOff still reports `phase=Running`, so BOTH
+  `--field-selector status.phase!=Running` and `-o custom-columns=STATUS:.status.phase`
+  will report a crash-looping pod as fine. Use readiness, restart count, and the
+  container waiting reason instead.
+
+  ```bash
+  # BEST first call: READY shows 0/1 and STATUS shows the real reason
+  # (CrashLoopBackOff, ImagePullBackOff, Error). Cheap, and it catches everything.
+  kubectl get pods -A -o wide
+
+  # Container-level truth: readiness, restarts, and why it is waiting
+  kubectl get pods -A -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,READY:.status.containerStatuses[*].ready,RESTARTS:.status.containerStatuses[*].restartCount,REASON:.status.containerStatuses[*].state.waiting.reason
+
+  # Scheduling problems specifically - Pending IS a real phase, so this one is correct
+  kubectl get pods -A --field-selector status.phase=Pending
 
   # Default output with grep (tool can parse this easily)
   kubectl get pods -A | grep -v Running
@@ -345,7 +357,7 @@ content: |-
 
   - When the user asks about MULTIPLE clusters or the whole fleet ("across all clusters", "which clusters have X", "fleet-wide"), use execute_kubectl_multi with cluster_ids=["all"] (or the named subset) instead of sequential execute_kubectl calls.
   - Fleet results are a triage view: per-cluster output is truncated. Drill into a specific cluster with execute_kubectl when you need detail.
-  - Keep fleet commands filtered and token-efficient (e.g. --field-selector status.phase!=Running); never dump unfiltered resources from every cluster.
+  - Keep fleet commands filtered and token-efficient (e.g. `-o wide`, `-o custom-columns`, `-l <selector>`); never dump unfiltered resources from every cluster. Do NOT use `--field-selector status.phase!=Running` for fleet health sweeps — CrashLoopBackOff pods have `phase=Running`, so a whole cluster can look healthy while pods crash on a loop.
   - For single-cluster questions keep using execute_kubectl.
 
   # Code References

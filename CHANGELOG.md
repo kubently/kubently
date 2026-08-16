@@ -3,6 +3,79 @@
 ## [Unreleased] - 2026-08-15 (later)
 
 ### Added
+- **Scheduled fleet health digest (#54, chart 1.0.5)** — a Helm CronJob POSTs
+  `/webhooks/fleet-report` on a schedule; the agent sweeps every registered
+  cluster with fleet fan-out and posts one Slack digest, healthy clusters
+  collapsed to a single line. Off by default (`fleetReport.enabled`). Reuses the
+  Alertmanager path's `SLACK_WEBHOOK_URL` and lazy-agent import, so the API still
+  boots without the a2a stack
+- **The digest query is user-owned** — loaded through the existing
+  `get_prompt()` mechanism as `prompts/fleet_report.prompt.yaml`, so it is
+  customizable at three levels: `fleetReport.query` in values (rendered into the
+  prompt ConfigMap), `KUBENTLY_FLEET_REPORT_PROMPT_FILE` for a fully custom file,
+  or a `query` field in the request body for a single call
+- **Run it once, three ways** — `{"dry_run": true}` runs the digest
+  synchronously, returns it to the caller and posts *nothing* (no
+  `SLACK_WEBHOOK_URL` needed); POST with no body posts once for real; and
+  `kubectl create job --from=cronjob/kubently-fleet-report` exercises the actual
+  scheduled path. Tuning the digest wording needs no `helm upgrade`
+
+### Fixed
+- **`SLACK_WEBHOOK_URL` can be sourced from a secret, and no longer lands in a
+  ConfigMap** — the webhook URL is a credential (anyone holding it can post to
+  your channel), but it was only settable as an `api.env` values string, which
+  the chart also rendered verbatim into `kubently-api-config` where any
+  `get configmap` reader could see it. New `api.slackWebhook.existingSecret` /
+  `secretKey` sources it from a Kubernetes secret and takes precedence over the
+  values field; either way it is now excluded from the ConfigMap
+- **Alertmanager diagnoses can no longer vanish before they post** — the webhook
+  fired `asyncio.create_task(...)` per alert without keeping a reference, and
+  asyncio holds only *weak* references to tasks, so a diagnosis running for
+  minutes could be garbage-collected mid-flight. The symptom was the worst kind:
+  the Slack message simply never arrives, with nothing in the log. Tasks are now
+  held in a module-level set and released by a done-callback (same pattern as the
+  fleet digest endpoint)
+- **An unreachable cluster no longer reads as a healthy one** — `/debug/execute`
+  answers **HTTP 200** with `{"status": "timeout", "output": null}` when no
+  executor picks the command up, and both the fan-out and single-cluster paths
+  trusted the status code alone. The null output then collapsed to
+  `(no matching resources)`, so a cluster that was down was reported to the agent
+  as a cluster with nothing wrong — the worst failure mode a fleet health tool
+  has. Both paths now check the response body's `status`/`error` and surface
+  `ERROR: Command execution timeout`; the digest renders it as
+  "Cluster unreachable — health unknown". Found by E2E against a stale cluster
+  registration
+- **The agent no longer hunts for broken pods with a filter that cannot match
+  them** — a crashlooping pod has `status.phase=Running`, so
+  `--field-selector status.phase!=Running,status.phase!=Succeeded` silently skips
+  it; it only catches Pending-phase problems like ImagePullBackOff. That guidance
+  appeared in **9 places** — the system prompt's token-efficiency rules, its
+  "Finding Problematic Pods" examples (whose `custom-columns` example printed
+  `.status.phase` and so lied the same way), its Fleet Queries section, and the
+  `execute_kubectl` / `execute_kubectl_multi` docstrings. All now steer to
+  `-o wide` and container-level readiness/restarts/waiting-reason, and name the
+  trap explicitly. `--field-selector status.phase=Pending` is still recommended
+  for scheduling problems, where phase is the right signal. In E2E this took a
+  fleet sweep from 1 problem found to 4, surfacing pods with 910 and 1258
+  restarts that had been invisible
+- **The two copies of the system prompt no longer drift** — `prompts/` (used in
+  local dev and baked into the image) had fallen 49 lines behind
+  `deployment/helm/kubently/prompts/` (mounted as a ConfigMap, so it is what
+  actually runs in a cluster). Local dev was being told to call a `todo_write`
+  tool that had been renamed `write_todos`, and was missing the entire
+  "SYMPTOM vs ROOT CAUSE" section. The root copy is now the chart copy, and
+  `tests/test_prompt_guidance.py` fails the build if they diverge again or if the
+  phase-filter guidance returns
+- **Single-cluster `execute_kubectl` output is now capped (#58)** — fleet fan-out
+  truncated per-cluster output at 4KB, but the single-cluster path had no cap
+  anywhere (executor → `/debug/execute` → tool result), so one `get pods -A -o json`
+  on a busy cluster could inject tens of KB into the agent's context — and the
+  checkpointer replays full history every turn, so the cost compounded across the
+  conversation. Results are now hard-capped at 20,000 chars
+  (`KUBENTLY_MAX_OUTPUT_CHARS` to override) with a hint telling the agent how to
+  re-run narrowed. Error bodies are capped too
+
+### Added
 - **Fleet fan-out cap is configurable** — `KUBENTLY_MAX_FLEET_CLUSTERS` env var
   overrides the default 10-cluster cap per `execute_kubectl_multi` call (read at
   call time; the cap bounds agent-context growth at ~4KB per cluster)

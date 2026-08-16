@@ -8,6 +8,11 @@ metadata:
     app.kubernetes.io/component: api
 data:
   {{- range $key, $value := .Values.api.env }}
+  {{- /* SLACK_WEBHOOK_URL is a credential; a ConfigMap is world-readable to
+         anyone with `get configmap`. It reaches the pod via the Deployment's
+         env (from api.slackWebhook.existingSecret, ideally). */}}
+  {{- if ne $key "SLACK_WEBHOOK_URL" }}
   {{ $key }}: {{ $value | quote }}
+  {{- end }}
   {{- end }}
 {{- end }}

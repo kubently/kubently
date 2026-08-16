@@ -193,6 +193,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to mount alertmanager webhook: {e}")
 
+    # Proactive mode: scheduled fleet health digest -> Slack. Same lazy-agent
+    # pattern; triggered by the chart's CronJob or by hand (dry_run to preview).
+    try:
+        from kubently.modules.webhook import create_fleet_report_router
+
+        app.include_router(create_fleet_report_router(verify_dual_auth, redis_client=redis_client))
+        logger.info("Fleet report endpoint mounted at /webhooks/fleet-report")
+    except Exception as e:
+        logger.warning(f"Failed to mount fleet report endpoint: {e}")
+
     logger.info("Kubently API started successfully")
 
     yield

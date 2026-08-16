@@ -44,14 +44,50 @@ api:
   # Example: apiKeys: ["abc123...", "def456..."]
   apiKeys: []
   
+  # Slack incoming-webhook URL — enables both proactive paths:
+  # /webhooks/alertmanager -> Slack diagnosis, and the fleetReport digest below.
+  #
+  # The URL is a credential: anyone holding it can post to your channel, so
+  # create a secret rather than putting it in a values file.
+  #   kubectl create secret generic kubently-slack \
+  #     --from-literal=url='https://hooks.slack.com/services/...' -n kubently
+  slackWebhook:
+    existingSecret: ""   # e.g. "kubently-slack" (takes precedence over api.env)
+    secretKey: "url"
+
   env:
     LOG_LEVEL: "INFO"
-    # SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/..."  # enables /webhooks/alertmanager -> Slack diagnosis
     MAX_COMMANDS_PER_FETCH: "10"
     COMMAND_TIMEOUT: "30"
     SESSION_TTL: "300"
     PORT: "8080"
     API_PORT: "8080"
+
+# ============================================================================
+# Scheduled Fleet Health Digest
+# ============================================================================
+# A CronJob POSTs /webhooks/fleet-report on a schedule; the agent sweeps every
+# registered cluster and posts one digest to SLACK_WEBHOOK_URL (set above).
+#
+# Try it before you schedule it — neither needs a helm upgrade:
+#   # preview the digest, post nothing:
+#   curl -X POST $API/webhooks/fleet-report -H "X-API-Key: $KEY" \
+#     -H 'Content-Type: application/json' -d '{"dry_run": true}'
+#   # run the real scheduled path once:
+#   kubectl create job --from=cronjob/kubently-fleet-report fleet-report-test -n kubently
+fleetReport:
+  enabled: false
+  # Create the CronJob but never fire it on schedule (manual triggering only).
+  suspend: false
+  # Weekday mornings. Interpreted in the cluster's timezone (UTC by default).
+  schedule: "0 13 * * 1-5"
+  # Override the digest query. Empty = the shipped prompts/fleet_report.prompt.yaml.
+  # Per-call overrides for iterating: POST {"query": "...", "dry_run": true}.
+  # Example:
+  #   query: |-
+  #     Check every cluster for pods restarting more than 5 times and for PVCs
+  #     above 85% usage. One line per healthy cluster. No preamble.
+  query: ""
 
 # ============================================================================
 # Executor Configuration
