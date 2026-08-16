@@ -59,3 +59,30 @@ async def test_binding_is_bytes_safe():
     await q.bind_command("cmd-2", "cluster-x")
     assert await q.command_belongs_to("cmd-2", "cluster-x")
     assert not await q.command_belongs_to("cmd-2", "cluster-y")
+
+
+def test_endpoint_enforces_the_binding():
+    """The helper being correct is worthless if the endpoint never calls it.
+
+    Reverting the check in post_result reintroduces the vulnerability while the
+    unit tests above still pass — so assert the wiring explicitly.
+    """
+    from pathlib import Path
+
+    main_src = (Path(__file__).parent.parent / "kubently/main.py").read_text()
+
+    # /debug/execute must bind before publishing.
+    assert "bind_command(" in main_src, "commands are never bound to a cluster"
+    idx_bind = main_src.index("bind_command(")
+    idx_publish = main_src.index("redis_client.publish(channel", idx_bind - 4000)
+    assert idx_bind < idx_publish, "bind must happen before publish (else a race)"
+
+    # /executor/results must reject foreign clusters.
+    idx_results = main_src.index('@app.post("/executor/results")')
+    idx_store = main_src.index("store_result(", idx_results)
+    segment = main_src[idx_results:idx_store]
+    assert "command_belongs_to(" in segment, (
+        "post_result stores a result without verifying the command was issued to "
+        "this executor's cluster — cross-tenant result injection"
+    )
+    assert "403" in segment

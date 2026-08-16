@@ -2,6 +2,17 @@
 
 ## [Unreleased] - 2026-08-15 (later)
 
+### Changed
+- **`OPENAI_MAX_TOKENS` (default 4096) now caps the OpenAI path** — previously
+  unbounded, so this is a behaviour change for existing OpenAI self-hosters:
+  very long diagnoses can now truncate (raise the value if so). The cap exists
+  because OpenAI-compatible brokers (OpenRouter) reserve `max_tokens` against
+  the account balance per request and 402 without it
+- **Upgrade note: agent conversation memory resets once** — checkpointer threads
+  are now namespaced per caller (see below), so existing threads land in a new
+  namespace and prior history is not resumed. Only affects deployments running
+  the optional Redis checkpointer
+
 ### Fixed
 - **Executors can no longer answer another cluster's commands (result injection)**
   — `/executor/results` stored a result for any `command_id` an authenticated

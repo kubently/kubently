@@ -72,6 +72,15 @@ class KubentlyAgentExecutor(AgentExecutor):
 
         logger.info(f"Using contextId: {contextId}, cluster_id: {cluster_id}")
 
+        # Tool calls are recorded by the agent under the CALLER-NAMESPACED thread
+        # id (see agent._namespaced_thread_id), so the interceptor must be queried
+        # with the same value — matching is exact equality. Querying the raw
+        # contextId silently returns [] and the "🔧 Tool Call" stream events
+        # (which test-automation parses) vanish.
+        from .agent import _namespaced_thread_id
+
+        traceThreadId = _namespaced_thread_id(contextId)
+
         if not context.message:
             raise Exception("No message provided")
 
@@ -155,7 +164,7 @@ class KubentlyAgentExecutor(AgentExecutor):
                 if last_tool_check_time is None or last_tool_check_time < current_time:
                     # Get tool calls since last check
                     tool_calls = await interceptor.get_tool_calls_for_thread(
-                        contextId, 
+                        traceThreadId,
                         since_timestamp=last_tool_check_time
                     )
                     
@@ -194,7 +203,7 @@ class KubentlyAgentExecutor(AgentExecutor):
             
             # Emit any remaining tool calls
             final_tool_calls = await interceptor.get_tool_calls_for_thread(
-                contextId, 
+                traceThreadId,
                 since_timestamp=last_tool_check_time
             )
             for tool_call in final_tool_calls:

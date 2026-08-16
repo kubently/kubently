@@ -696,8 +696,13 @@ async def execute_command(
     }
 
     # Bind this command to the target cluster BEFORE publishing, so a result
-    # can only be accepted from the executor that was actually asked.
-    await queue_module.bind_command(command["id"], request.cluster_id)
+    # can only be accepted from the executor that was actually asked. The TTL is
+    # derived from how long we will actually wait, so an operator who raises
+    # COMMAND_TIMEOUT past the default can't have valid slow results rejected.
+    timeout = x_request_timeout or request.timeout_seconds or config.get("command_timeout")
+    await queue_module.bind_command(
+        command["id"], request.cluster_id, ttl=max(120, int(timeout) * 2)
+    )
 
     # Publish command to executor's Redis channel
     channel = f"executor-commands:{request.cluster_id}"
@@ -705,7 +710,6 @@ async def execute_command(
     logger.info(f"Published command {command['id']} to channel {channel}")
 
     # Wait for result using existing queue mechanism
-    timeout = x_request_timeout or request.timeout_seconds or config.get("command_timeout")
     result = await queue_module.wait_for_result(command["id"], timeout=timeout)
 
     # === OPTIONAL ENHANCEMENT ===

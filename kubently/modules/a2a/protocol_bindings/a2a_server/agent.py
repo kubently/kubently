@@ -49,6 +49,9 @@ def structured_log(log_data: dict, thread_id: str = None):
         logger.info(json.dumps(log_data, indent=2, default=str))
 
 
+_POSTHOG_CLIENT = None  # module-level singleton, see _posthog_llm_callbacks
+
+
 def _namespaced_thread_id(thread_id: str | None) -> str | None:
     """Bind a conversation thread to the authenticated caller.
 
@@ -87,14 +90,27 @@ def _posthog_llm_callbacks():
     key = os.getenv("POSTHOG_API_KEY")
     if not key:
         return []
+
+    global _POSTHOG_CLIENT
+    if _POSTHOG_CLIENT is None:
+        try:
+            from posthog import Posthog
+        except Exception as e:  # SDK missing/too old — never fail the agent for telemetry
+            logger.warning(f"PostHog LLM observability requested but unavailable: {e}")
+            return []
+        # Singleton: the client owns a background flush thread and connection
+        # pool, and initialize() runs per agent construction — a client per call
+        # would leak both.
+        _POSTHOG_CLIENT = Posthog(
+            key, host=os.getenv("POSTHOG_HOST", "https://us.i.posthog.com")
+        )
+
     try:
-        from posthog import Posthog
         from posthog.ai.langchain import CallbackHandler
-    except Exception as e:  # SDK missing or too old — never fail the agent for telemetry
-        logger.warning(f"PostHog LLM observability requested but unavailable: {e}")
+    except Exception as e:
+        logger.warning(f"PostHog LangChain callback unavailable: {e}")
         return []
-    client = Posthog(key, host=os.getenv("POSTHOG_HOST", "https://us.i.posthog.com"))
-    return [CallbackHandler(client=client)]
+    return [CallbackHandler(client=_POSTHOG_CLIENT)]
 
 
 # Dangerous kubectl verbs that require explicit permission
