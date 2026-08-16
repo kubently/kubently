@@ -56,6 +56,7 @@
 | `OPENAI_API_KEY` | - | If OpenAI | OpenAI API key |
 | `OPENAI_ENDPOINT` | `https://api.openai.com/v1` | No | OpenAI API endpoint |
 | `OPENAI_MODEL_NAME` | `gpt-4o` | No | OpenAI model to use |
+| `OPENAI_MAX_TOKENS` | `4096` | No | Max completion tokens on the OpenAI path (parity with the Anthropic path). Note: previously unbounded — OpenAI-compatible brokers such as OpenRouter reserve `max_tokens` against the account balance per request, so an unbounded value can 402 on small balances. Raise it if long diagnoses are being truncated |
 | `ANTHROPIC_API_KEY` | - | If Anthropic | Anthropic API key |
 | `ANTHROPIC_MODEL_NAME` | `claude-3-5-sonnet-20241022` | No | Anthropic model to use |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | No | Ollama server URL |
@@ -67,6 +68,8 @@
 |----------|---------|----------|-------------|
 | `LANGSMITH_TRACING` | `false` | No | Enable LangSmith tracing for observability |
 | `LANGSMITH_API_KEY` | - | If tracing enabled | LangSmith API key (set via secret) |
+| `POSTHOG_API_KEY` | - | No | Enables PostHog LLM observability (model, tokens, cost, latency per generation). Unset = no telemetry is collected or sent |
+| `POSTHOG_HOST` | `https://us.i.posthog.com` | No | PostHog ingestion host (use `https://eu.i.posthog.com` for the EU region, or your own reverse proxy) |
 | `LANGSMITH_PROJECT` | `default` | No | Project name in LangSmith UI |
 | `LANGSMITH_ENDPOINT` | `https://api.smith.langchain.com` | No | LangSmith API endpoint |
 | `LANGSMITH_SAMPLE_RATE` | `1.0` | No | Sampling rate (0.0-1.0) for trace volume reduction |

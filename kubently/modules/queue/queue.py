@@ -111,6 +111,26 @@ class QueueModule:
 
         return commands
 
+    async def bind_command(self, command_id: str, cluster_id: str, ttl: int = 120) -> None:
+        """Record which cluster a command was issued to.
+
+        Results are submitted by executors, which are operated by the customer
+        whose cluster they run in. Without this binding any authenticated
+        executor could submit a result for ANY command_id — injecting fabricated
+        kubectl output into another tenant's in-flight diagnosis. TTL covers the
+        command's lifetime; expiry just means late results are rejected.
+        """
+        await self.redis.setex(f"command:cluster:{command_id}", ttl, cluster_id)
+
+    async def command_belongs_to(self, command_id: str, cluster_id: str) -> bool:
+        """True if this command was issued to this cluster (unknown -> False)."""
+        owner = await self.redis.get(f"command:cluster:{command_id}")
+        if owner is None:
+            return False
+        if isinstance(owner, bytes):
+            owner = owner.decode("utf-8")
+        return owner == cluster_id
+
     async def store_result(self, command_id: str, result: dict) -> None:
         """
         Store command execution result.

@@ -159,9 +159,19 @@ class AuthModule:
 
             return True, service_identity
 
-        # Could check Redis for dynamic keys here in future
-        # redis_key = f"api:key:{hashlib.sha256(api_key.encode()).hexdigest()}"
-        # stored_data = await self.redis.get(redis_key)
+        # Dynamic keys (issued at runtime, e.g. per tenant by a control plane):
+        # api:key:{sha256(key)} = identity string. Only the hash is stored.
+        if self.redis is not None:
+            redis_key = f"api:key:{hashlib.sha256(api_key.encode()).hexdigest()}"
+            identity = await self.redis.get(redis_key)
+            if identity:
+                identity = identity.decode("utf-8") if isinstance(identity, bytes) else identity
+                await self._log_event(
+                    "api_key_verified",
+                    {"service_identity": identity, "dynamic": True,
+                     "timestamp": datetime.now(UTC).isoformat()},
+                )
+                return True, identity
 
         return False, None
 
