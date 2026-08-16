@@ -3,6 +3,14 @@
 ## [Unreleased] - 2026-08-15 (later)
 
 ### Fixed
+- **Conversation threads are now private to the caller (cross-tenant memory
+  leak)** — the A2A `contextId` is client-supplied and was passed straight to
+  the LangGraph checkpointer as its thread namespace, so any caller could resume
+  another caller's conversation (their questions, kubectl output, cluster
+  internals) by reusing their `contextId`. Threads are now prefixed with a hash
+  of the authenticated caller's key; unauthenticated/local invocation is
+  unchanged. Latent rather than exploited in hosted deployments where the Redis
+  checkpointer is unavailable, but live the moment persistent memory is enabled
 - **Mock OAuth provider now speaks RFC 8628** — the device-flow token endpoint
   returned FastAPI-style `{"detail": ...}` errors (428 for pending), so the
   spec-compliant CLI treated `authorization_pending` as fatal and the

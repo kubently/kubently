@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import os
@@ -46,6 +47,32 @@ def structured_log(log_data: dict, thread_id: str = None):
 
         # Log as formatted JSON
         logger.info(json.dumps(log_data, indent=2, default=str))
+
+
+def _namespaced_thread_id(thread_id: str | None) -> str | None:
+    """Bind a conversation thread to the authenticated caller.
+
+    The A2A contextId is client-supplied and is used directly as the LangGraph
+    checkpointer's thread namespace, so without this two callers who pick the
+    same contextId share conversation memory. Prefixing with a hash of the
+    caller's API key keeps threads private per caller while staying stable
+    across that caller's turns (which is what makes multi-turn memory work).
+
+    Returns thread_id unchanged when there is no authenticated caller (direct
+    or local invocation), preserving existing single-tenant behaviour.
+    """
+    if not thread_id:
+        return thread_id
+    try:
+        from kubently.modules.auth.context import current_api_key
+
+        key = current_api_key.get()
+    except Exception:
+        key = None
+    if not key:
+        return thread_id
+    caller = hashlib.sha256(key.encode()).hexdigest()[:16]
+    return f"{caller}:{thread_id}"
 
 
 def _posthog_llm_callbacks():
@@ -622,6 +649,14 @@ class KubentlyAgent:
             cluster_id: Target cluster ID from CLI (if specified)
         """
         await self.initialize()
+
+        # SECURITY: thread_id is the checkpointer's namespace, and it comes from
+        # the A2A message's client-supplied contextId. Un-namespaced, any caller
+        # could resume another caller's conversation — replaying their questions,
+        # kubectl output and cluster internals — by guessing/reusing a contextId.
+        # Bind it to the authenticated caller so threads can never collide across
+        # tenants. Falls back to the raw id for unauthenticated/local invocation.
+        thread_id = _namespaced_thread_id(thread_id)
 
         # Store thread ID for tool call tracking
         self._current_thread_id = thread_id
