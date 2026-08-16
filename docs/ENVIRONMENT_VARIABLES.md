@@ -48,6 +48,21 @@
 | `KUBENTLY_MAX_FLEET_CLUSTERS` | `10` | No | Max clusters per `execute_kubectl_multi` fan-out call (each cluster adds up to ~4KB to the agent context) |
 | `A2A_SERVER_DEBUG` | `false` | No | Enable A2A debug logging |
 
+### Conversation Memory (A2A Checkpointing)
+
+The A2A agent persists multi-turn conversation state through a LangGraph
+checkpointer. The backend is selectable so checkpointing works on Redis
+servers without the RediSearch module (e.g. Upstash):
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `KUBENTLY_CHECKPOINTER_BACKEND` | `redisearch` | No | Checkpointer backend: `redisearch` (AsyncRedisSaver; requires the RediSearch module), `plain-redis` (core Redis commands only; works on Upstash and any managed Redis), `memory` (per-process, dev/test only), or `none` (disable cross-request memory) |
+| `KUBENTLY_CHECKPOINT_TTL_SECONDS` | `604800` (7 days) | No | TTL for `plain-redis` checkpoint keys; refreshed on every checkpoint write, so active conversations never expire mid-flight. Set to `0` to disable expiry. Ignored by other backends |
+
+Whatever the backend, initialization failure degrades gracefully: the agent
+logs a warning and continues without cross-request memory, and single-request
+diagnoses are unaffected.
+
 ### LLM Configuration (for A2A)
 
 | Variable | Default | Required | Description |

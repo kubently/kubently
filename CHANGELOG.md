@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] - 2026-08-16
+
+### Added
+- **Selectable checkpointer backend for A2A conversation memory** — new
+  `KUBENTLY_CHECKPOINTER_BACKEND` env var chooses how LangGraph checkpoints are
+  stored: `redisearch` (default, unchanged AsyncRedisSaver path), `plain-redis`
+  (new `PlainRedisSaver` using only core Redis commands — enables cross-request
+  memory on RediSearch-less Redis such as Upstash), `memory` (per-process, for
+  dev/tests), or `none` (explicitly off). Selection lives in
+  `kubently/modules/a2a/protocol_bindings/a2a_server/checkpointer.py`; graceful
+  degradation is preserved — any backend init failure logs a warning and the
+  agent keeps answering single-request diagnoses without memory
+- **`KUBENTLY_CHECKPOINT_TTL_SECONDS`** (default 7 days, `0` disables) bounds
+  checkpoint key growth for the `plain-redis` backend; TTLs are refreshed on
+  every checkpoint write so active conversations never expire mid-flight
+- **Checkpointer tests** (`tests/test_checkpointer.py`) — backend selection,
+  save/restore round-trips, thread isolation, TTL behavior, and end-to-end
+  LangGraph graphs checkpointed on fakeredis (which, like Upstash, has no
+  RediSearch); `fakeredis` added to the `test` extra
+
 ## [Unreleased] - 2026-08-15 (later)
 
 ### Changed
