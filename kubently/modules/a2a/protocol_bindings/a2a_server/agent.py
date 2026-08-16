@@ -48,6 +48,28 @@ def structured_log(log_data: dict, thread_id: str = None):
         logger.info(json.dumps(log_data, indent=2, default=str))
 
 
+def _posthog_llm_callbacks():
+    """PostHog LLM observability, opt-in via POSTHOG_API_KEY.
+
+    Returns a LangChain callback list that reports each generation
+    (model, tokens, cost, latency) to PostHog, or [] when unset. The import is
+    guarded so an absent/older posthog SDK degrades to no-op rather than breaking
+    the agent. Spike scope: fleet-level capture; per-tenant distinct_id (from the
+    caller's identity) is the follow-up.
+    """
+    key = os.getenv("POSTHOG_API_KEY")
+    if not key:
+        return []
+    try:
+        from posthog import Posthog
+        from posthog.ai.langchain import CallbackHandler
+    except Exception as e:  # SDK missing or too old — never fail the agent for telemetry
+        logger.warning(f"PostHog LLM observability requested but unavailable: {e}")
+        return []
+    client = Posthog(key, host=os.getenv("POSTHOG_HOST", "https://us.i.posthog.com"))
+    return [CallbackHandler(client=client)]
+
+
 # Dangerous kubectl verbs that require explicit permission
 DANGEROUS_VERBS = {
     "delete", "create", "apply", "patch", "edit", "scale",
@@ -187,6 +209,11 @@ class KubentlyAgent:
         llm_provider = os.getenv("LLM_PROVIDER", "").lower()
         enable_context_management = os.getenv("ANTHROPIC_CONTEXT_CLEARING", "true").lower() == "true"
 
+        # PostHog LLM observability (optional): when POSTHOG_API_KEY is set, every
+        # generation reports model/tokens/cost/latency to PostHog. Attached to the
+        # model, so it flows through deepagents without touching the graph.
+        posthog_cbs = _posthog_llm_callbacks()
+
         if "anthropic" in llm_provider or "claude" in llm_provider:
             # For Anthropic models, use direct initialization to enable context management
             if enable_context_management:
@@ -201,7 +228,8 @@ class KubentlyAgent:
                     betas=["context-management-2025-06-27"],
                     context_management={
                         "edits": [{"type": "clear_tool_uses_20250919"}]
-                    }
+                    },
+                    callbacks=posthog_cbs,
                 )
                 logger.info(f"Anthropic Claude initialized with context management: {model_name}")
                 logger.info("Context management will automatically clear tool results to prevent context overflow")
@@ -210,7 +238,7 @@ class KubentlyAgent:
                 from langchain_anthropic import ChatAnthropic
 
                 model_name = os.getenv("ANTHROPIC_MODEL_NAME", "claude-sonnet-4-6")
-                self.llm = ChatAnthropic(model=model_name, max_tokens=4096)
+                self.llm = ChatAnthropic(model=model_name, max_tokens=4096, callbacks=posthog_cbs)
                 logger.info(f"Anthropic Claude initialized without context management: {model_name}")
         elif "openai" in llm_provider or "azure" in llm_provider:
             from langchain_openai import ChatOpenAI
@@ -221,12 +249,13 @@ class KubentlyAgent:
             self.llm = ChatOpenAI(
                 model=os.getenv("OPENAI_MODEL_NAME", "gpt-4o"),
                 max_tokens=int(os.getenv("OPENAI_MAX_TOKENS", "4096")),
+                callbacks=posthog_cbs,
             )
             logger.info(f"OpenAI initialized: {llm_provider}")
         elif "google" in llm_provider or "gemini" in llm_provider:
             from langchain_google_genai import ChatGoogleGenerativeAI
 
-            self.llm = ChatGoogleGenerativeAI(model=os.getenv("GOOGLE_MODEL_NAME", "gemini-2.0-flash"))
+            self.llm = ChatGoogleGenerativeAI(model=os.getenv("GOOGLE_MODEL_NAME", "gemini-2.0-flash"), callbacks=posthog_cbs)
             logger.info(f"Google Gemini initialized: {llm_provider}")
         else:
             raise ValueError(

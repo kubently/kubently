@@ -101,6 +101,10 @@ a2a = [
     # Optional MCP support
     "langchain-mcp-adapters>=0.1.0",
     "mcp>=1.2.0",  # serve Kubently as an MCP server (FastMCP + streamable-http)
+
+    # Optional LLM observability — PostHog LLM analytics via LangChain callback,
+    # active only when POSTHOG_API_KEY is set (agent._posthog_llm_callbacks)
+    "posthog>=6.0.0",
     
     # Async support
     "aiohttp>=3.9.0",
