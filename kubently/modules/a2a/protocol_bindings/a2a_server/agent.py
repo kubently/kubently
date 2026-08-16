@@ -10,8 +10,7 @@ import httpx
 from deepagents import create_deep_agent
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables.config import RunnableConfig
-from langgraph.checkpoint.redis.aio import AsyncRedisSaver
-
+from .checkpointer import create_checkpointer
 from .fleet import cap_output
 from .tool_call_interceptor import get_tool_call_interceptor
 
@@ -183,6 +182,9 @@ class KubentlyAgent:
         self.agent = None
         # Memory will be initialized in async context
         self.memory = None
+        # True when checkpointing is intentionally off (backend "none" or no
+        # Redis client), so initialize() doesn't retry on every request.
+        self._memory_disabled = False
         self._initialized = False
         self.system_prompt = None
         # Investigation tracking
@@ -224,26 +226,20 @@ class KubentlyAgent:
 
     async def initialize(self):
         """Initialize the agent with LLM and tools."""
-        if self._initialized and self.memory is not None:
+        if self._initialized and (self.memory is not None or self._memory_disabled):
             return
 
         if self._initialized and self.memory is None:
             logger.info("Agent initialized but memory failed previously, retrying memory setup...")
 
-        # Initialize memory in async context
-        memory_initialized = False
+        # Initialize memory in async context. Backend selection (RediSearch,
+        # plain Redis, in-memory, none) lives in checkpointer.create_checkpointer.
         try:
-
-            if self.redis_client:
-                # Test Redis connection first
-                await self.redis_client.ping()
-                self.memory = AsyncRedisSaver(redis_client=self.redis_client)
-                # Setup is required to initialize indices
-                await self.memory.setup()
-                logger.info("AsyncRedisSaver initialized and setup successfully")
-                memory_initialized = True
+            self.memory = await create_checkpointer(self.redis_client)
+            if self.memory is None:
+                self._memory_disabled = True
         except Exception as e:
-            logger.warning(f"Failed to initialize AsyncRedisSaver: {e}")
+            logger.warning(f"Failed to initialize checkpointer: {e}")
             logger.warning("Continuing without memory persistence")
             self.memory = None
 
