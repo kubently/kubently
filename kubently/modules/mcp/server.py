@@ -102,6 +102,13 @@ def add_api_key_auth(app, auth_module, public_well_known=False):
         if api_key:
             valid, _ = await auth_module.verify_api_key(api_key)
 
+        if valid:
+            # Expose the caller's key to downstream code (agent tools) so internal
+            # calls can act as the caller instead of the shared internal key.
+            from kubently.modules.auth.context import current_api_key
+
+            current_api_key.set(api_key)
+
         if not valid:
             from starlette.responses import JSONResponse
 

@@ -76,6 +76,17 @@
   re-run narrowed. Error bodies are capped too
 
 ### Added
+- **Dynamic Redis-backed API keys** — `AuthModule.verify_api_key` now also
+  accepts keys registered at runtime as `api:key:{sha256(key)}` = identity in
+  Redis (only the hash is stored), alongside the static `API_KEYS` env keys.
+  Lets a control plane issue/revoke per-tenant keys without restarts
+- **Agent tools act as the caller** — the A2A/MCP auth wrapper records the
+  caller's validated key in a `current_api_key` contextvar
+  (`kubently.modules.auth.context`), and agent tool calls (`list_clusters`,
+  `execute_kubectl`, `execute_kubectl_multi`) forward it on internal API calls
+  instead of the shared first `API_KEYS` key (which remains the fallback).
+  Least-privilege: a gateway can now scope what each caller's diagnostics may
+  touch
 - **Fleet fan-out cap is configurable** — `KUBENTLY_MAX_FLEET_CLUSTERS` env var
   overrides the default 10-cluster cap per `execute_kubectl_multi` call (read at
   call time; the cap bounds agent-context growth at ~4KB per cluster)

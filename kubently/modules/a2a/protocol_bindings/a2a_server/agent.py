@@ -259,7 +259,15 @@ class KubentlyAgent:
 
         # Use the auth module utility to extract API key (handles service:key format)
         from kubently.modules.auth import AuthModule
-        api_key = AuthModule.extract_first_api_key()
+        from kubently.modules.auth.context import current_api_key
+
+        internal_api_key = AuthModule.extract_first_api_key()
+
+        def api_key() -> str:
+            # Per-call: prefer the caller's key (set by the auth wrapper at the
+            # A2A/MCP mount) so tool calls execute with the caller's privileges;
+            # fall back to the internal service key (direct/local invocation).
+            return current_api_key.get() or internal_api_key
 
         # Create tool functions for kubectl operations
         from langchain_core.tools import tool
@@ -289,7 +297,7 @@ class KubentlyAgent:
                 try:
                     response = await client.get(
                         f"{api_url}/debug/clusters",
-                        headers={"X-Api-Key": api_key},
+                        headers={"X-Api-Key": api_key()},
                     )
                     if response.status_code == 200:
                         result = response.json()
@@ -458,7 +466,7 @@ class KubentlyAgent:
 
                     response = await client.post(
                         f"{api_url}/debug/execute",
-                        headers={"X-Api-Key": api_key},
+                        headers={"X-Api-Key": api_key()},
                         json=payload,
                     )
 
@@ -548,7 +556,7 @@ class KubentlyAgent:
             )
             try:
                 output = await run_fleet_command(
-                    api_url, api_key, cluster_ids, build_execute_payload(command, namespace)
+                    api_url, api_key(), cluster_ids, build_execute_payload(command, namespace)
                 )
                 await interceptor.record_tool_result(tool_call_id, output)
                 return output
