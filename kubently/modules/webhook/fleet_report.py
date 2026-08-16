@@ -59,25 +59,42 @@ def resolve_query(body_query: str | None = None) -> str:
     return prompt
 
 
+_FENCE = re.compile(r"(```.*?```)", re.S)
+
+
+def _mrkdwn_prose(text: str) -> str:
+    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text, flags=re.S)  # **bold** -> *bold*
+    # [ \t] not \s: \s matches newlines, which would swallow the blank lines
+    # around a rule and glue two cluster sections together.
+    text = re.sub(r"(?m)^[ \t]*(?:---+|===+)[ \t]*$\n?", "", text)  # horizontal rules
+    text = re.sub(r"(?m)^[ \t]*#{1,6}[ \t]+(.*)$", r"*\1*", text)  # # heading -> *heading*
+    return re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"<\2|\1>", text)  # links
+
+
 def to_slack_mrkdwn(text: str) -> str:
     """Normalise the markdown-isms LLMs reach for into Slack mrkdwn.
 
     Slack mrkdwn is not markdown: `**bold**`, `---` rules and `#` headings all
     render as literal characters. The prompt asks for mrkdwn, but prompt
     compliance is probabilistic and this message goes out unattended, so the
-    common three get fixed on the way out.
+    common ones get fixed on the way out.
+
+    Fenced blocks are passed through untouched apart from their language hint:
+    inside them `# ...` is a shell comment, not a heading, and rewriting it to
+    `*...*` hands the reader commands that break when pasted.
 
     ponytail: tables are left alone — rewriting them needs real parsing, and the
     prompt forbids them. If tables keep showing up, convert here rather than
     adding more prompt text.
     """
-    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text, flags=re.S)  # **bold** -> *bold*
-    # [ \t] not \s: \s matches newlines, which would swallow the blank lines
-    # around a rule and glue two cluster sections together.
-    text = re.sub(r"(?m)^[ \t]*(?:---+|===+)[ \t]*$\n?", "", text)  # horizontal rules
-    text = re.sub(r"(?m)^[ \t]*#{1,6}[ \t]+(.*)$", r"*\1*", text)  # # heading -> *heading*
-    text = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"<\2|\1>", text)  # links
-    return re.sub(r"\n{3,}", "\n\n", text).strip()
+    parts = _FENCE.split(text or "")
+    for i, part in enumerate(parts):
+        if part.startswith("```"):
+            # Slack has no language hints; ```bash renders "bash" as content.
+            parts[i] = re.sub(r"\A```[ \t]*[A-Za-z0-9_+-]*[ \t]*\n", "```\n", part)
+        else:
+            parts[i] = _mrkdwn_prose(part)
+    return re.sub(r"\n{3,}", "\n\n", "".join(parts)).strip()
 
 
 def format_slack_message(answer: str) -> dict:

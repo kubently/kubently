@@ -111,6 +111,36 @@ def test_to_slack_mrkdwn_converts_headings():
     assert to_slack_mrkdwn("## Fleet status") == "*Fleet status*"
 
 
+# Verbatim from a real Alertmanager diagnosis posted to Slack. The `#` lines are
+# shell comments, not headings: rewriting them to *bold* handed the reader
+# commands that break when pasted, and the ```bash hint rendered as content.
+E2E_DIAGNOSIS = """*Investigate:*
+```bash
+# Check if a postgres service/pod exists in the payments namespace
+kubectl get svc,pod -n payments -l app=postgres
+# Check DB connection config (env vars / secrets on the deployment)
+kubectl describe deployment checkout-api -n payments
+```
+"""
+
+
+def test_to_slack_mrkdwn_leaves_code_blocks_alone():
+    out = to_slack_mrkdwn(E2E_DIAGNOSIS)
+    assert "# Check if a postgres service/pod exists" in out, "shell comment was mangled"
+    assert "# Check DB connection config" in out
+    assert "*Check if" not in out, "heading rule fired inside a fenced block"
+    assert "```bash" not in out, "Slack renders the language hint as content"
+    assert "```\n# Check if" in out
+
+
+def test_to_slack_mrkdwn_still_fixes_prose_around_code_blocks():
+    """Protecting fences must not stop the prose either side being normalised."""
+    out = to_slack_mrkdwn("**Root Cause:** boom\n\n```sh\n# keep me\n```\n\n## Next steps")
+    assert "*Root Cause:*" in out and "**" not in out
+    assert "# keep me" in out
+    assert "*Next steps*" in out
+
+
 def test_to_slack_mrkdwn_leaves_valid_mrkdwn_alone():
     """Must not mangle output that was already correct."""
     good = "*prod-east*\n• `ns/pod/api` — `CrashLoopBackOff`, 5 restarts\n\n*prod-west* — healthy"

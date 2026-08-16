@@ -44,7 +44,10 @@ def build_query(alert: dict) -> str:
     lead = " ".join(parts) + (f": {summary}" if summary else "")
     return (
         f"{lead}. Diagnose the root cause and suggest a fix. "
-        "Be concise; this will be posted to Slack."
+        "Be concise; this will be posted to Slack. Format as Slack mrkdwn, which "
+        "is NOT markdown: bold is *single asterisk* (never **double**), there are "
+        "no `#` headings, no `---` rules and no tables. Code fences take no "
+        "language hint — use ``` alone, not ```bash."
     )
 
 
