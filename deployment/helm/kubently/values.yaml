@@ -44,10 +44,19 @@ api:
   # Example: apiKeys: ["abc123...", "def456..."]
   apiKeys: []
   
+  # Slack incoming-webhook URL — enables both proactive paths:
+  # /webhooks/alertmanager -> Slack diagnosis, and the fleetReport digest below.
+  #
+  # The URL is a credential: anyone holding it can post to your channel, so
+  # create a secret rather than putting it in a values file.
+  #   kubectl create secret generic kubently-slack \
+  #     --from-literal=url='https://hooks.slack.com/services/...' -n kubently
+  slackWebhook:
+    existingSecret: ""   # e.g. "kubently-slack" (takes precedence over api.env)
+    secretKey: "url"
+
   env:
     LOG_LEVEL: "INFO"
-    # SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/..."  # enables both proactive paths:
-    #   /webhooks/alertmanager -> Slack diagnosis, and the fleetReport digest below
     MAX_COMMANDS_PER_FETCH: "10"
     COMMAND_TIMEOUT: "30"
     SESSION_TTL: "300"

@@ -21,6 +21,13 @@
   scheduled path. Tuning the digest wording needs no `helm upgrade`
 
 ### Fixed
+- **`SLACK_WEBHOOK_URL` can be sourced from a secret, and no longer lands in a
+  ConfigMap** — the webhook URL is a credential (anyone holding it can post to
+  your channel), but it was only settable as an `api.env` values string, which
+  the chart also rendered verbatim into `kubently-api-config` where any
+  `get configmap` reader could see it. New `api.slackWebhook.existingSecret` /
+  `secretKey` sources it from a Kubernetes secret and takes precedence over the
+  values field; either way it is now excluded from the ConfigMap
 - **Alertmanager diagnoses can no longer vanish before they post** — the webhook
   fired `asyncio.create_task(...)` per alert without keeping a reference, and
   asyncio holds only *weak* references to tasks, so a diagnosis running for

@@ -167,8 +167,22 @@ spec:
               key: LANGSMITH_API_KEY
               optional: true
         {{- range $key, $value := .Values.api.env }}
+        {{- if ne $key "SLACK_WEBHOOK_URL" }}
         - name: {{ $key }}
           value: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
+        {{- /* A webhook URL is a credential: prefer a secret, and never let a
+               values-file copy silently win over one. */}}
+        {{- if .Values.api.slackWebhook.existingSecret }}
+        - name: SLACK_WEBHOOK_URL
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.api.slackWebhook.existingSecret }}
+              key: {{ .Values.api.slackWebhook.secretKey }}
+        {{- else if .Values.api.env.SLACK_WEBHOOK_URL }}
+        - name: SLACK_WEBHOOK_URL
+          value: {{ .Values.api.env.SLACK_WEBHOOK_URL | quote }}
         {{- end }}
         - name: KUBENTLY_A2A_PROMPT_FILE
           value: "/etc/kubently/prompts/system.prompt.yaml"
