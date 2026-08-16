@@ -49,8 +49,12 @@ def build_query(alert: dict) -> str:
 
 
 def format_slack_message(alert: dict, answer: str) -> dict:
+    from .fleet_report import to_slack_mrkdwn
+
     name = alert.get("labels", {}).get("alertname", "alert")
-    return {"text": f":rotating_light: *Kubently diagnosis for `{name}`*\n\n{answer}"}
+    return {
+        "text": f":rotating_light: *Kubently diagnosis for `{name}`*\n\n{to_slack_mrkdwn(answer)}"
+    }
 
 
 async def _diagnose_and_post(agent_factory, alert: dict, slack_url: str) -> None:

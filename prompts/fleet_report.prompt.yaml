@@ -26,9 +26,19 @@ content: |-
   `-o custom-columns` over `.status.containerStatuses[*].ready` and
   `.restartCount`.
 
-  Format the answer for Slack:
-  - one short section per cluster, cluster name first
-  - a cluster with nothing wrong gets a single line saying it is healthy
+  Format the answer as Slack mrkdwn. This is NOT markdown — these render as
+  literal characters and must never appear:
+  - tables (`| col | col |`) — Slack has no table support; use one line per pod
+  - `**double asterisk**` for bold — Slack bold is `*single asterisk*`
+  - `---` or `===` rules, and `#` headings — Slack renders none of them
+  - `[text](url)` links — Slack uses `<url|text>`
+
+  Use only: `*bold*`, `_italic_`, `` `code` ``, ``` ```blocks``` ```, and `•`
+  or `-` bullets. Structure:
+  - one short section per cluster, `*cluster-name*` on its own line first
+  - one line per problem underneath, starting with `•`
+  - a cluster with nothing wrong gets a single line: `*name* — healthy`
+  - a blank line between clusters (this is the separator; do not draw a rule)
   - no preamble, no closing summary
   - if the entire fleet is healthy, say so in one line and stop
 

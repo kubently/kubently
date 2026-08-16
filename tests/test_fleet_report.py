@@ -15,6 +15,7 @@ from kubently.modules.webhook.fleet_report import (
     create_router,
     format_slack_message,
     resolve_query,
+    to_slack_mrkdwn,
 )
 
 CHART_PROMPT = os.path.join(os.path.dirname(__file__), "..", "prompts", "fleet_report.prompt.yaml")
@@ -76,6 +77,44 @@ def test_format_slack_message():
     msg = format_slack_message("prod-east: healthy")
     assert msg["text"].startswith(":satellite: *Kubently fleet health digest*")
     assert "prod-east: healthy" in msg["text"]
+
+
+# Verbatim from a real digest run — Slack renders every one of these as literal
+# characters, so this is what the channel would actually have shown.
+E2E_ANSWER = """---
+
+**kind**
+
+:warning: `digest-test/pod/broken-payments` — not ready, `CrashLoopBackOff`
+
+---
+
+**kind-exec-only** — healthy
+
+See [the runbook](https://example.com/runbook) for next steps.
+"""
+
+
+def test_to_slack_mrkdwn_fixes_real_digest_output():
+    out = to_slack_mrkdwn(E2E_ANSWER)
+    assert "**" not in out, "double-asterisk bold renders literally in Slack"
+    assert "*kind*" in out and "*kind-exec-only* — healthy" in out
+    assert not any(line.strip() in ("---", "===") for line in out.splitlines())
+    assert "<https://example.com/runbook|the runbook>" in out
+    assert "[the runbook]" not in out
+    # Removing a rule must not eat the blank line it sat between: that blank
+    # line IS the section separator once the rule is gone.
+    assert "\n\n*kind-exec-only*" in out, "cluster sections got glued together"
+
+
+def test_to_slack_mrkdwn_converts_headings():
+    assert to_slack_mrkdwn("## Fleet status") == "*Fleet status*"
+
+
+def test_to_slack_mrkdwn_leaves_valid_mrkdwn_alone():
+    """Must not mangle output that was already correct."""
+    good = "*prod-east*\n• `ns/pod/api` — `CrashLoopBackOff`, 5 restarts\n\n*prod-west* — healthy"
+    assert to_slack_mrkdwn(good) == good
 
 
 # --- endpoint ---------------------------------------------------------------
