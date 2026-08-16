@@ -1,10 +1,11 @@
 import asyncio
+import contextlib
 import json
 import logging
 import os
 import re
 import traceback
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set, Tuple
 
 import httpx
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -17,6 +18,12 @@ from typing_extensions import override
 from kubently.modules.a2a.protocol_bindings.a2a_server.agent import KubentlyAgent
 
 logger = logging.getLogger(__name__)
+
+# How often (seconds) to sweep the tool-call interceptor for new activity while the
+# agent is thinking. The agent's own run() yields a single chunk at the very end, so
+# without this sweep a multi-minute diagnosis emits nothing between the initial task
+# event and the final artifact.
+TOOL_POLL_INTERVAL = float(os.getenv("A2A_TOOL_POLL_INTERVAL", "1.0"))
 
 
 class KubentlyAgentExecutor(AgentExecutor):
@@ -48,190 +55,47 @@ class KubentlyAgentExecutor(AgentExecutor):
         context: RequestContext,
         event_queue: EventQueue,
     ) -> None:
-        print("=== EXECUTE CALLED ===")  # Debug print to confirm execution
+        """Run a diagnosis, emitting task events as it goes.
+
+        Two invariants make `message/stream` usable, and both are load-bearing:
+
+        1. The task event is enqueued FIRST, before any work that can be slow or
+           can fail. The SSE response headers (HTTP 200) are flushed by the SDK
+           before this coroutine is ever awaited, so an exception raised before
+           the first event produces a 200 with a zero-byte body — the connection
+           just closes and the client is told nothing.
+        2. NOTHING escapes this method. The SDK's streaming path only converts
+           `ServerError` into a JSON-RPC error frame (see
+           JSONRPCHandler.on_message_send_stream); any other exception propagates
+           out of the SSE generator and, again, ends the stream with an empty
+           body. Failures are reported as a `failed` task instead.
+        """
         logger.info("=== KubentlyAgentExecutor.execute() CALLED ===")
-        
-        # Ensure agent is initialized in the correct event loop
-        await self.initialize()
-        
-        query = context.get_user_input()
+
         task = context.current_task
-        
-        # Use context_id from message like mas-agent-atlassian does
-        contextId = context.message.context_id if context.message else None
-
-        # Extract cluster ID from A2A metadata extension
-        cluster_id = context.metadata.get('clusterId') if context.metadata else None
-
-        # Debug logging to track context ID and cluster
-        logger.info(f"Debug context IDs:")
-        logger.info(f"  - context.context_id: {context.context_id}")
-        logger.info(f"  - context.message.context_id: {contextId}")
-        logger.info(f"  - task.contextId: {task.contextId if task else None}")
-        logger.info(f"  - cluster_id (from metadata): {cluster_id}")
-
-        logger.info(f"Using contextId: {contextId}, cluster_id: {cluster_id}")
-
-        # Tool calls are recorded by the agent under the CALLER-NAMESPACED thread
-        # id (see agent._namespaced_thread_id), so the interceptor must be queried
-        # with the same value — matching is exact equality. Querying the raw
-        # contextId silently returns [] and the "🔧 Tool Call" stream events
-        # (which test-automation parses) vanish.
-        from .agent import _namespaced_thread_id
-
-        traceThreadId = _namespaced_thread_id(contextId)
-
-        if not context.message:
-            raise Exception("No message provided")
-
-        if not task:
-            task = new_task(context.message)
-            await event_queue.enqueue_event(task)
-
-        # Let the agent handle all queries including cluster discovery
-        # The agent's memory and prompt will maintain context properly
-
-        # Check for direct kubectl command short-circuit
-        direct_result = await self._try_direct_kubectl(query, contextId)
-        if direct_result:
-            # Emit final artifact and completion
-            await event_queue.enqueue_event(
-                TaskArtifactUpdateEvent(
-                    append=False,
-                    contextId=task.contextId,
-                    taskId=task.id,
-                    lastChunk=True,
-                    artifact=new_text_artifact(
-                        name="debug_result",
-                        description="Kubernetes debugging analysis and findings",
-                        text=direct_result,
-                    ),
-                )
-            )
-            await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    status=TaskStatus(state=TaskState.completed),
-                    final=True,
-                    contextId=task.contextId,
-                    taskId=task.id,
-                )
-            )
-            return
-
-        # Build messages - trust the agent's memory and system prompt to handle context
-        messages = [{"role": "user", "content": query}]
-
-        # Stream results from the agent with error handling
-        full_response = []
-        last_tool_check_time = None
-        
-        # Import the interceptor
-        from .tool_call_interceptor import get_tool_call_interceptor
-        interceptor = get_tool_call_interceptor()
-        
         try:
-            logger.info(f"Starting agent execution for query: {query[:100]}, cluster_id: {cluster_id}")
-            chunk_count = 0
-            async for chunk in self.agent.run(messages, thread_id=contextId, cluster_id=cluster_id):
-                chunk_count += 1
-                # Chunk is a dict, extract content for logging
-                chunk_str = str(chunk)[:100] if chunk else 'EMPTY'
-                logger.info(f"Received chunk {chunk_count}: {chunk_str}")
-                # Extract content from chunk dict
-                chunk_content = chunk.get("content", "") if isinstance(chunk, dict) else str(chunk)
-                full_response.append(chunk_content)
+            if not context.message:
+                raise ValueError("No message provided")
 
-                # Send streaming update
-                await event_queue.enqueue_event(
-                    TaskStatusUpdateEvent(
-                        status=TaskStatus(
-                            state=TaskState.working,
-                            message=new_agent_text_message(
-                                chunk_content,
-                                task.contextId,
-                                task.id,
-                            ),
-                        ),
-                        final=False,
-                        contextId=task.contextId,
-                        taskId=task.id,
-                    )
-                )
-                
-                # Check for new tool calls periodically
-                from datetime import datetime
-                current_time = datetime.now().isoformat()
-                if last_tool_check_time is None or last_tool_check_time < current_time:
-                    # Get tool calls since last check
-                    tool_calls = await interceptor.get_tool_calls_for_thread(
-                        traceThreadId,
-                        since_timestamp=last_tool_check_time
-                    )
-                    
-                    # Emit tool call events
-                    for tool_call in tool_calls:
-                        # Create a custom event for tool calls
-                        # Since A2A doesn't have a specific tool call event, we'll use TaskStatusUpdateEvent
-                        # with metadata in the message
-                        tool_message = f"🔧 Tool Call: {tool_call['tool_name']}({json.dumps(tool_call.get('args', {}), indent=2)})"
-                        if tool_call.get('status') == 'completed' and tool_call.get('result'):
-                            tool_message += f"\n✅ Result: {tool_call['result'][:500]}..."
-                        elif tool_call.get('error'):
-                            tool_message += f"\n❌ Error: {tool_call['error']}"
-                            
-                        await event_queue.enqueue_event(
-                            TaskStatusUpdateEvent(
-                                status=TaskStatus(
-                                    state=TaskState.working,
-                                    message=new_agent_text_message(
-                                        tool_message,
-                                        task.contextId,
-                                        task.id,
-                                    ),
-                                ),
-                                final=False,
-                                contextId=task.contextId,
-                                taskId=task.id,
-                            )
-                        )
-                    
-                    last_tool_check_time = current_time
+            if not task:
+                task = new_task(context.message)
+                # Emit immediately: this is the client's first byte, and it must
+                # not be gated on agent initialization or the LLM round-trip.
+                await event_queue.enqueue_event(task)
 
-            # Send final result
-            final_response = "\n".join(full_response)
-            logger.info(f"Agent execution completed. Chunks: {chunk_count}, Response: '{final_response[:200]}'")
-            
-            # Emit any remaining tool calls
-            final_tool_calls = await interceptor.get_tool_calls_for_thread(
-                traceThreadId,
-                since_timestamp=last_tool_check_time
-            )
-            for tool_call in final_tool_calls:
-                tool_message = f"🔧 Tool Call: {tool_call['tool_name']}({json.dumps(tool_call.get('args', {}), indent=2)})"
-                if tool_call.get('status') == 'completed' and tool_call.get('result'):
-                    tool_message += f"\n✅ Result: {tool_call['result'][:500]}..."
-                elif tool_call.get('error'):
-                    tool_message += f"\n❌ Error: {tool_call['error']}"
-                    
-                await event_queue.enqueue_event(
-                    TaskStatusUpdateEvent(
-                        status=TaskStatus(
-                            state=TaskState.working,
-                            message=new_agent_text_message(
-                                tool_message,
-                                task.contextId,
-                                task.id,
-                            ),
-                        ),
-                        final=False,
-                        contextId=task.contextId,
-                        taskId=task.id,
-                    )
-                )
+            final_response = await self._diagnose(context, event_queue, task)
+            state = TaskState.completed
         except Exception as e:
-            error_msg = f"Agent execution failed: {str(e)}\n{traceback.format_exc()}"
-            logger.error(error_msg)
-            final_response = f"I encountered an error while processing your request: {str(e)}"
+            logger.error(f"Agent execution failed: {e}\n{traceback.format_exc()}")
+            final_response = f"I encountered an error while processing your request: {e!s}"
+            state = TaskState.failed
+            if task is None:
+                # Nothing to hang task events off (malformed request). A bare
+                # agent message is still a terminal event, so the client gets a
+                # real response rather than an empty stream.
+                await event_queue.enqueue_event(new_agent_text_message(final_response))
+                return
+
         await event_queue.enqueue_event(
             TaskArtifactUpdateEvent(
                 append=False,
@@ -246,15 +110,190 @@ class KubentlyAgentExecutor(AgentExecutor):
             )
         )
 
-        # Mark task as complete
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
-                status=TaskStatus(state=TaskState.completed),
+                status=TaskStatus(state=state),
                 final=True,
                 contextId=task.contextId,
                 taskId=task.id,
             )
         )
+
+    async def _diagnose(
+        self,
+        context: RequestContext,
+        event_queue: EventQueue,
+        task: Any,
+    ) -> str:
+        """Run the agent for this request and return its final text."""
+        # Ensure agent is initialized in the correct event loop
+        await self.initialize()
+
+        query = context.get_user_input()
+
+        # Use context_id from message like mas-agent-atlassian does. Fall back to
+        # the task's contextId so the id the agent memoizes under is never None —
+        # a None thread_id makes the agent invent a random one, which the
+        # interceptor lookup below could then never match.
+        contextId = (context.message.context_id if context.message else None) or task.contextId
+
+        # Extract cluster ID from A2A metadata extension
+        cluster_id = context.metadata.get("clusterId") if context.metadata else None
+
+        logger.info(
+            f"Using contextId: {contextId}, cluster_id: {cluster_id}, "
+            f"task.contextId: {task.contextId}"
+        )
+
+        # Tool calls are recorded by the agent under the CALLER-NAMESPACED thread
+        # id (see agent._namespaced_thread_id), so the interceptor must be queried
+        # with the same value — matching is exact equality. Querying the raw
+        # contextId silently returns [] and the "🔧 Tool Call" stream events
+        # (which test-automation parses) vanish.
+        from .agent import _namespaced_thread_id
+
+        traceThreadId = _namespaced_thread_id(contextId)
+
+        # Check for direct kubectl command short-circuit
+        direct_result = await self._try_direct_kubectl(query, contextId)
+        if direct_result:
+            return direct_result
+
+        # Build messages - trust the agent's memory and system prompt to handle context
+        messages = [{"role": "user", "content": query}]
+
+        # Sweep the interceptor for tool activity while the agent works, so the
+        # client sees the investigation happening instead of waiting minutes for a
+        # single artifact. `emitted` dedupes across the poller and the final flush;
+        # seeding it with what is already buffered keeps an earlier turn's calls
+        # (the interceptor buffer is per-thread, not per-turn) out of this stream.
+        emitted: Set[Tuple[str, str]] = await self._tool_call_keys(traceThreadId)
+        poller = asyncio.create_task(
+            self._poll_tool_calls(event_queue, task, traceThreadId, emitted)
+        )
+
+        full_response = []
+        chunk_count = 0
+        try:
+            logger.info(
+                f"Starting agent execution for query: {query[:100]}, cluster_id: {cluster_id}"
+            )
+            async for chunk in self.agent.run(messages, thread_id=contextId, cluster_id=cluster_id):
+                chunk_count += 1
+                logger.info(f"Received chunk {chunk_count}: {str(chunk)[:100] if chunk else 'EMPTY'}")
+                chunk_content = chunk.get("content", "") if isinstance(chunk, dict) else str(chunk)
+                full_response.append(chunk_content)
+
+                # Flush pending tool activity before the narrative chunk so the
+                # transcript reads in the order things happened.
+                await self._emit_tool_calls(event_queue, task, traceThreadId, emitted)
+                await self._emit_working(event_queue, task, chunk_content)
+        finally:
+            poller.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await poller
+
+        # Emit any tool calls that landed (or completed) after the last sweep
+        await self._emit_tool_calls(event_queue, task, traceThreadId, emitted)
+
+        final_response = "\n".join(full_response)
+        logger.info(
+            f"Agent execution completed. Chunks: {chunk_count}, "
+            f"Response: '{final_response[:200]}'"
+        )
+        return final_response
+
+    async def _emit_working(self, event_queue: EventQueue, task: Any, text: str) -> None:
+        """Emit a non-final `working` status update carrying `text`."""
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                status=TaskStatus(
+                    state=TaskState.working,
+                    message=new_agent_text_message(text, task.contextId, task.id),
+                ),
+                final=False,
+                contextId=task.contextId,
+                taskId=task.id,
+            )
+        )
+
+    async def _poll_tool_calls(
+        self,
+        event_queue: EventQueue,
+        task: Any,
+        thread_id: Optional[str],
+        emitted: Set[Tuple[str, str]],
+    ) -> None:
+        """Emit tool activity as it is recorded, until cancelled.
+
+        Runs alongside the agent because `agent.run()` is a single long await that
+        yields only once, at the end — this loop is what makes the stream
+        incremental rather than a silent wait followed by one artifact.
+        """
+        while True:
+            await asyncio.sleep(TOOL_POLL_INTERVAL)
+            try:
+                await self._emit_tool_calls(event_queue, task, thread_id, emitted)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # never let progress reporting kill the stream
+                logger.warning(f"Tool call progress sweep failed: {e}")
+
+    async def _emit_tool_calls(
+        self,
+        event_queue: EventQueue,
+        task: Any,
+        thread_id: Optional[str],
+        emitted: Set[Tuple[str, str]],
+    ) -> None:
+        """Emit any tool calls for `thread_id` not already emitted at this status.
+
+        Keyed by (call id, status) so a call surfaces twice: once when it starts
+        (so the client sees the step immediately) and once when it resolves (with
+        the output). Only the resolved event uses the "🔧 Tool Call:" prefix that
+        test-automation counts, so per-call counts stay accurate.
+        """
+        if not thread_id:
+            return
+
+        from .tool_call_interceptor import get_tool_call_interceptor
+
+        interceptor = get_tool_call_interceptor()
+        for tool_call in await interceptor.get_tool_calls_for_thread(thread_id):
+            key = (tool_call.get("id", ""), tool_call.get("status", ""))
+            if key in emitted:
+                continue
+            emitted.add(key)
+            await self._emit_working(event_queue, task, self._format_tool_call(tool_call))
+
+    async def _tool_call_keys(self, thread_id: Optional[str]) -> Set[Tuple[str, str]]:
+        """(call id, status) pairs already buffered for `thread_id`."""
+        if not thread_id:
+            return set()
+
+        from .tool_call_interceptor import get_tool_call_interceptor
+
+        calls = await get_tool_call_interceptor().get_tool_calls_for_thread(thread_id)
+        return {(c.get("id", ""), c.get("status", "")) for c in calls}
+
+    @staticmethod
+    def _format_tool_call(tool_call: Dict[str, Any]) -> str:
+        """Render a tool call for the stream.
+
+        The "🔧 Tool Call: name(args)" shape is parsed by test-automation, so it
+        marks exactly one completed call. In-flight calls get a distinct prefix.
+        """
+        args = json.dumps(tool_call.get("args", {}), indent=2)
+        name = tool_call.get("tool_name")
+        if tool_call.get("status") == "started":
+            return f"⏳ Running: {name}({args})"
+
+        message = f"🔧 Tool Call: {name}({args})"
+        if tool_call.get("status") == "completed" and tool_call.get("result"):
+            message += f"\n✅ Result: {tool_call['result'][:500]}..."
+        elif tool_call.get("error"):
+            message += f"\n❌ Error: {tool_call['error']}"
+        return message
 
     @override
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:

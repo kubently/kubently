@@ -3,6 +3,12 @@
 ## [Unreleased] - 2026-08-15 (later)
 
 ### Changed
+- **A2A `message/stream` now reports progress while the agent works** — tool
+  calls are streamed as they start (`⏳ Running: …`) and again when they resolve
+  (`🔧 Tool Call: …` + result), instead of arriving in one burst at the end.
+  Clients see the investigation happen; only the resolved event carries the
+  `🔧 Tool Call:` marker, so per-call counts in test-automation are unchanged.
+  A failing diagnosis now ends in task state `failed` rather than `completed`
 - **`OPENAI_MAX_TOKENS` (default 4096) now caps the OpenAI path** — previously
   unbounded, so this is a behaviour change for existing OpenAI self-hosters:
   very long diagnoses can now truncate (raise the value if so). The cap exists
@@ -14,6 +20,27 @@
   the optional Redis checkpointer
 
 ### Fixed
+- **A2A `message/stream` returned HTTP 200 with a zero-byte body** (#65) — the
+  SDK flushes the SSE response headers before pulling the first event from the
+  executor, and its streaming path converts only `ServerError` into a JSON-RPC
+  error frame. So any other exception escaping `KubentlyAgentExecutor.execute()`
+  (a bad `LLM_PROVIDER`, a checkpointer failure, anything raised before the
+  first `enqueue_event`) closed the connection silently, while the identical
+  failure on `message/send` returned a readable error. The task event is now
+  emitted before any work that can fail, and nothing escapes `execute()` —
+  failures arrive as a `failed` task carrying the reason. Streaming was
+  advertised on the agent card throughout, so spec-compliant clients that chose
+  it got nothing back
+- **A2A streaming emitted no output for the duration of a diagnosis** — the
+  executor only swept the tool-call interceptor between chunks from
+  `agent.run()`, which yields exactly once, at the very end. A long
+  investigation (166s observed) therefore sent the initial task event and then
+  nothing until the final artifact, leaving callers with no progress and no
+  workable answer for putting the API behind a proxy that enforces a response
+  deadline. The sweep now runs concurrently with the agent
+- **`kind-e2e.sh` treated an empty streaming response as a pass** — the smoke
+  test only grepped for error strings, which an empty body trivially satisfies.
+  It now fails when `message/stream` returns no SSE events or no final artifact
 - **Executors can no longer answer another cluster's commands (result injection)**
   — `/executor/results` stored a result for any `command_id` an authenticated
   executor submitted, with no check that the command was issued to that

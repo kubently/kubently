@@ -26,7 +26,12 @@ EXECUTOR_SRC = (A2A / "agent_executor.py").read_text()
 
 def test_executor_queries_with_namespaced_thread_id():
     """Every get_tool_calls_for_thread call must use the namespaced id, never
-    the raw client-supplied contextId."""
+    the raw client-supplied contextId.
+
+    The query is funnelled through the emit helpers, so the id is threaded as
+    their `thread_id` parameter; what must never appear at either end is
+    `contextId`.
+    """
     calls = re.findall(
         r"get_tool_calls_for_thread\(\s*([A-Za-z_][A-Za-z0-9_]*)", EXECUTOR_SRC
     )
@@ -37,7 +42,24 @@ def test_executor_queries_with_namespaced_thread_id():
             "agent records under the namespaced thread id — tool call events will "
             "silently never be emitted"
         )
-        assert arg == "traceThreadId", f"unexpected thread id argument: {arg}"
+        assert arg == "thread_id", f"unexpected thread id argument: {arg}"
+
+    # ...and the id fed into those helpers from the request path is the
+    # namespaced one (the helpers only forward their own parameter onwards).
+    diagnose = EXECUTOR_SRC[EXECUTOR_SRC.index("async def _diagnose") :]
+    diagnose = diagnose[: diagnose.index("async def _emit_working")]
+    passed = re.findall(
+        r"self\._(?:emit_tool_calls|poll_tool_calls|tool_call_keys)\("
+        r"[^)]*?([A-Za-z_][A-Za-z0-9_]*)\s*(?:,\s*emitted\s*)?\)",
+        diagnose,
+        re.DOTALL,
+    )
+    assert passed, "expected tool-call emit/poll call sites in _diagnose"
+    for arg in passed:
+        assert arg == "traceThreadId", (
+            f"tool-call events are emitted for '{arg}' rather than the namespaced "
+            "thread id — the interceptor lookup will silently return []"
+        )
 
 
 def test_executor_derives_trace_id_from_the_same_helper():

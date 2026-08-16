@@ -129,8 +129,16 @@ step "Smoke: agent LLM round-trip (real tool call through executor)"
 resp=$(curl -s -m 90 -X POST http://localhost:8080/a2a/ \
   -H "Content-Type: application/json" -H "X-API-Key: test-api-key" \
   -d "{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"message/stream\",\"params\":{\"message\":{\"messageId\":\"smoke\",\"role\":\"user\",\"parts\":[{\"partId\":\"p1\",\"text\":\"In cluster $CLUSTER_ID, list pods in kube-system and report what you see.\"}]}}}")
-if printf '%s' "$resp" | grep -qiE "not_found_error|error code: 4|encountered an error"; then
+if ! printf '%s' "$resp" | grep -q '^data:'; then
+  # An empty body still arrives as HTTP 200 (the SSE headers are flushed before the
+  # first event), so "no events" has to be checked explicitly or it reads as success.
+  red "agent round-trip FAILED — message/stream returned no SSE events (${#resp} bytes)."
+  red "  An exception escaping the A2A executor closes the stream with an empty body."
+  red "  Check: kubectl -n $NS logs deploy/kubently-api"; fail=1
+elif printf '%s' "$resp" | grep -qiE "not_found_error|error code: 4|encountered an error"; then
   red "agent round-trip FAILED — likely bad ANTHROPIC_MODEL_NAME. Response:"; printf '%s\n' "$resp" | grep -o '"text":"[^"]*"' | head -3; fail=1
+elif ! printf '%s' "$resp" | grep -q '"kind":"artifact-update"'; then
+  red "agent round-trip FAILED — stream ended without a final artifact. Response:"; printf '%s\n' "$resp" | tail -3; fail=1
 else
   grn "agent round-trip OK"
 fi
