@@ -325,6 +325,7 @@ The diagnostic agent investigates with a small set of read-only tools:
 - **`query_loki`** *(optional)* — LogQL range queries against a cluster's Loki for aggregated/historical log search, including logs from pods that have restarted or been deleted. Enabled by setting `loki.url` in Helm values (unset by default); queries execute on each cluster's executor through the same outbound channel as kubectl commands
 - **`query_prometheus`** *(optional)* — instant and range PromQL queries for latency, saturation, OOM-trend and restarts-over-time evidence. Enabled by setting `prometheus.url` in Helm values (unset by default); queries execute on each cluster's executor through the same outbound channel as kubectl commands
 - **`search_past_incidents`** — keyword search over this deployment's incident history (see below). On by default when Redis is available; disable with `KUBENTLY_INCIDENT_HISTORY=false`
+- **`mcp_<server>_*`** *(optional)* — tools from external MCP servers (streamable HTTP, e.g. Grafana Cloud's or Datadog's remote MCP) configured via `mcpServers` in Helm values (unset by default). Tool names are prefixed with the server name to avoid collisions; results are treated as untrusted input (framed and size-capped) and credentials stay in Kubernetes secrets. **Connect read-scoped servers/credentials only** — Kubently cannot enforce read-only semantics on a remote server's tools. See `docs/MCP_CLIENT_TOOLS.md`
 
 ## Documentation
 
