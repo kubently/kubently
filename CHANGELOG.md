@@ -3,6 +3,22 @@
 ## [Unreleased] - 2026-08-17
 
 ### Added
+- **Operator runbook ingestion (Track P6a)** — feed org-specific knowledge
+  into investigations. Hand-written markdown runbooks with lightweight YAML
+  frontmatter (`name` + `match` criteria: alert-name globs,
+  namespace/workload selectors, free-text topic tags) load from
+  `KUBENTLY_RUNBOOKS_DIR` (Helm: `runbooks` values map → ConfigMap mounted at
+  `/etc/kubently/runbooks`, default off). When an investigation — chat
+  question, Alertmanager alert, or A2A call — matches a runbook, the best
+  match(es) are injected as operator context ("follow it where applicable,
+  note deviations") with the RCA citing the runbook by name. Scored matching
+  (alert hit > selector hit > topic hit) with a size cap
+  (`KUBENTLY_RUNBOOKS_MAX_CHARS`, default 8000 chars): one complete best
+  match beats fragments of everything; an oversized best match is truncated,
+  not dropped. Directory rescans periodically (signature-checked, like the
+  executor command whitelist), so ConfigMap edits go live without a pod
+  restart. New module `kubently/modules/runbooks/`; per-thread dedup keeps
+  multi-turn conversations from accumulating duplicate copies
 - **Cloud telemetry access via workload identity (Track D1)** — the executor
   can now query cloud logs/metrics/audit trails from inside the customer's
   account with **zero stored credentials**: the pod assumes a

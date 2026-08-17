@@ -174,6 +174,57 @@ vim deployment/helm/test-values.yaml
 helm install kubently deployment/helm -f deployment/helm/test-values.yaml
 ```
 
+### Operator Runbooks
+
+Feed your organization's tribal knowledge into investigations. Runbooks are
+hand-written markdown files with lightweight frontmatter; when an
+investigation (a chat question, an Alertmanager alert, or an A2A call)
+matches a runbook's criteria, the agent receives it as "the operator's
+runbook for this situation", follows it where applicable, notes deviations,
+and cites it by name in the diagnosis.
+
+A worked example:
+
+```markdown
+---
+name: Payments CrashLoopBackOff
+match:
+  alerts: ["KubePodCrashLooping", "PaymentsPod*"]   # alert-name globs
+  namespaces: ["payments", "payments-*"]            # namespace selectors
+  workloads: ["payment-api*"]                       # matches derived pod names too
+  topics: ["crashloop", "OOMKilled", "payment service"]  # free-text tags
+---
+1. Check recent deploys first: payment-api ships through ArgoCD, and 90% of
+   crashloops here follow a bad config sync.
+2. OOMKilled almost always means the JVM heap flag drifted from the container
+   memory limit — compare `-Xmx` against `resources.limits.memory` before
+   blaming traffic.
+3. If the DB connection pool is exhausted, do NOT restart the pods; escalate
+   to #payments-oncall (restarts thundering-herd the database).
+```
+
+Deploy runbooks as Helm values (they become a ConfigMap mounted into the API
+pod; edits go live without a pod restart):
+
+```yaml
+# production-values.yaml
+runbooks:
+  payments-crashloop.md: |
+    ---
+    name: Payments CrashLoopBackOff
+    match:
+      alerts: ["KubePodCrashLooping"]
+      namespaces: ["payments"]
+    ---
+    1. Check recent deploys first ...
+```
+
+Matching is scored: an alert-name hit outranks namespace/workload selector
+hits, which outrank topic hits. The best match is injected first, and the
+total injected size is capped (`KUBENTLY_RUNBOOKS_MAX_CHARS`, default 8000
+characters) — one complete, best-matching runbook beats fragments of many.
+Outside Helm, point `KUBENTLY_RUNBOOKS_DIR` at any directory of `.md` files.
+
 ## Architecture
 
 - **API Server**: FastAPI-based REST API for cluster management and authentication
