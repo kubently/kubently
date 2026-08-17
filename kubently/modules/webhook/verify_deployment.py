@@ -77,25 +77,12 @@ class VerifyRequest:
     query: str = ""  # extra caller instructions appended to the investigation
 
 
-def parse_request(body: dict) -> VerifyRequest:
-    """Validate the trigger payload. Raises ValueError with a caller-facing message.
+def _resolve_kind(body: dict, workload: str) -> tuple[str, str]:
+    """(kind, bare workload name) from the `kind` field and/or `kind/name` prefix.
 
-    `workload` accepts either a bare name or a `kind/name` prefix (the form
-    kubectl prints); an explicit `kind` field that contradicts the prefix is an
-    error rather than a silent pick.
+    An explicit `kind` field that contradicts the prefix is an error rather
+    than a silent pick.
     """
-    if not isinstance(body, dict):
-        raise ValueError("Body must be a JSON object")
-
-    cluster = str(body.get("cluster") or "").strip()
-    if not cluster:
-        raise ValueError("'cluster' is required")
-    if not _CLUSTER_ID.match(cluster):
-        raise ValueError(f"'cluster' is not a valid cluster id: {cluster!r}")
-
-    workload = str(body.get("workload") or "").strip()
-    if not workload:
-        raise ValueError("'workload' is required")
     prefix_kind = None
     if "/" in workload:
         prefix_kind, _, workload = workload.partition("/")
@@ -116,6 +103,28 @@ def parse_request(body: dict) -> VerifyRequest:
     kind = kind or prefix_kind or "deployment"
     if kind not in KINDS:
         raise ValueError(f"'kind' must be one of {', '.join(KINDS)}; got {kind!r}")
+    return kind, workload
+
+
+def parse_request(body: dict) -> VerifyRequest:
+    """Validate the trigger payload. Raises ValueError with a caller-facing message.
+
+    `workload` accepts either a bare name or a `kind/name` prefix (the form
+    kubectl prints).
+    """
+    if not isinstance(body, dict):
+        raise ValueError("Body must be a JSON object")
+
+    cluster = str(body.get("cluster") or "").strip()
+    if not cluster:
+        raise ValueError("'cluster' is required")
+    if not _CLUSTER_ID.match(cluster):
+        raise ValueError(f"'cluster' is not a valid cluster id: {cluster!r}")
+
+    workload = str(body.get("workload") or "").strip()
+    if not workload:
+        raise ValueError("'workload' is required")
+    kind, workload = _resolve_kind(body, workload)
 
     if not _DNS1123.match(workload):
         raise ValueError(f"'workload' is not a valid resource name: {workload!r}")
@@ -127,8 +136,8 @@ def parse_request(body: dict) -> VerifyRequest:
     raw_timeout = body.get("timeout_seconds", _default_timeout())
     try:
         timeout_seconds = int(raw_timeout)
-    except (TypeError, ValueError):
-        raise ValueError(f"'timeout_seconds' must be an integer; got {raw_timeout!r}")
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"'timeout_seconds' must be an integer; got {raw_timeout!r}") from e
     timeout_seconds = max(MIN_TIMEOUT_SECONDS, min(MAX_TIMEOUT_SECONDS, timeout_seconds))
 
     context = str(body.get("context") or "").strip()[:MAX_CONTEXT_CHARS]
@@ -497,7 +506,7 @@ def create_router(verify_api_key, redis_client=None) -> APIRouter:
         try:
             req = parse_request(body)
         except ValueError as e:
-            raise HTTPException(400, str(e))
+            raise HTTPException(400, str(e)) from e
 
         if req.dry_run:
             # Synchronous: the caller wants to read the verdict. No

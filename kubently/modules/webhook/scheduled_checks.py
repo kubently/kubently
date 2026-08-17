@@ -119,7 +119,7 @@ def load_checks(path: str | None = None) -> dict[str, Check]:
     path = path or os.environ.get("KUBENTLY_CHECKS_FILE") or DEFAULT_CHECKS_FILE
     if not os.path.isfile(path):
         return {}
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     if not isinstance(data, dict):
         raise ValueError("checks file must be a mapping with a 'checks' list")
@@ -141,9 +141,7 @@ def build_query(check: Check) -> str:
     if len(check.clusters) == 1:
         parts.append(f"Investigate cluster {check.clusters[0]} only.")
     elif check.clusters:
-        parts.append(
-            "Investigate only these clusters: " + ", ".join(check.clusters) + "."
-        )
+        parts.append("Investigate only these clusters: " + ", ".join(check.clusters) + ".")
     else:
         parts.append("Investigate every registered cluster.")
     parts.append(check.prompt)
@@ -201,6 +199,19 @@ async def _check_and_post(agent_factory, check: Check, slack_url: str) -> None:
         logger.exception("Scheduled check %s failed", check.name)
 
 
+def _resolve_check(name: str) -> Check:
+    """Load config and find the named check, mapping failures to HTTP errors."""
+    try:
+        checks = load_checks()
+    except ValueError as e:
+        raise HTTPException(500, f"checks config is invalid: {e}") from e
+    check = checks.get(name)
+    if check is None:
+        known = ", ".join(sorted(checks)) or "(none configured)"
+        raise HTTPException(404, f"unknown check {name!r}; configured checks: {known}")
+    return check
+
+
 def create_router(verify_api_key, redis_client=None) -> APIRouter:
     """Router factory. The agent (and its heavy langchain import) is only touched
     once a check actually runs, so the API boots without the a2a stack."""
@@ -226,15 +237,7 @@ def create_router(verify_api_key, redis_client=None) -> APIRouter:
         name = str(body.get("check") or "").strip()
         if not name:
             raise HTTPException(400, "'check' is required")
-
-        try:
-            checks = load_checks()
-        except ValueError as e:
-            raise HTTPException(500, f"checks config is invalid: {e}")
-        check = checks.get(name)
-        if check is None:
-            known = ", ".join(sorted(checks)) or "(none configured)"
-            raise HTTPException(404, f"unknown check {name!r}; configured checks: {known}")
+        check = _resolve_check(name)
 
         if body.get("dry_run"):
             # Synchronous: the caller is a human iterating on a check. Never
