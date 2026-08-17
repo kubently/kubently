@@ -19,6 +19,8 @@ from .models import (
     ExecutionStatus,
     HelmCommandRequest,
     HelmSubcommand,
+    PrometheusQueryRequest,
+    PrometheusQueryType,
     SessionResponse,
     SessionStatus,
 )
@@ -30,6 +32,8 @@ __all__ = [
     "HelmSubcommand",
     "ArgoCDQueryRequest",
     "ArgoCDOperation",
+    "PrometheusQueryRequest",
+    "PrometheusQueryType",
     "SessionResponse",
     "CommandResponse",
     "CommandResult",

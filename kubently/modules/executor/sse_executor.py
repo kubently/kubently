@@ -39,6 +39,7 @@ except ImportError:
 
 from kubently.modules.executor.argocd import ArgoCDRunner
 from kubently.modules.executor.helm import HelmRunner
+from kubently.modules.executor.prometheus import PrometheusRunner
 
 # Configure logging
 logging.basicConfig(
@@ -94,10 +95,13 @@ class SSEKubentlyExecutor:
         elif self.api_url.startswith("https://"):
             logger.info("✅ Using HTTPS with TLS encryption")
 
-        # Optional change-correlation runners. Each is configured entirely
-        # from local env (HELM_HISTORY_ENABLED, ARGOCD_URL/ARGOCD_TOKEN) — the
+        # Optional tool runners. Each is configured entirely from local env
+        # (PROMETHEUS_URL, HELM_HISTORY_ENABLED, ARGOCD_URL/ARGOCD_TOKEN) — the
         # control plane never supplies URLs, credentials, or raw argv. When
         # unconfigured, their commands get a clear "unavailable" error back.
+        self._prometheus = PrometheusRunner()
+        if self._prometheus.available:
+            logger.info(f"Prometheus tool enabled: {self._prometheus.base_url}")
         self._helm = HelmRunner()
         if self._helm.available:
             logger.info("Helm history tool enabled (read-only history/list)")
@@ -262,14 +266,18 @@ class SSEKubentlyExecutor:
         Route a command envelope to its tool runner.
 
         Each tool enforces its own allowlist locally: kubectl commands go
-        through the DynamicCommandWhitelist, helm is limited to read-only
-        history/list subcommands built from validated fields, and argocd is
-        limited to read-only GET paths against the locally configured URL.
+        through the DynamicCommandWhitelist; prometheus is limited to two
+        read-only GET paths against the locally configured base URL; helm is
+        limited to read-only history/list subcommands built from validated
+        fields; argocd is limited to read-only GET paths against the locally
+        configured URL.
         """
         tool = command.get("tool", "kubectl")
 
         if tool == "kubectl":
             return self._run_kubectl(command.get("args", []))
+        if tool == "prometheus":
+            return self._prometheus.run(command.get("request") or {})
         if tool == "helm":
             return self._helm.run(command.get("request") or {})
         if tool == "argocd":
@@ -278,7 +286,7 @@ class SSEKubentlyExecutor:
         logger.warning(f"Rejected command with unknown tool: {tool}")
         return {
             "success": False,
-            "error": f"Unknown tool '{tool}'. This executor supports: kubectl, helm, argocd.",
+            "error": f"Unknown tool '{tool}'. This executor supports: kubectl, prometheus, helm, argocd.",
             "status": "BLOCKED",
             "return_code": -1,
         }

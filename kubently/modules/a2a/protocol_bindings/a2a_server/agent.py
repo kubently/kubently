@@ -311,10 +311,16 @@ class KubentlyAgent:
                 "anthropic-claude, openai, google-gemini."
             )
 
-        # Load system prompt from configuration
+        # Load system prompt from configuration. Metrics guidance is injected
+        # only when the query_prometheus tool is registered, so the prompt
+        # never references a tool the model cannot call.
         from kubently.modules.config import get_prompt
 
-        self.system_prompt = get_prompt(role="a2a")
+        from .prometheus import metrics_guidance
+
+        self.system_prompt = get_prompt(
+            role="a2a", variables={"metrics_guidance": metrics_guidance()}
+        )
 
         # Initialize tools for kubectl operations
         await self._initialize_tools()
@@ -971,6 +977,121 @@ class KubentlyAgent:
             get_recent_changes,
             get_events_for_resource,
         ]
+
+        from kubently.modules.a2a.protocol_bindings.a2a_server.prometheus import (
+            build_prometheus_payload,
+            prometheus_tool_enabled,
+        )
+
+        if prometheus_tool_enabled():
+
+            @tool
+            async def query_prometheus(
+                cluster_id: str,
+                query: str,
+                query_type: str = "instant",
+                start: str | None = None,
+                end: str | None = None,
+                step: str | None = None,
+                time: str | None = None,
+            ) -> str:
+                """Run a read-only PromQL query against a cluster's Prometheus.
+
+                Use metrics when kubectl can't answer the question: latency and
+                error rates, CPU/memory saturation trends, OOM pressure, restart
+                frequency over time, capacity headroom. The query executes inside
+                the target cluster (via its executor), so use the in-cluster view
+                of Prometheus.
+
+                Query types:
+                - "instant" (default): current value. Optionally set `time`
+                  (RFC3339 or unix seconds) to evaluate at a point in the past.
+                - "range": values over a window. Requires `start`, `end` (RFC3339
+                  or unix seconds) and `step` (e.g. "60s", "5m"). Keep windows
+                  short (30m-2h) and steps coarse — results are capped.
+
+                EFFICIENT PromQL (results are capped; truncation is noted in the
+                output when it happens):
+                - Always filter by labels (namespace, pod, container) — never
+                  query a bare metric name with no selector
+                - Aggregate: sum/avg by (pod) (rate(metric{...}[5m]))
+                - Rank with topk(5, ...) instead of returning everything
+                - Use rate()/increase() over counters
+
+                Args:
+                    cluster_id: Target cluster (same IDs as execute_kubectl)
+                    query: PromQL expression
+                    query_type: "instant" or "range"
+                    start: Range start (RFC3339 or unix seconds)
+                    end: Range end (RFC3339 or unix seconds)
+                    step: Range resolution (e.g. "60s", "5m")
+                    time: Optional evaluation time for instant queries
+
+                Returns:
+                    Compact JSON result ({"resultType": ..., "result": [...]}),
+                    with a "kubently_truncation" note when caps were applied,
+                    or an error message (e.g. Prometheus not configured on that
+                    cluster — fall back to kubectl evidence in that case).
+                """
+                debug_print(
+                    f"query_prometheus called: cluster_id={cluster_id}, "
+                    f"query_type={query_type}, query={query}"
+                )
+                tool_call_id = await interceptor.record_tool_call(
+                    tool_name="query_prometheus",
+                    args={
+                        "cluster_id": cluster_id,
+                        "query": query,
+                        "query_type": query_type,
+                        "start": start,
+                        "end": end,
+                        "step": step,
+                        "time": time,
+                    },
+                    thread_id=getattr(self, "_current_thread_id", None),
+                )
+
+                payload = build_prometheus_payload(
+                    query, query_type=query_type, start=start, end=end, step=step, time=time
+                )
+                payload["cluster_id"] = cluster_id
+
+                async with httpx.AsyncClient(timeout=45.0) as client:
+                    try:
+                        response = await client.post(
+                            f"{api_url}/debug/prometheus",
+                            headers={"X-Api-Key": api_key},
+                            json=payload,
+                        )
+                        if response.status_code != 200:
+                            error_msg = cap_output(
+                                f"Error: HTTP {response.status_code}: {response.text}"
+                            )
+                            await interceptor.record_tool_result(tool_call_id, None, error_msg)
+                            return error_msg
+
+                        result = response.json()
+                        exec_status, exec_error = result.get("status"), result.get("error")
+                        if exec_error or (exec_status and exec_status != "success"):
+                            error_msg = cap_output(
+                                f"Error: {exec_error or f'query status: {exec_status}'}"
+                            )
+                            await interceptor.record_tool_result(tool_call_id, None, error_msg)
+                            return error_msg
+
+                        # Executor already caps series/samples; this is the
+                        # context-budget backstop shared with kubectl results.
+                        output = cap_output(result.get("output") or "")
+                        await interceptor.record_tool_result(tool_call_id, output)
+                        return output
+                    except Exception as e:
+                        error_msg = f"Error executing Prometheus query: {e!s}"
+                        await interceptor.record_tool_result(tool_call_id, None, error_msg)
+                        return error_msg
+
+            self.tools.append(query_prometheus)
+            logger.info("Prometheus metrics tool registered (PROMETHEUS_URL is set)")
+
         logger.info(f"Initialized {len(self.tools)} tools")
 
     async def run(

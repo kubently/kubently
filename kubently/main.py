@@ -35,6 +35,7 @@ from kubently.modules.api import (
     ExecuteCommandRequest,
     ExecutionStatus,
     HelmCommandRequest,
+    PrometheusQueryRequest,
     SessionResponse,
     SessionStatus,
 )
@@ -754,12 +755,12 @@ async def _run_tool_command(
     """
     Publish a non-kubectl tool envelope over the executor channel and wait.
 
-    Shared plumbing for /debug/helm and /debug/argocd: same cluster
-    validation, command binding (result-injection protection), publish and
-    wait semantics as /debug/execute — only the envelope differs. The
-    executor performs the actual work locally (helm binary / ArgoCD HTTP);
-    this API never runs helm or dials ArgoCD itself and only forwards
-    validated fields.
+    Shared plumbing for /debug/prometheus, /debug/helm and /debug/argocd:
+    same cluster validation, command binding (result-injection protection),
+    publish and wait semantics as /debug/execute — only the envelope differs.
+    The executor performs the actual work locally (Prometheus/ArgoCD HTTP,
+    helm binary); this API never dials those systems or runs helm itself and
+    only forwards validated fields.
     """
     if not redis_client or not queue_module:
         raise HTTPException(503, "Service not initialized")
@@ -818,6 +819,43 @@ async def _run_tool_command(
         error=result.get("error"),
         execution_time_ms=result.get("execution_time_ms"),
         executed_at=result.get("executed_at"),
+    )
+
+
+@app.post("/debug/prometheus", response_model=CommandResponse)
+async def execute_prometheus_query(
+    request: PrometheusQueryRequest,
+    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+):
+    """
+    Run a read-only PromQL query on a cluster's Prometheus.
+
+    The query rides the same outbound channel as kubectl commands (Redis
+    pub/sub -> executor SSE -> result POST): the executor inside the target
+    cluster performs the HTTP GET against its locally configured
+    PROMETHEUS_URL. This API never contacts Prometheus directly and never
+    forwards a URL — only the validated query parameters.
+
+    Returns:
+        200: Query result (or executor-side error, e.g. Prometheus not configured)
+        404: Cluster not found
+        401: Unauthorized
+    """
+    return await _run_tool_command(
+        tool="prometheus",
+        cluster_id=request.cluster_id,
+        request_payload={
+            "query_type": request.query_type.value,
+            "query": request.query,
+            "time": request.time,
+            "start": request.start,
+            "end": request.end,
+            "step": request.step,
+        },
+        timeout=request.timeout_seconds or config.get("command_timeout"),
+        correlation_id=x_correlation_id or request.correlation_id,
+        timeout_error="Prometheus query timeout (no executor picked it up in time)",
     )
 
 

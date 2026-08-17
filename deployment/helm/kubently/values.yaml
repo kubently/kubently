@@ -90,6 +90,25 @@ fleetReport:
   query: ""
 
 # ============================================================================
+# Prometheus Metrics Tool (optional)
+# ============================================================================
+# Gives the diagnostic agent a read-only PromQL tool (query_prometheus) for
+# latency, saturation, OOM-trend and restart-over-time questions.
+#
+# The URL must be reachable FROM THE EXECUTOR POD — queries are executed by the
+# executor inside the monitored cluster (same outbound channel as kubectl
+# commands), never by the central API. Example for kube-prometheus-stack:
+#   url: "http://prometheus-operated.monitoring.svc.cluster.local:9090"
+#
+# Leave empty (default) to disable: the agent does not register the tool, the
+# system prompt never mentions metrics, and the executor rejects metric
+# queries with a clear "not configured" error.
+#
+# Split deployments (central API + remote executors): set prometheus.url on
+# BOTH installs. On an executor install it is the URL the executor queries; on
+# the API install it only enables the tool (the control plane never dials it).
+prometheus:
+  url: ""
 # Change Correlation Sources (optional)
 # ============================================================================
 # The agent's get_recent_changes tool builds a "what changed?" timeline from

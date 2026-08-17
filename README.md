@@ -190,6 +190,7 @@ The diagnostic agent investigates with a small set of read-only tools:
 - **`execute_kubectl_multi`** — one read-only kubectl command fanned out across many clusters
 - **`get_recent_changes`** — "what changed?" timeline for a workload or namespace: rollouts (ReplicaSet revisions + change-causes), Helm release history *(opt-in: `changeCorrelation.helmHistory.enabled`)*, ArgoCD sync history *(optional: `changeCorrelation.argocd.url`)*, and Normal+Warning events — correlated against first-error timestamps in the RCA
 - **`get_events_for_resource`** — chronological events for a resource and its children (deployment → replicasets → pods)
+- **`query_prometheus`** *(optional)* — instant and range PromQL queries for latency, saturation, OOM-trend and restarts-over-time evidence. Enabled by setting `prometheus.url` in Helm values (unset by default); queries execute on each cluster's executor through the same outbound channel as kubectl commands
 
 ## Documentation
 

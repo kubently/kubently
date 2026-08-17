@@ -45,6 +45,27 @@
 ## [Unreleased] - 2026-08-16
 
 ### Added
+- **Prometheus metrics toolset (Track C1a)** — the agent gets a read-only
+  `query_prometheus` tool (instant + range PromQL) for the questions kubectl
+  can't answer: latency, saturation, OOM trends, restarts-over-time. First
+  non-kubectl evidence source, so the pattern is set deliberately: queries ride
+  the existing outbound channel (API `/debug/prometheus` -> Redis pub/sub ->
+  executor SSE -> result POST) via a new `tool` field on the command envelope,
+  and the executor enforces its own allowlist locally — GET only, exactly
+  `/api/v1/query` and `/api/v1/query_range`, base URL exclusively from the
+  executor's own `PROMETHEUS_URL` env (the control plane never supplies a URL,
+  so a stolen API key cannot aim the executor at arbitrary endpoints)
+- **Off by default, and invisible when off** — a single Helm value
+  (`prometheus.url`) wires the executor env and switches the agent tool on;
+  when unset the tool is not registered and the system prompt's metrics
+  guidance (injected through a new `{{metrics_guidance}}` prompt variable) is
+  omitted, so the model is never told about a tool it cannot call
+- **Metric results are capped before they leave the executor** — series count
+  (`PROMETHEUS_MAX_SERIES`, 50), total samples per range result
+  (`PROMETHEUS_MAX_SAMPLES`, 2000; evenly downsampled with endpoints kept so
+  trends survive), and a character backstop — with every truncation announced
+  in the payload the model reads, plus the shared `cap_output` context guard
+  on the agent side
 - **Selectable checkpointer backend for A2A conversation memory** — new
   `KUBENTLY_CHECKPOINTER_BACKEND` env var chooses how LangGraph checkpoints are
   stored: `redisearch` (default, unchanged AsyncRedisSaver path), `plain-redis`
