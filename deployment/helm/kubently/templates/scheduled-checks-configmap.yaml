@@ -1,0 +1,14 @@
+{{- if and .Values.api.enabled .Values.scheduledChecks.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubently.fullname" . }}-checks
+  labels:
+    {{- include "kubently.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scheduled-checks
+data:
+  checks.yaml: |
+    notifyOnPass: {{ .Values.scheduledChecks.notifyOnPass }}
+    checks:
+{{ toYaml (.Values.scheduledChecks.checks | default list) | indent 6 }}
+{{- end }}

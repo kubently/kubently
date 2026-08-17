@@ -208,6 +208,27 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to mount fleet report endpoint: {e}")
 
+    # Proactive mode: deployment verification -> Slack verdict. Same lazy-agent
+    # pattern; triggered by CI webhooks, curl, or the optional label-driven
+    # deploy watch (KUBENTLY_VERIFY_WATCH_SECONDS).
+    try:
+        from kubently.modules.webhook import create_verify_deployment_router
+
+        app.include_router(create_verify_deployment_router(verify_dual_auth, redis_client=redis_client))
+        logger.info("Deployment verification endpoint mounted at /webhooks/verify-deployment")
+    except Exception as e:
+        logger.warning(f"Failed to mount deployment verification endpoint: {e}")
+
+    # Proactive mode: named scheduled checks -> Slack (quiet on pass). Same
+    # lazy-agent pattern; triggered by the chart's per-check CronJobs.
+    try:
+        from kubently.modules.webhook import create_scheduled_checks_router
+
+        app.include_router(create_scheduled_checks_router(verify_dual_auth, redis_client=redis_client))
+        logger.info("Scheduled checks endpoint mounted at /webhooks/scheduled-check")
+    except Exception as e:
+        logger.warning(f"Failed to mount scheduled checks endpoint: {e}")
+
     logger.info("Kubently API started successfully")
 
     yield
