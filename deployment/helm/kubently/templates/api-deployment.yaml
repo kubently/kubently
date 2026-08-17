@@ -184,6 +184,14 @@ spec:
         - name: SLACK_WEBHOOK_URL
           value: {{ .Values.api.env.SLACK_WEBHOOK_URL | quote }}
         {{- end }}
+        {{- /* Presence of LOKI_URL switches on the agent's query_loki tool +
+               prompt guidance. The API never dials this URL itself — queries
+               run on each cluster's executor. Parenthesized lookup is
+               nil-safe for old values files. */}}
+        {{- if (.Values.loki).url }}
+        - name: LOKI_URL
+          value: {{ .Values.loki.url | quote }}
+        {{- end }}
         - name: KUBENTLY_A2A_PROMPT_FILE
           value: "/etc/kubently/prompts/system.prompt.yaml"
         - name: KUBENTLY_FLEET_REPORT_PROMPT_FILE
