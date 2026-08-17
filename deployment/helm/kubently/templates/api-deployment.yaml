@@ -217,6 +217,7 @@ spec:
         - name: KUBENTLY_CHECKS_FILE
           value: "/etc/kubently/checks/checks.yaml"
         {{- end }}
+        {{- end }}
         {{- /* Deploy watch: sweep for kubently.io/verify=enabled workloads and
                verify on generation change. 0/absent disables the watch. */}}
         {{- if ((.Values.verifyDeployment).watch).enabled }}
@@ -242,6 +243,7 @@ spec:
         - name: checks-config
           mountPath: /etc/kubently/checks
           readOnly: true
+        {{- end }}
         {{- end }}
         livenessProbe:
           httpGet:
@@ -285,5 +287,6 @@ spec:
       - name: checks-config
         configMap:
           name: {{ include "kubently.fullname" . }}-checks
+      {{- end }}
       {{- end }}
 {{- end }}
