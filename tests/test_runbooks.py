@@ -14,8 +14,6 @@ import os
 import sys
 import textwrap
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from kubently.modules.runbooks import RunbookStore, build_runbook_context
@@ -149,20 +147,31 @@ class TestMatching:
         assert score_runbook(rb, "why is coredns slow in kube-system?") == 0
 
     def test_alert_hit_outranks_topic_pile(self):
-        by_alert = make_runbook(name="A", alerts=("KubePodCrashLooping",), namespaces=(),
-                                workloads=(), topics=())
-        by_topics = make_runbook(name="B", alerts=(), namespaces=(), workloads=(),
-                                 topics=("pod", "firing", "alert", "crash"))
+        by_alert = make_runbook(
+            name="A", alerts=("KubePodCrashLooping",), namespaces=(), workloads=(), topics=()
+        )
+        by_topics = make_runbook(
+            name="B",
+            alerts=(),
+            namespaces=(),
+            workloads=(),
+            topics=("pod", "firing", "alert", "crash"),
+        )
         text = "Alert 'KubePodCrashLooping' is firing: pod crash"
         assert score_runbook(by_alert, text) > score_runbook(by_topics, text)
 
 
 class TestStoreSelect:
     def test_select_orders_best_match_first(self, tmp_path):
-        write_runbook(tmp_path, "generic.md", "Generic crashloop",
-                      match_yaml='  topics: ["crashloop"]')
-        write_runbook(tmp_path, "specific.md", "Payments crashloop",
-                      match_yaml='  alerts: ["KubePodCrashLooping"]\n  topics: ["crashloop"]')
+        write_runbook(
+            tmp_path, "generic.md", "Generic crashloop", match_yaml='  topics: ["crashloop"]'
+        )
+        write_runbook(
+            tmp_path,
+            "specific.md",
+            "Payments crashloop",
+            match_yaml='  alerts: ["KubePodCrashLooping"]\n  topics: ["crashloop"]',
+        )
         store = RunbookStore(directory=str(tmp_path), reload_seconds=0)
         matches = store.select("Alert 'KubePodCrashLooping' is firing: crashloop in payments")
         assert [r.name for r in matches] == ["Payments crashloop", "Generic crashloop"]
@@ -293,8 +302,11 @@ def _load_user_message_text():
     (same extraction convention as test_thread_namespacing)."""
     from pathlib import Path
 
-    path = (Path(__file__).parent.parent / "kubently/modules/a2a/protocol_bindings"
-            / "a2a_server/agent.py")
+    path = (
+        Path(__file__).parent.parent
+        / "kubently/modules/a2a/protocol_bindings"
+        / "a2a_server/agent.py"
+    )
     src = path.read_text()
     start = src.index("def _user_message_text")
     end = src.index("def _namespaced_thread_id")
@@ -310,8 +322,13 @@ class TestUserMessageText:
         messages = [
             {"role": "user", "content": "Alert 'KubePodCrashLooping' firing"},
             {"role": "assistant", "content": "not this"},
-            {"role": "user", "content": [{"type": "text", "text": "in payments"},
-                                         {"type": "image", "url": "ignored"}]},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "in payments"},
+                    {"type": "image", "url": "ignored"},
+                ],
+            },
         ]
         text = _user_message_text(messages)
         assert "KubePodCrashLooping" in text

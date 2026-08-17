@@ -39,9 +39,8 @@ import os
 import re
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -102,7 +101,7 @@ def _as_str_tuple(value) -> tuple:
     return ()
 
 
-def parse_runbook(text: str, source: str) -> Optional[Runbook]:
+def parse_runbook(text: str, source: str) -> Runbook | None:
     """Parse one runbook file. Returns None (with a log line) on files that
     can't be used, so one bad file never takes down the rest of the directory.
     """
@@ -119,7 +118,7 @@ def parse_runbook(text: str, source: str) -> Optional[Runbook]:
         logger.warning("Runbook %s frontmatter is not a mapping; skipping", source)
         return None
 
-    body = text[m.end():].strip()
+    body = text[m.end() :].strip()
     if not body:
         logger.warning("Runbook %s has an empty body; skipping", source)
         return None
@@ -179,7 +178,7 @@ def _format_block(runbook: Runbook) -> str:
     return f"--- Runbook: {runbook.name} (from {runbook.source}) ---\n{runbook.body}"
 
 
-def build_runbook_context(runbooks: list, max_chars: int = DEFAULT_MAX_CHARS) -> Optional[str]:
+def build_runbook_context(runbooks: list, max_chars: int = DEFAULT_MAX_CHARS) -> str | None:
     """Build the injectable context message from ranked runbooks.
 
     Best-first packing: the top match always goes in (truncated if it alone
@@ -220,14 +219,12 @@ class RunbookStore:
 
     def __init__(
         self,
-        directory: Optional[str] = None,
-        reload_seconds: Optional[float] = None,
-        max_chars: Optional[int] = None,
+        directory: str | None = None,
+        reload_seconds: float | None = None,
+        max_chars: int | None = None,
     ):
         self.directory = Path(
-            directory
-            or os.getenv("KUBENTLY_RUNBOOKS_DIR")
-            or DEFAULT_RUNBOOKS_DIR
+            directory or os.getenv("KUBENTLY_RUNBOOKS_DIR") or DEFAULT_RUNBOOKS_DIR
         )
         self.reload_seconds = (
             reload_seconds
@@ -241,7 +238,7 @@ class RunbookStore:
         )
         self._lock = threading.Lock()
         self._runbooks: list = []
-        self._signature: Optional[tuple] = None
+        self._signature: tuple | None = None
         self._last_scan = 0.0
         self._load()
 
@@ -316,6 +313,6 @@ class RunbookStore:
         matched.sort(key=lambda sr: (-sr[0], sr[1].name))
         return [r for _, r in matched]
 
-    def build_context(self, text: str) -> Optional[str]:
+    def build_context(self, text: str) -> str | None:
         """One-call convenience: select + format, or None when nothing matches."""
         return build_runbook_context(self.select(text), self.max_chars)
