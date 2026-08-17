@@ -3,6 +3,27 @@
 ## [Unreleased] - 2026-08-17
 
 ### Added
+- **External MCP tools (Track C2a)** — the diagnostic agent can consume tools
+  from third-party MCP servers (streamable HTTP, e.g. Grafana Cloud's /
+  Datadog's remote MCPs) alongside the native toolsets. Static config via
+  `KUBENTLY_MCP_SERVERS` / `KUBENTLY_MCP_SERVERS_FILE` (Helm: `mcpServers`
+  values list; bearer tokens stay in secrets, referenced per-server as
+  `bearer_token_env`). Tools register with an `mcp_<server>_` prefix; prompt
+  guidance injects only when servers are configured (`{{mcp_guidance}}`, same
+  availability contract as Loki/Prometheus). Per-request injection seam for
+  embedding services: `KubentlyAgent.run(mcp_servers=[...])` takes
+  `MCPServerSpec`s/dicts whose credentials live only for that invocation.
+  Security hardening: third-party descriptions/results are treated as
+  untrusted input (sanitized, framed in UNTRUSTED markers, size-capped with
+  truncation notes — `KUBENTLY_MCP_MAX_OUTPUT_CHARS`), credentials are
+  redacted from errors/logs, and docs require read-scoped servers. Failure
+  isolation: an unreachable server degrades to "tools unavailable" at
+  registration and to an error string per-call. New module
+  `a2a_server/mcp_client.py`; docs in `docs/MCP_CLIENT_TOOLS.md`
+- **Helm chart render fix** — three `{{ if .Values.runbooks }}` blocks in
+  `api-deployment.yaml` (env var, volumeMount, volume) were never closed,
+  breaking `helm template` with "unexpected EOF" since the runbooks track
+  merge; each is now closed and the chart renders for all values combinations
 - **Operator runbook ingestion (Track P6a)** — feed org-specific knowledge
   into investigations. Hand-written markdown runbooks with lightweight YAML
   frontmatter (`name` + `match` criteria: alert-name globs,
