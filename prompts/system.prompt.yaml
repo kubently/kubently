@@ -23,6 +23,12 @@ variables:
   - name: gitops_guidance
     required: false
     default: ""
+  # Injected by the agent ONLY when external MCP servers are configured
+  # (KUBENTLY_MCP_SERVERS / KUBENTLY_MCP_SERVERS_FILE set); defaults to empty
+  # so unconfigured deployments never reference external tools.
+  - name: mcp_guidance
+    required: false
+    default: ""
 content: |-
   # Kubently System Prompt
 
@@ -443,6 +449,8 @@ content: |-
   {{metrics_guidance}}
 
   {{gitops_guidance}}
+
+  {{mcp_guidance}}
 
   # Code References
 

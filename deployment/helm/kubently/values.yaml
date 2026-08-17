@@ -116,6 +116,35 @@ fleetReport:
 #          the container memory limit - compare both before blaming traffic.
 #       3. Escalate to #payments-oncall if the DB connection pool is the cause.
 runbooks: {}
+
+# ============================================================================
+# External MCP Servers (optional)
+# ============================================================================
+# Third-party MCP servers (streamable HTTP — e.g. Grafana Cloud's remote MCP
+# at https://mcp.grafana.com/mcp, Datadog's remote MCP) whose tools the agent
+# can call during investigations. Tools register with an mcp_<name>_ prefix.
+#
+# SECURITY:
+# - Connect READ-SCOPED servers/credentials only. Kubently enforces read-only
+#   kubectl, but it cannot constrain what a remote server's tools do — a
+#   write-scoped Grafana token would let the model mutate dashboards.
+# - Bearer tokens belong in secrets, never in values files:
+#     kubectl create secret generic kubently-grafana-mcp \
+#       --from-literal=token="glsa_..." -n kubently
+# - Tool descriptions/results from these servers are treated as untrusted
+#   input: framed, size-capped, and never allowed to carry credentials.
+#
+# An unreachable server just means its tools are absent — investigations
+# proceed with the native toolset.
+#
+# Example:
+#   mcpServers:
+#     - name: grafana
+#       url: https://mcp.grafana.com/mcp
+#       existingSecret: kubently-grafana-mcp  # bearer token secret
+#       secretKey: token                      # key in the secret (default "token")
+#       headers: {}                           # optional NON-secret extra headers
+mcpServers: []
 # Deployment Verification (proactive)
 # ============================================================================
 # POST /webhooks/verify-deployment after a deploy (from CI, ArgoCD hooks, or

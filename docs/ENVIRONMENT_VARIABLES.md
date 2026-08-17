@@ -130,6 +130,33 @@ These run on the API server only — executors never hold the Git token.
 | `KUBENTLY_GITOPS_API_BASE` | provider default | No | API base for GitHub Enterprise (`https://ghe.example.com/api/v3`) or self-hosted GitLab (`https://gitlab.example.com/api/v4`) |
 
 **Security — scope the token to the manifests repo only.** Use a GitHub fine-grained PAT granted to the ONE manifests repository (Contents: read/write, Pull requests: read/write) or a GitLab project access token (Developer role, `api` scope) on the ONE project. Never a user-wide or org-wide token: the token defines the blast radius of a bad proposal. Protect the base branch so merging always requires a human review enforced by the Git host, and create the secret manually (`kubectl create secret generic kubently-gitops-token --from-literal=token=...`) rather than putting the token in values files.
+### External MCP Servers (optional)
+
+When MCP servers are configured, the agent registers each server's tools under
+an `mcp_<server>_` prefix and injects external-tool guidance into the system
+prompt. When unconfigured (default), no external tools exist and the prompt
+never mentions them. Third-party tool descriptions and results are treated as
+untrusted input: sanitized, framed, and size-capped. An unreachable server
+degrades to "tools unavailable" — investigations proceed with native tools.
+
+**Connect read-scoped servers/credentials only.** Kubently cannot enforce
+read-only semantics on a remote MCP server's tools. See
+`docs/MCP_CLIENT_TOOLS.md` for the full configuration and security guide.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `KUBENTLY_MCP_SERVERS` | - | No | Inline JSON list of servers: `[{"name": "grafana", "url": "https://mcp.grafana.com/mcp", "bearer_token_env": "MCP_TOKEN_GRAFANA"}]`. Set via Helm `mcpServers` (which also wires each token secret to the named env var). Takes precedence over the file below |
+| `KUBENTLY_MCP_SERVERS_FILE` | - | No | Path to a YAML/JSON file with the same entries (a bare list, or under a `servers:` key) |
+| `KUBENTLY_MCP_MAX_OUTPUT_CHARS` | `20000` | No | Per-result size cap for external MCP tool output; truncation is noted in the result |
+| `KUBENTLY_MCP_CONNECT_TIMEOUT` | `15` | No | Seconds to wait per server when listing tools at agent startup |
+| `KUBENTLY_MCP_TOOL_TIMEOUT` | `60` | No | Seconds to wait per external tool call before returning a timeout error to the model |
+
+Server entry fields: `name` + `url` (required, streamable HTTP);
+`bearer_token_env` (env var holding a bearer token — preferred) or
+`bearer_token` (literal, discouraged); `headers` (plain, non-secret);
+`headers_env` (map of header name → env var, for API-key-style credentials).
+Credentials are sent only to the configured URL and are redacted from errors
+and logs.
 
 ### Proactive Operation (Slack notifications, deploy verification, scheduled checks)
 
