@@ -302,15 +302,21 @@ class KubentlyAgent:
                 "anthropic-claude, openai, google-gemini."
             )
 
-        # Load system prompt from configuration. Metrics guidance is injected
-        # only when the query_prometheus tool is registered, so the prompt
-        # never references a tool the model cannot call.
+        # Load system prompt from configuration. Loki and metrics guidance
+        # are injected only when the matching tool (query_loki /
+        # query_prometheus) is registered, so the prompt never references a
+        # tool the model cannot call.
         from kubently.modules.config import get_prompt
 
+        from .logsearch import loki_guidance
         from .prometheus import metrics_guidance
 
         self.system_prompt = get_prompt(
-            role="a2a", variables={"metrics_guidance": metrics_guidance()}
+            role="a2a",
+            variables={
+                "loki_guidance": loki_guidance(),
+                "metrics_guidance": metrics_guidance(),
+            },
         )
 
         # Initialize tools for kubectl operations
@@ -645,10 +651,227 @@ class KubentlyAgent:
                 await interceptor.record_tool_result(tool_call_id, None, error_msg)
                 return error_msg
 
+        from kubently.modules.a2a.protocol_bindings.a2a_server.logsearch import (
+            build_log_search_payload,
+            build_loki_payload,
+            loki_tool_enabled,
+        )
+
+        async def _post_tool_request(
+            endpoint: str, payload: dict, tool_call_id, error_label: str, timeout: float = 75.0
+        ) -> str:
+            """POST a tool payload to the API, normalize errors, cap and record
+            the result. Shared by search_pod_logs and query_loki."""
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                try:
+                    response = await client.post(
+                        f"{api_url}{endpoint}",
+                        headers={"X-Api-Key": api_key()},
+                        json=payload,
+                    )
+                    if response.status_code != 200:
+                        error_msg = cap_output(
+                            f"Error: HTTP {response.status_code}: {response.text}"
+                        )
+                        await interceptor.record_tool_result(tool_call_id, None, error_msg)
+                        return error_msg
+
+                    result = response.json()
+                    exec_status, exec_error = result.get("status"), result.get("error")
+                    if exec_error or (exec_status and exec_status != "success"):
+                        error_msg = cap_output(
+                            f"Error: {exec_error or f'{error_label} status: {exec_status}'}"
+                        )
+                        await interceptor.record_tool_result(tool_call_id, None, error_msg)
+                        return error_msg
+
+                    # The executor already caps matches/lines; this is the
+                    # context-budget backstop shared with kubectl results.
+                    output = cap_output(result.get("output") or "")
+                    await interceptor.record_tool_result(tool_call_id, output)
+                    return output
+                except Exception as e:
+                    error_msg = f"Error running {error_label}: {e!s}"
+                    await interceptor.record_tool_result(tool_call_id, None, error_msg)
+                    return error_msg
+
+        @tool
+        async def search_pod_logs(
+            cluster_id: str,
+            namespace: str,
+            query: str,
+            selector: str | None = None,
+            pod_name: str | None = None,
+            container: str | None = None,
+            use_regex: bool = False,
+            case_sensitive: bool = False,
+            since: str | None = "1h",
+            since_time: str | None = None,
+            tail_lines: int = 2000,
+            previous: bool = False,
+            context_lines: int = 0,
+        ) -> str:
+            """Search logs across ALL pods matching a selector in one call.
+
+            Use this instead of dumping logs pod-by-pod when you need to find
+            WHICH pods/containers logged something: errors after a deploy,
+            correlating messages across replicas, tracing an upstream failure
+            through a workload. Logs are filtered on the cluster's executor,
+            so only matching lines (already capped) come back — far cheaper
+            than kubectl logs on each pod.
+
+            NARROW FIRST: identify the namespace and a label selector (e.g.
+            via "get pods -n <ns> --show-labels"), and keep a time bound
+            (since defaults to "1h"). Provide exactly one of `selector` or
+            `pod_name`.
+
+            Query matching:
+            - Default: case-insensitive substring
+            - use_regex=True for alternatives, e.g. "error|exception|timed? ?out"
+            - context_lines=2-3 to capture stack traces around each match
+
+            For crash investigations set previous=True to search the
+            pre-restart logs of restarted containers.
+
+            Results are capped (pods scanned, matches per container, total
+            matches, output size) and every truncation is noted in the output.
+            When a cap fires, narrow the query/selector/time window instead of
+            retrying the same search.
+
+            Args:
+                cluster_id: Target cluster (same IDs as execute_kubectl)
+                namespace: Namespace to search in
+                query: Substring or regex to search for
+                selector: Label selector (e.g. "app=api"); or use pod_name
+                pod_name: Single pod name; or use selector
+                container: Restrict to one container name
+                use_regex: Treat query as a regular expression
+                case_sensitive: Match case-sensitively
+                since: Relative time window like "30m", "1h" (default "1h")
+                since_time: Absolute RFC3339 lower bound (overrides since)
+                tail_lines: Max lines fetched per container (default 2000)
+                previous: Search previous (pre-restart) container logs
+                context_lines: Lines of context around each match (0-10)
+
+            Returns:
+                Per-container sections of matching lines with a summary
+                header, no-match list, and explicit truncation notes.
+            """
+            debug_print(
+                f"search_pod_logs called: cluster_id={cluster_id}, namespace={namespace}, "
+                f"selector={selector}, pod_name={pod_name}, query={query}"
+            )
+            tool_call_id = await interceptor.record_tool_call(
+                tool_name="search_pod_logs",
+                args={
+                    "cluster_id": cluster_id,
+                    "namespace": namespace,
+                    "query": query,
+                    "selector": selector,
+                    "pod_name": pod_name,
+                    "container": container,
+                    "use_regex": use_regex,
+                    "case_sensitive": case_sensitive,
+                    "since": since,
+                    "since_time": since_time,
+                    "tail_lines": tail_lines,
+                    "previous": previous,
+                    "context_lines": context_lines,
+                },
+                thread_id=getattr(self, "_current_thread_id", None),
+            )
+            payload = build_log_search_payload(
+                namespace=namespace,
+                query=query,
+                selector=selector,
+                pod_name=pod_name,
+                container=container,
+                use_regex=use_regex,
+                case_sensitive=case_sensitive,
+                since=since,
+                since_time=since_time,
+                tail_lines=tail_lines,
+                previous=previous,
+                context_lines=context_lines,
+            )
+            payload["cluster_id"] = cluster_id
+            return await _post_tool_request(
+                "/debug/logs/search", payload, tool_call_id, "log search"
+            )
+
         # Note: planning/todo tracking is now provided natively by deepagents
         # (write_todos via TodoListMiddleware), so the previous hand-rolled
         # todo_write tool + TodoManager were removed.
-        self.tools = [list_clusters, execute_kubectl, execute_kubectl_multi]
+        self.tools = [list_clusters, execute_kubectl, execute_kubectl_multi, search_pod_logs]
+
+        if loki_tool_enabled():
+
+            @tool
+            async def query_loki(
+                cluster_id: str,
+                query: str,
+                start: str | None = None,
+                end: str | None = None,
+                limit: int = 100,
+                direction: str = "backward",
+            ) -> str:
+                """Run a read-only LogQL range query against a cluster's Loki.
+
+                PREFER this over search_pod_logs when logs must survive pod
+                restarts/deletions, when searching across many workloads at
+                once, or when the window is further back than pods' current
+                logs reach. The query executes inside the target cluster (via
+                its executor), so use the in-cluster view of Loki.
+
+                Write BOUNDED LogQL — results are line-capped with a note when
+                truncated:
+                - Always start from a label selector: {namespace="x", app="api"}
+                - Add line filters: |= "error" (substring), |~ "regex", != / !~ to exclude
+                - Keep ranges short; Loki defaults to the last hour when
+                  start/end are omitted
+                - Count first when volume is unknown:
+                  sum by (pod) (count_over_time({namespace="x"} |= "error" [1h]))
+
+                Args:
+                    cluster_id: Target cluster (same IDs as execute_kubectl)
+                    query: LogQL expression
+                    start: Range start (RFC3339 or unix seconds; default -1h)
+                    end: Range end (RFC3339 or unix seconds; default now)
+                    limit: Max log lines returned (default 100)
+                    direction: "backward" (newest first, default) or "forward"
+
+                Returns:
+                    Per-stream sections of timestamped log lines (or compact
+                    JSON for metric-style queries), with truncation notes, or
+                    an error message (e.g. Loki not configured on that cluster
+                    — use search_pod_logs there instead).
+                """
+                debug_print(
+                    f"query_loki called: cluster_id={cluster_id}, query={query}, "
+                    f"start={start}, end={end}, limit={limit}"
+                )
+                tool_call_id = await interceptor.record_tool_call(
+                    tool_name="query_loki",
+                    args={
+                        "cluster_id": cluster_id,
+                        "query": query,
+                        "start": start,
+                        "end": end,
+                        "limit": limit,
+                        "direction": direction,
+                    },
+                    thread_id=getattr(self, "_current_thread_id", None),
+                )
+                payload = build_loki_payload(
+                    query, start=start, end=end, limit=limit, direction=direction
+                )
+                payload["cluster_id"] = cluster_id
+                return await _post_tool_request(
+                    "/debug/loki", payload, tool_call_id, "Loki query", timeout=45.0
+                )
+
+            self.tools.append(query_loki)
+            logger.info("Loki log search tool registered (LOKI_URL is set)")
 
         from kubently.modules.a2a.protocol_bindings.a2a_server.prometheus import (
             build_prometheus_payload,

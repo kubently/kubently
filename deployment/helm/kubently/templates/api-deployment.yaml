@@ -184,6 +184,14 @@ spec:
         - name: SLACK_WEBHOOK_URL
           value: {{ .Values.api.env.SLACK_WEBHOOK_URL | quote }}
         {{- end }}
+        {{- /* Presence of LOKI_URL switches on the agent's query_loki tool +
+               prompt guidance. The API never dials this URL itself — queries
+               run on each cluster's executor. Parenthesized lookup is
+               nil-safe for old values files. */}}
+        {{- if (.Values.loki).url }}
+        - name: LOKI_URL
+          value: {{ .Values.loki.url | quote }}
+        {{- end }}
         {{- /* Presence of PROMETHEUS_URL switches on the agent's
                query_prometheus tool + prompt guidance. The API never dials
                this URL itself — queries run on each cluster's executor. */}}

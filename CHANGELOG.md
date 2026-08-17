@@ -1,5 +1,43 @@
 # Changelog
 
+## [Unreleased] - 2026-08-17
+
+### Added
+- **Log search toolset (Track C1b)** — the agent gets a `search_pod_logs`
+  tool: given a namespace and label selector (or one pod), it searches recent
+  logs across every matching pod/container for a substring or regex, with
+  time bounds (`since`/`since_time`), previous-container support for crash
+  investigations, and optional context lines around each match. The search
+  executes ON the cluster's executor — pods are resolved and logs fetched
+  through the same whitelist-enforced kubectl runner as ordinary commands
+  (composed in `--flag=value` form so values can't become flags), filtered
+  locally, so raw logs never transit Redis, the API, or the model's context
+- **Loki support when configured** — an optional `query_loki` tool (LogQL
+  range queries) for aggregated/historical log search, including logs from
+  restarted or deleted pods. Same pattern as the Prometheus toolset: a single
+  Helm value (`loki.url`) wires the executor env and switches the agent tool
+  on; the executor only ever GETs `/loki/api/v1/query_range` against its own
+  locally configured `LOKI_URL` (the control plane never supplies a URL);
+  when unset the tool is not registered and the system prompt's Loki guidance
+  (injected via a `{{loki_guidance}}` prompt variable) is omitted. Optional
+  `loki.tenantId` sets the `X-Scope-OrgID` header for multi-tenant Loki
+- **Log results are capped before they leave the executor** — pods scanned
+  (`LOG_SEARCH_MAX_PODS`, 20), matches per container (50), total matches
+  (200), per-line and total characters, an executor-side time budget, and a
+  clamped Loki line `limit` (`LOKI_MAX_LINES`, 500) — with every cap that
+  fires announced in the output the model reads, plus the shared `cap_output`
+  context guard on the agent side
+- **System-prompt log-search guidance** (externalized YAML, v4) — when to
+  search logs (errors after a deploy, correlating restarts via
+  previous-container logs, tracing upstream failures), narrowing
+  (namespace + selector + time bound) before searching, and preferring Loki
+  over pod-log search when it is configured
+- New API endpoints `/debug/logs/search` and `/debug/loki` publish `tool`
+  command envelopes over the existing outbound channel (API -> Redis pub/sub
+  -> executor SSE -> result POST) via a shared helper that also binds the
+  command id to the target cluster before publishing, so only the asked
+  executor can submit the result
+
 ## [Unreleased] - 2026-08-16
 
 ### Added

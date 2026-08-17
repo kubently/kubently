@@ -177,6 +177,133 @@ class ExecuteCommandRequest(BaseModel):
         return v
 
 
+# Log search / Loki request models. Values flow to the executor as data (the
+# executor composes argv itself in --flag=value form), but they are still
+# validated here so malformed requests fail fast with a readable error.
+
+_DNS_NAME_PATTERN = re.compile(r"^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$")
+# kubectl --since durations: 30s, 5m, 2h (optionally combined, e.g. 1h30m)
+_KUBECTL_DURATION_PATTERN = re.compile(r"^(\d+h)?(\d+m)?(\d+s)?$")
+# RFC3339 or unix epoch (seconds or nanoseconds, optionally fractional)
+_TIME_PATTERN = re.compile(
+    r"^\d+(\.\d+)?$|^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$"
+)
+
+
+class LogSearchRequest(BaseModel):
+    """Request to search logs across the pods matching a selector.
+
+    The search executes on the cluster's executor: pods are resolved and logs
+    fetched through the executor's whitelist-enforced kubectl runner, filtered
+    locally, and only matching lines (capped) come back.
+    """
+
+    cluster_id: str = Field(..., description="Target cluster identifier")
+    namespace: str = Field(..., max_length=253, description="Namespace to search in")
+    selector: Optional[str] = Field(
+        None, max_length=500, description="Label selector (e.g. 'app=api'); or use pod_name"
+    )
+    pod_name: Optional[str] = Field(
+        None, max_length=253, description="Single pod to search; or use selector"
+    )
+    container: Optional[str] = Field(
+        None, max_length=253, description="Restrict to one container name"
+    )
+    query: str = Field(..., min_length=1, max_length=512, description="Substring or regex")
+    use_regex: bool = Field(default=False, description="Treat query as a regex")
+    case_sensitive: bool = Field(default=False, description="Case-sensitive matching")
+    since: Optional[str] = Field(
+        None, max_length=32, description="Relative window, kubectl duration (e.g. '1h', '30m')"
+    )
+    since_time: Optional[str] = Field(
+        None, max_length=64, description="Absolute lower bound (RFC3339)"
+    )
+    tail_lines: int = Field(
+        default=2000, ge=1, le=10000, description="Max log lines fetched per container"
+    )
+    previous: bool = Field(
+        default=False, description="Search the previous (pre-restart) container logs"
+    )
+    context_lines: int = Field(
+        default=0, ge=0, le=10, description="Context lines kept around each match"
+    )
+    timeout_seconds: Optional[int] = Field(default=60, description="Search timeout", ge=1, le=120)
+    correlation_id: Optional[str] = Field(
+        None, description="Correlation ID for A2A request tracking"
+    )
+
+    @field_validator("namespace", "pod_name", "container")
+    @classmethod
+    def validate_dns_name(cls, v):
+        if v is not None and not _DNS_NAME_PATTERN.match(v):
+            raise ValueError(f"Invalid Kubernetes name '{v}'")
+        return v
+
+    @field_validator("since")
+    @classmethod
+    def validate_since(cls, v):
+        if v is not None and (not v or not _KUBECTL_DURATION_PATTERN.match(v)):
+            raise ValueError(f"Invalid duration '{v}': use kubectl form like '30s', '5m', '1h'")
+        return v
+
+    @field_validator("since_time")
+    @classmethod
+    def validate_since_time(cls, v):
+        if v is not None and not _TIME_PATTERN.match(v):
+            raise ValueError(f"Invalid timestamp '{v}': use RFC3339 (2026-08-16T12:00:00Z)")
+        return v
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        if bool(self.selector) == bool(self.pod_name):
+            raise ValueError("Provide exactly one of 'selector' or 'pod_name'")
+        return self
+
+
+class LokiQueryDirection(str, Enum):
+    """Order of returned log lines."""
+
+    BACKWARD = "backward"  # newest first (default)
+    FORWARD = "forward"
+
+
+class LokiQueryRequest(BaseModel):
+    """Request to run a read-only LogQL range query on a cluster's Loki.
+
+    The query executes on the cluster's executor against its locally
+    configured LOKI_URL — this API never dials Loki itself and never forwards
+    a URL, only the validated query parameters.
+    """
+
+    cluster_id: str = Field(..., description="Target cluster identifier")
+    query: str = Field(..., min_length=1, max_length=2000, description="LogQL expression")
+    start: Optional[str] = Field(
+        None, max_length=64, description="Range start (RFC3339 or unix); Loki defaults to -1h"
+    )
+    end: Optional[str] = Field(
+        None, max_length=64, description="Range end (RFC3339 or unix); Loki defaults to now"
+    )
+    limit: int = Field(
+        default=100, ge=1, le=1000, description="Max log lines (executor clamps further)"
+    )
+    direction: LokiQueryDirection = Field(
+        default=LokiQueryDirection.BACKWARD, description="backward (newest first) or forward"
+    )
+    timeout_seconds: Optional[int] = Field(default=30, description="Query timeout", ge=1, le=60)
+    correlation_id: Optional[str] = Field(
+        None, description="Correlation ID for A2A request tracking"
+    )
+
+    @field_validator("start", "end")
+    @classmethod
+    def validate_timestamp(cls, v):
+        if v is not None and not _TIME_PATTERN.match(v):
+            raise ValueError(
+                f"Invalid timestamp '{v}': use RFC3339 (2026-08-16T12:00:00Z) or unix seconds"
+            )
+        return v
+
+
 class PrometheusQueryType(str, Enum):
     """Types of Prometheus queries (maps to the two allowed read-only API paths)."""
 
@@ -540,6 +667,9 @@ __all__ = [
     # Request models
     "CreateSessionRequest",
     "ExecuteCommandRequest",
+    "LogSearchRequest",
+    "LokiQueryRequest",
+    "LokiQueryDirection",
     "PrometheusQueryRequest",
     "PrometheusQueryType",
     # Response models
