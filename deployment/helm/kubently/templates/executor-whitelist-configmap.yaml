@@ -27,6 +27,7 @@ data:
         - api-versions
         - events
         - version
+        - rollout   # read-only subcommands only (history, status) — enforced in code
         {{- else if eq .Values.executor.security.mode "extendedReadOnly" }}
         # Extended read-only mode: Includes debugging tools
         - get
@@ -38,6 +39,7 @@ data:
         - api-versions
         - events
         - version
+        - rollout   # read-only subcommands only (history, status) — enforced in code
         - port-forward
         - exec
         {{- else if eq .Values.executor.security.mode "fullAccess" }}
@@ -54,6 +56,7 @@ data:
         - api-versions
         - events
         - version
+        - rollout   # read-only subcommands only (history, status) — enforced in code
         - port-forward
         - exec
         - cp

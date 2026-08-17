@@ -37,6 +37,44 @@
   -> executor SSE -> result POST) via a shared helper that also binds the
   command id to the target cluster before publishing, so only the asked
   executor can submit the result
+- **Change-correlation toolset — "what changed before this incident?"** — new
+  `get_recent_changes` agent tool aggregates, for a workload or namespace and
+  a time window, every change source into one chronological timeline: rollout
+  history with ReplicaSet revision timestamps and images, `kubectl rollout
+  history` change-causes, Helm release history, ArgoCD sync history, and
+  Normal+Warning events. The timeline ends with an explicit instruction to
+  correlate change timestamps against the first-error timestamp and name the
+  correlated change in the RCA; the system prompt (v4) now directs the agent
+  to check what changed FIRST when investigating sudden failures
+- **`get_events_for_resource` agent tool** (from `docs/plans/NEW_TOOLS.md`) —
+  chronological Normal+Warning events for a resource AND its children via
+  ownership-chain prefix matching (deployment → replicasets → pods)
+- **Read-only `helm history`/`helm list` on the executor** — new `tool: helm`
+  command envelope; the executor builds the argv itself from validated fields
+  (release, namespace, max), so no raw arguments travel over the channel.
+  Opt-in via `changeCorrelation.helmHistory.enabled` in Helm values, which
+  also grants the executor RBAC to get/list Secrets (Helm 3's release
+  storage); the kubectl whitelist still blocks `kubectl get secrets`. The
+  executor image now includes the helm binary
+- **Read-only ArgoCD Application queries on the executor** — new `tool: argocd`
+  envelope limited to fixed GET paths (get app, list apps, revision metadata)
+  against the executor's locally configured `ARGOCD_URL`/`ARGOCD_TOKEN`
+  (Helm: `changeCorrelation.argocd.url` + `existingSecret`); responses are
+  compacted to sync/health/history before leaving the executor. Setting the
+  URL on the API deployment switches the ArgoCD source on for
+  `get_recent_changes`; unset, the source is silently absent
+- **`kubectl rollout` allowed read-only** — the executor whitelist and the
+  A2A-side validator accept `rollout` in every security mode, immutably
+  restricted in code to the `history` and `status` subcommands
+  (`restart`/`undo`/`pause`/`resume` remain blocked); `/debug/execute` accepts
+  `command_type: rollout`
+- **`/debug/helm` and `/debug/argocd` API endpoints** — same cluster
+  validation, command binding (result-injection protection) and wait
+  semantics as `/debug/execute`, publishing typed tool envelopes over the
+  existing executor channel
+- **Tests** — `tests/test_change_correlation.py` (timeline aggregation,
+  parsing, window filtering, truncation) and `tests/test_change_runners.py`
+  (helm/argocd runner allowlists and caps, rollout whitelist rule)
 
 ## [Unreleased] - 2026-08-16
 

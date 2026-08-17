@@ -28,11 +28,13 @@ from sse_starlette.sse import EventSourceResponse
 
 from kubently.modules.a2a import create_a2a_server
 from kubently.modules.api import (
+    ArgoCDQueryRequest,
     CommandResponse,
     CommandResult,
     CreateSessionRequest,
     ExecuteCommandRequest,
     ExecutionStatus,
+    HelmCommandRequest,
     LogSearchRequest,
     LokiQueryRequest,
     PrometheusQueryRequest,
@@ -936,6 +938,81 @@ async def execute_prometheus_query(
         timeout=request.timeout_seconds or 30,
         correlation_id=x_correlation_id or request.correlation_id,
         timeout_error="Prometheus query timeout (no executor picked it up in time)",
+    )
+
+
+@app.post("/debug/helm", response_model=CommandResponse)
+async def execute_helm_command(
+    request: HelmCommandRequest,
+    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+):
+    """
+    Run a read-only helm subcommand (history/list) on a cluster's executor.
+
+    Used for change correlation: helm release history answers "what was
+    deployed, and when?". The executor builds the argv from these validated
+    fields — no raw arguments travel over the channel. Requires the executor
+    to have helm history enabled (HELM_HISTORY_ENABLED / RBAC on release
+    Secrets); otherwise the executor answers with a clear "unavailable" error.
+
+    Returns:
+        200: Subcommand result (or executor-side error)
+        404: Cluster not found
+        401: Unauthorized
+    """
+    if not redis_client or not queue_module:
+        raise HTTPException(503, "Service not initialized")
+
+    return await _run_executor_tool(
+        cluster_id=request.cluster_id,
+        tool="helm",
+        tool_request={
+            "subcommand": request.subcommand.value,
+            "release_name": request.release_name,
+            "namespace": request.namespace,
+            "max": request.max,
+        },
+        timeout=request.timeout_seconds or 30,
+        correlation_id=x_correlation_id or request.correlation_id,
+        timeout_error="Helm command timeout (no executor picked it up in time)",
+    )
+
+
+@app.post("/debug/argocd", response_model=CommandResponse)
+async def execute_argocd_query(
+    request: ArgoCDQueryRequest,
+    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+):
+    """
+    Run a read-only ArgoCD Application query on a cluster's executor.
+
+    Used for change correlation: sync history answers "which GitOps deploys
+    happened, and when?". The executor performs the HTTP GET against its
+    locally configured ARGOCD_URL with its own token — this API never
+    contacts ArgoCD and never forwards a URL or credentials.
+
+    Returns:
+        200: Query result (or executor-side error, e.g. ArgoCD not configured)
+        404: Cluster not found
+        401: Unauthorized
+    """
+    if not redis_client or not queue_module:
+        raise HTTPException(503, "Service not initialized")
+
+    return await _run_executor_tool(
+        cluster_id=request.cluster_id,
+        tool="argocd",
+        tool_request={
+            "operation": request.operation.value,
+            "app_name": request.app_name,
+            "revision": request.revision,
+            "selector": request.selector,
+        },
+        timeout=request.timeout_seconds or 30,
+        correlation_id=x_correlation_id or request.correlation_id,
+        timeout_error="ArgoCD query timeout (no executor picked it up in time)",
     )
 
 

@@ -29,6 +29,12 @@ api:
       cpu: 1000m
       memory: 2Gi
 
+# Change correlation: exercise helm history in local/kind testing.
+# (ArgoCD stays off — no ArgoCD in the kind e2e environment.)
+changeCorrelation:
+  helmHistory:
+    enabled: true
+
 executor:
   enabled: true
 

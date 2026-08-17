@@ -134,6 +134,42 @@ loki:
 # the API install it only enables the tool (the control plane never dials it).
 prometheus:
   url: ""
+# Change Correlation Sources (optional)
+# ============================================================================
+# The agent's get_recent_changes tool builds a "what changed?" timeline from
+# rollout history, ReplicaSet revisions and events — always available through
+# the executor's read-only kubectl surface. The two sources below are
+# additional and opt-in.
+changeCorrelation:
+  # Helm release history (`helm history` / `helm list`, read-only, executed by
+  # the executor). Opt-in because Helm 3 stores release records in Secrets, so
+  # enabling this grants the executor RBAC to get/list Secrets cluster-wide.
+  # The kubectl command whitelist still blocks `kubectl get secrets` — only
+  # helm's own history/list output (revisions, charts, dates, status) is ever
+  # returned, never Secret contents.
+  helmHistory:
+    enabled: false
+
+  # ArgoCD sync history (read-only Application status/history/revision
+  # metadata). The URL must be reachable FROM THE EXECUTOR POD — queries are
+  # executed by the executor inside the monitored cluster (same outbound
+  # channel as kubectl commands), never by the central API. Example:
+  #   url: "https://argocd-server.argocd.svc.cluster.local"
+  #
+  # Leave url empty (default) to disable: the agent never queries ArgoCD and
+  # the executor rejects ArgoCD requests with a clear "not configured" error.
+  #
+  # Split deployments (central API + remote executors): set the url on BOTH
+  # installs. On an executor install it is what the executor dials; on the
+  # API install it only switches the ArgoCD source on (never dialed there).
+  argocd:
+    url: ""
+    # Secret in the release namespace holding a read-only ArgoCD API token
+    # under the key "token". Create it manually:
+    #   kubectl create secret generic kubently-argocd-token \
+    #     --from-literal=token="<argocd-readonly-token>" --namespace kubently
+    existingSecret: ""
+    existingSecretKey: "token"
 
 # ============================================================================
 # Executor Configuration

@@ -10,11 +10,15 @@ All logic is delegated to appropriate modules.
 """
 
 from .models import (
+    ArgoCDOperation,
+    ArgoCDQueryRequest,
     CommandResponse,
     CommandResult,
     CreateSessionRequest,
     ExecuteCommandRequest,
     ExecutionStatus,
+    HelmCommandRequest,
+    HelmSubcommand,
     LogSearchRequest,
     LokiQueryDirection,
     LokiQueryRequest,
@@ -27,6 +31,10 @@ from .models import (
 __all__ = [
     "CreateSessionRequest",
     "ExecuteCommandRequest",
+    "HelmCommandRequest",
+    "HelmSubcommand",
+    "ArgoCDQueryRequest",
+    "ArgoCDOperation",
     "LogSearchRequest",
     "LokiQueryRequest",
     "LokiQueryDirection",

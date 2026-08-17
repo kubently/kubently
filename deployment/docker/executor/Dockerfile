@@ -1,12 +1,17 @@
 FROM python:3.13-alpine
 
-# Install kubectl and uv dependencies
+# Install kubectl, helm (read-only history for change correlation) and uv dependencies
 RUN apk add --no-cache curl bash gcc musl-dev && \
     ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') && \
     curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${ARCH}/kubectl" && \
     chmod +x kubectl && \
     mv kubectl /usr/local/bin/ && \
     kubectl version --client && \
+    HELM_VERSION=v3.16.4 && \
+    curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz" | tar -xz -C /tmp && \
+    mv /tmp/linux-${ARCH}/helm /usr/local/bin/helm && \
+    rm -rf /tmp/linux-${ARCH} && \
+    helm version && \
     apk del curl
 
 # Install uv
