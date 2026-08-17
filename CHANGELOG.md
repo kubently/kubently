@@ -1,5 +1,43 @@
 # Changelog
 
+## [Unreleased] - 2026-08-17
+
+### Added
+- **Cloud telemetry access via workload identity (Track D1)** — the executor
+  can now query cloud logs/metrics/audit trails from inside the customer's
+  account with **zero stored credentials**: the pod assumes a
+  customer-controlled read-only role via EKS Pod Identity/IRSA (AWS) or GKE
+  Workload Identity (GCP), and results stream back over the existing
+  outbound-only channel. AWS operations: CloudWatch Logs Insights
+  (start/poll/results + sync convenience), FilterLogEvents, DescribeLogGroups,
+  GetMetricData, EKS control-plane logs, CloudTrail LookupEvents. GCP:
+  Cloud Logging `entries.list`, Cloud Monitoring `timeSeries.list`, GKE audit
+  log slices. Every operation is on a code-level allowlist
+  (`kubently/modules/executor/cloud/operations.py`) enforced at dispatch —
+  IAM is never the only barrier — and results carry strict caps with explicit
+  truncation notes
+- **Cloud capability discovery** — on startup and periodically
+  (`KUBENTLY_CLOUD_REFRESH_INTERVAL`), the executor detects its held identity
+  (STS GetCallerIdentity / GCP metadata server), probes which permission
+  families are usable, and advertises them in the existing capability report
+  (`cloud` section), so the agent knows whether cloud tools exist before
+  trying them
+- **Agent cloud tools** — provider-agnostic `query_cloud_logs`,
+  `query_cloud_metrics`, `get_recent_cloud_changes` dispatch to whichever
+  provider the target executor reports; per-call capability gating; system
+  prompt guidance on when cloud evidence beats cluster evidence (IAM errors,
+  throttling, managed-service failures, control-plane issues, change
+  correlation). Disable with `KUBENTLY_CLOUD_TOOLS=off`
+- **`POST /cloud/execute`** — API endpoint dispatching whitelisted cloud
+  operations over the existing Redis command channel (allowlist validated at
+  the API and enforced again on the executor)
+- **Helm `executor.cloud` values** (default **off**) + ServiceAccount
+  annotation examples; executor image ships the `cloud` extra (boto3,
+  google-cloud-logging, google-cloud-monitoring)
+- **docs/CLOUD_TELEMETRY.md** — copy-paste onboarding for the read-only role
+  in both clouds (Terraform + console/CLI), exact minimal IAM policies,
+  verification and revocation
+
 ## [Unreleased] - 2026-08-16
 
 ### Added
