@@ -15,6 +15,8 @@ from .models import (
     CreateSessionRequest,
     ExecuteCommandRequest,
     ExecutionStatus,
+    PrometheusQueryRequest,
+    PrometheusQueryType,
     SessionResponse,
     SessionStatus,
 )
@@ -22,6 +24,8 @@ from .models import (
 __all__ = [
     "CreateSessionRequest",
     "ExecuteCommandRequest",
+    "PrometheusQueryRequest",
+    "PrometheusQueryType",
     "SessionResponse",
     "CommandResponse",
     "CommandResult",

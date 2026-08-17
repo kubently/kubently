@@ -626,7 +626,7 @@ class TestSSEExecutorCloudRouting:
         monkeypatch.setattr(
             "requests.post", lambda *a, **k: SimpleNamespace(status_code=200)
         )
-        executor._execute_command({"id": "1", "type": "cloud", "operation": "x"})
+        executor._execute_command({"id": "1", "tool": "cloud", "operation": "x"})
         executor._execute_command({"id": "2", "args": ["get", "pods"]})
         assert seen["cloud"]["operation"] == "x"
         assert seen["kubectl"] == ["get", "pods"]

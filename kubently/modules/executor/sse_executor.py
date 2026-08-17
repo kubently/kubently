@@ -44,6 +44,8 @@ try:
 except ImportError:
     CLOUD_AVAILABLE = False
 
+from kubently.modules.executor.prometheus import PrometheusRunner
+
 # Configure logging
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -125,6 +127,13 @@ class SSEKubentlyExecutor:
             logger.warning("⚠️  Using HTTP without TLS - this should only be used for local development!")
         elif self.api_url.startswith("https://"):
             logger.info("✅ Using HTTPS with TLS encryption")
+
+        # Optional Prometheus query runner. Configured entirely from local env
+        # (PROMETHEUS_URL etc.) — the control plane never supplies a URL. When
+        # unset, prometheus commands get a clear "unavailable" error back.
+        self._prometheus = PrometheusRunner()
+        if self._prometheus.available:
+            logger.info(f"Prometheus tool enabled: {self._prometheus.base_url}")
 
         # Command queue for processing
         self.command_queue = Queue()
@@ -250,12 +259,9 @@ class SSEKubentlyExecutor:
 
         start_time = time.time()
 
-        # Route by command type: "cloud" -> SDK-based cloud read ops,
-        # anything else -> kubectl (the original, unchanged path).
-        if command.get("type") == "cloud":
-            result = self._run_cloud_operation(command)
-        else:
-            result = self._run_kubectl(command.get("args", []))
+        # Dispatch on the command's tool. kubectl is the default so command
+        # envelopes from older API versions (no "tool" field) keep working.
+        result = self._run_tool(command)
 
         # Add execution metadata
         result["command_id"] = command_id
@@ -280,6 +286,32 @@ class SSEKubentlyExecutor:
 
         except Exception as e:
             logger.error(f"Failed to submit result for {command_id}: {e}")
+
+    def _run_tool(self, command: dict) -> dict:
+        """
+        Route a command envelope to its tool runner.
+
+        Each tool enforces its own allowlist locally: kubectl commands go
+        through the DynamicCommandWhitelist, prometheus queries are limited to
+        two read-only GET paths against the locally configured base URL, and
+        cloud operations go through the cloud operation allowlist.
+        """
+        tool = command.get("tool", "kubectl")
+
+        if tool == "kubectl":
+            return self._run_kubectl(command.get("args", []))
+        if tool == "prometheus":
+            return self._prometheus.run(command.get("request") or {})
+        if tool == "cloud":
+            return self._run_cloud_operation(command)
+
+        logger.warning(f"Rejected command with unknown tool: {tool}")
+        return {
+            "success": False,
+            "error": f"Unknown tool '{tool}'. This executor supports: kubectl, prometheus, cloud.",
+            "status": "BLOCKED",
+            "return_code": -1,
+        }
 
     def _run_kubectl(self, args: list[str]) -> dict:
         """
