@@ -81,6 +81,25 @@ spec:
         - name: KUBENTLY_WHITELIST_DB
           value: "/var/lib/kubently/whitelist.db"
         {{- end }}
+        {{- /* Cloud telemetry via workload identity (optional feature, default off).
+             Credentials come only from the pod's ambient identity (IRSA /
+             EKS Pod Identity / GKE Workload Identity) — nothing here is a secret. */}}
+        {{- if .Values.executor.cloud }}
+        {{- if .Values.executor.cloud.enabled }}
+        - name: KUBENTLY_CLOUD_MODE
+          value: {{ .Values.executor.cloud.provider | default "auto" | quote }}
+        - name: KUBENTLY_CLOUD_REFRESH_INTERVAL
+          value: {{ .Values.executor.cloud.refreshInterval | default 3600 | quote }}
+        {{- with .Values.executor.cloud.awsRegion }}
+        - name: KUBENTLY_CLOUD_AWS_REGION
+          value: {{ . | quote }}
+        {{- end }}
+        {{- with .Values.executor.cloud.gcpProject }}
+        - name: KUBENTLY_CLOUD_GCP_PROJECT
+          value: {{ . | quote }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
         {{- /* Loki log search: URL the executor queries (read-only).
                Parenthesized lookup is nil-safe for old values files. */}}
         {{- if (.Values.loki).url }}

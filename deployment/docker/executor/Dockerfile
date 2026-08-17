@@ -32,6 +32,10 @@ RUN uv pip install --no-cache .
 # Install SSE executor dependencies
 RUN uv pip install --no-cache requests sseclient-py httpx
 
+# Cloud telemetry SDKs (feature is off by default; enabled via
+# KUBENTLY_CLOUD_MODE + a workload identity — see docs/CLOUD_TELEMETRY.md)
+RUN uv pip install --no-cache ".[cloud]"
+
 # Copy executor module
 COPY kubently/ ./kubently/
 

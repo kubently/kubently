@@ -37,6 +37,13 @@ try:
 except ImportError:
     WHITELIST_AVAILABLE = False
 
+# Optional import - cloud read operations (boto3 / google-cloud SDKs may be absent)
+try:
+    from kubently.modules.executor.cloud import CloudOpsManager
+    CLOUD_AVAILABLE = True
+except ImportError:
+    CLOUD_AVAILABLE = False
+
 from kubently.modules.executor.argocd import ArgoCDRunner
 from kubently.modules.executor.helm import HelmRunner
 from kubently.modules.executor.logsearch import LogSearchRunner
@@ -90,6 +97,34 @@ class SSEKubentlyExecutor:
                 self._whitelist = DynamicCommandWhitelist(config_path=self.whitelist_config_path)
             except Exception as e:
                 logger.warning(f"Failed to load command whitelist ({e}); enforcement disabled")
+
+        # Cloud read operations (workload identity; disabled by default).
+        # KUBENTLY_CLOUD_MODE: "off" (default), "auto", "aws", or "gcp".
+        # The pod's ambient identity (IRSA / EKS Pod Identity / GKE Workload
+        # Identity) is the only credential source — no keys are configured here.
+        self._cloud = None
+        cloud_mode = os.environ.get("KUBENTLY_CLOUD_MODE", "off").lower()
+        if cloud_mode != "off":
+            if CLOUD_AVAILABLE:
+                self._cloud = CloudOpsManager(
+                    mode=cloud_mode,
+                    aws_region=os.environ.get("KUBENTLY_CLOUD_AWS_REGION") or None,
+                    gcp_project=os.environ.get("KUBENTLY_CLOUD_GCP_PROJECT") or None,
+                    refresh_interval=int(
+                        os.environ.get("KUBENTLY_CLOUD_REFRESH_INTERVAL", "3600")
+                    ),
+                )
+                logger.info(f"Cloud operations enabled (mode: {cloud_mode})")
+            else:
+                logger.warning(
+                    "KUBENTLY_CLOUD_MODE set but cloud module unavailable "
+                    "(install boto3 / google-cloud SDKs); cloud ops disabled"
+                )
+        # The agent discovers cloud access through the capability report, so
+        # cloud mode implies capability reporting.
+        if self._cloud is not None and not self.report_capabilities:
+            logger.info("Cloud mode enabled; turning on capability reporting")
+            self.report_capabilities = True
 
         # Security validation: Warn if using HTTP in production
         if self.api_url.startswith("http://") and self.verify_ssl:
@@ -281,7 +316,8 @@ class SSEKubentlyExecutor:
         queries are limited to fixed read-only GET paths against the locally
         configured base URLs; helm is limited to read-only history/list
         subcommands built from validated fields; argocd is limited to
-        read-only GET paths against the locally configured URL.
+        read-only GET paths against the locally configured URL; cloud
+        operations go through the cloud operation allowlist.
         """
         tool = command.get("tool", "kubectl")
 
@@ -297,11 +333,13 @@ class SSEKubentlyExecutor:
             return self._helm.run(command.get("request") or {})
         if tool == "argocd":
             return self._argocd.run(command.get("request") or {})
+        if tool == "cloud":
+            return self._run_cloud_operation(command)
 
         logger.warning(f"Rejected command with unknown tool: {tool}")
         return {
             "success": False,
-            "error": f"Unknown tool '{tool}'. This executor supports: kubectl, log_search, loki, prometheus, helm, argocd.",
+            "error": f"Unknown tool '{tool}'. This executor supports: kubectl, log_search, loki, prometheus, helm, argocd, cloud.",
             "status": "BLOCKED",
             "return_code": -1,
         }
@@ -374,6 +412,52 @@ class SSEKubentlyExecutor:
                 "return_code": -1,
             }
 
+    def _run_cloud_operation(self, command: dict) -> dict:
+        """
+        Execute a whitelisted cloud read operation via the CloudOpsManager.
+
+        Args:
+            command: Command envelope whose "request" carries "operation" and
+                "params" (top-level fallback accepted for older envelopes)
+
+        Returns:
+            Result dictionary in the same shape as _run_kubectl results,
+            with the structured cloud payload JSON-encoded in "output".
+        """
+        request = command.get("request") or command
+        operation = request.get("operation", "")
+        params = request.get("params") or {}
+
+        if self._cloud is None:
+            return {
+                "success": False,
+                "error": (
+                    "Cloud operations are not enabled on this executor "
+                    "(set KUBENTLY_CLOUD_MODE and grant a workload identity)"
+                ),
+                "status": "ERROR",
+                "return_code": -1,
+            }
+
+        # Allowlist enforcement happens inside the manager, before any SDK call
+        result = self._cloud.execute(operation, params)
+        payload = result.to_dict()
+
+        if result.success:
+            return {
+                "success": True,
+                "output": json.dumps(payload, default=str),
+                "status": "SUCCESS",
+                "return_code": 0,
+            }
+        return {
+            "success": False,
+            "output": json.dumps(payload, default=str),
+            "error": result.error,
+            "status": "BLOCKED" if result.error_code == "OPERATION_NOT_ALLOWED" else "FAILED",
+            "return_code": -1,
+        }
+
     # Capability Reporting Methods
 
     def _get_capabilities_payload(self) -> dict[str, Any]:
@@ -384,10 +468,11 @@ class SSEKubentlyExecutor:
             Dictionary with capability data for the API
         """
         # Reuse the whitelist loaded in __init__ (avoids a second config-watcher thread)
+        payload = None
         if self._whitelist is not None:
             try:
                 summary = self._whitelist.get_config_summary()
-                return {
+                payload = {
                     "mode": summary.get("mode", "readOnly"),
                     "allowed_verbs": summary.get("allowed_verbs", []),
                     "restricted_resources": list(summary.get("restricted_resources", [])),
@@ -398,15 +483,29 @@ class SSEKubentlyExecutor:
             except Exception as e:
                 logger.warning(f"Failed to load whitelist config: {e}, using defaults")
 
-        # Default capabilities (readOnly mode)
-        return {
-            "mode": "readOnly",
-            "allowed_verbs": ["get", "describe", "logs", "top", "explain", "api-resources"],
-            "restricted_resources": ["secrets", "configmaps"],
-            "allowed_flags": ["--namespace", "--all-namespaces", "--selector"],
-            "executor_version": os.environ.get("EXECUTOR_VERSION", "unknown"),
-            "executor_pod": os.environ.get("HOSTNAME", "unknown"),
-        }
+        if payload is None:
+            # Default capabilities (readOnly mode)
+            payload = {
+                "mode": "readOnly",
+                "allowed_verbs": ["get", "describe", "logs", "top", "explain", "api-resources"],
+                "restricted_resources": ["secrets", "configmaps"],
+                "allowed_flags": ["--namespace", "--all-namespaces", "--selector"],
+                "executor_version": os.environ.get("EXECUTOR_VERSION", "unknown"),
+                "executor_pod": os.environ.get("HOSTNAME", "unknown"),
+            }
+
+        # Advertise cloud telemetry access (workload identity), if held.
+        # capability_payload() returns None when no cloud identity is detected,
+        # so the agent knows not to offer cloud tools for this cluster.
+        if self._cloud is not None:
+            try:
+                cloud = self._cloud.capability_payload()
+                if cloud:
+                    payload["cloud"] = cloud
+            except Exception as e:
+                logger.warning(f"Cloud capability detection failed: {e}")
+
+        return payload
 
     def _report_capabilities_on_startup(self) -> None:
         """
@@ -491,6 +590,17 @@ class SSEKubentlyExecutor:
         Called during SSE keepalive processing for efficiency.
         """
         if not self.report_capabilities:
+            return
+
+        # Periodic cloud identity/permission re-detection: when due, force a
+        # fresh detection and re-report full capabilities (roles get scoped,
+        # granted, and revoked in the customer's IAM at any time).
+        if self._cloud is not None and self._cloud.refresh_due():
+            try:
+                self._cloud.detect(force=True)
+            except Exception as e:
+                logger.warning(f"Cloud identity re-detection failed: {e}")
+            self._report_capabilities_on_startup()
             return
 
         current_time = time.time()

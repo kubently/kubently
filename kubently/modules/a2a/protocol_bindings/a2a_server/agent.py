@@ -1201,6 +1201,23 @@ class KubentlyAgent:
             self.tools.append(query_loki)
             logger.info("Loki log search tool registered (LOKI_URL is set)")
 
+        # Cloud telemetry tools (query_cloud_logs, query_cloud_metrics,
+        # get_recent_cloud_changes). They dispatch to whichever provider the
+        # target executor reports a workload identity for, and refuse per-call
+        # when a cluster's executor reports none.
+        from kubently.modules.a2a.protocol_bindings.a2a_server.cloud_tools import (
+            build_cloud_tools,
+        )
+
+        self.tools.extend(
+            build_cloud_tools(
+                api_url,
+                api_key,
+                interceptor,
+                lambda: getattr(self, "_current_thread_id", None),
+            )
+        )
+
         from kubently.modules.a2a.protocol_bindings.a2a_server.prometheus import (
             build_prometheus_payload,
             prometheus_tool_enabled,
@@ -1283,7 +1300,7 @@ class KubentlyAgent:
                     try:
                         response = await client.post(
                             f"{api_url}/debug/prometheus",
-                            headers={"X-Api-Key": api_key},
+                            headers={"X-Api-Key": api_key()},
                             json=payload,
                         )
                         if response.status_code != 200:
