@@ -37,6 +37,9 @@ try:
 except ImportError:
     WHITELIST_AVAILABLE = False
 
+from kubently.modules.executor.argocd import ArgoCDRunner
+from kubently.modules.executor.helm import HelmRunner
+
 # Configure logging
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -90,6 +93,17 @@ class SSEKubentlyExecutor:
             logger.warning("⚠️  Using HTTP without TLS - this should only be used for local development!")
         elif self.api_url.startswith("https://"):
             logger.info("✅ Using HTTPS with TLS encryption")
+
+        # Optional change-correlation runners. Each is configured entirely
+        # from local env (HELM_HISTORY_ENABLED, ARGOCD_URL/ARGOCD_TOKEN) — the
+        # control plane never supplies URLs, credentials, or raw argv. When
+        # unconfigured, their commands get a clear "unavailable" error back.
+        self._helm = HelmRunner()
+        if self._helm.available:
+            logger.info("Helm history tool enabled (read-only history/list)")
+        self._argocd = ArgoCDRunner()
+        if self._argocd.available:
+            logger.info(f"ArgoCD tool enabled: {self._argocd.base_url}")
 
         # Command queue for processing
         self.command_queue = Queue()
@@ -215,8 +229,9 @@ class SSEKubentlyExecutor:
 
         start_time = time.time()
 
-        # Execute kubectl command
-        result = self._run_kubectl(command.get("args", []))
+        # Dispatch on the command's tool. kubectl is the default so command
+        # envelopes from older API versions (no "tool" field) keep working.
+        result = self._run_tool(command)
 
         # Add execution metadata
         result["command_id"] = command_id
@@ -241,6 +256,32 @@ class SSEKubentlyExecutor:
 
         except Exception as e:
             logger.error(f"Failed to submit result for {command_id}: {e}")
+
+    def _run_tool(self, command: dict) -> dict:
+        """
+        Route a command envelope to its tool runner.
+
+        Each tool enforces its own allowlist locally: kubectl commands go
+        through the DynamicCommandWhitelist, helm is limited to read-only
+        history/list subcommands built from validated fields, and argocd is
+        limited to read-only GET paths against the locally configured URL.
+        """
+        tool = command.get("tool", "kubectl")
+
+        if tool == "kubectl":
+            return self._run_kubectl(command.get("args", []))
+        if tool == "helm":
+            return self._helm.run(command.get("request") or {})
+        if tool == "argocd":
+            return self._argocd.run(command.get("request") or {})
+
+        logger.warning(f"Rejected command with unknown tool: {tool}")
+        return {
+            "success": False,
+            "error": f"Unknown tool '{tool}'. This executor supports: kubectl, helm, argocd.",
+            "status": "BLOCKED",
+            "return_code": -1,
+        }
 
     def _run_kubectl(self, args: list[str]) -> dict:
         """
