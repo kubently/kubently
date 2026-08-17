@@ -15,6 +15,9 @@ from .models import (
     CreateSessionRequest,
     ExecuteCommandRequest,
     ExecutionStatus,
+    LogSearchRequest,
+    LokiQueryDirection,
+    LokiQueryRequest,
     SessionResponse,
     SessionStatus,
 )
@@ -22,6 +25,9 @@ from .models import (
 __all__ = [
     "CreateSessionRequest",
     "ExecuteCommandRequest",
+    "LogSearchRequest",
+    "LokiQueryRequest",
+    "LokiQueryDirection",
     "SessionResponse",
     "CommandResponse",
     "CommandResult",
