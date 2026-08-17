@@ -1,0 +1,68 @@
+{{- if and .Values.api.enabled .Values.scheduledChecks.enabled }}
+{{- $root := . }}
+{{- range .Values.scheduledChecks.checks }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  # Check names are validated API-side as lowercase-hyphen, max 30 chars, so
+  # "<fullname>-check-<name>" stays inside the Job-name length budget.
+  name: {{ include "kubently.fullname" $root }}-check-{{ .name }}
+  labels:
+    {{- include "kubently.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: scheduled-check
+    kubently.io/check: {{ .name | quote }}
+spec:
+  schedule: {{ .schedule | quote }}
+  suspend: {{ .suspend | default false }}
+  # A check takes minutes; never let a slow run stack on the next schedule.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # The endpoint ACKs 202 and investigates in the background, so this Job
+      # only needs to land the POST (same pattern as the fleet-report CronJob).
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "kubently.selectorLabels" $root | nindent 12 }}
+            app.kubernetes.io/component: scheduled-check
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: trigger
+            # Reuses the API image (already pulled on the node, ships httpx)
+            # rather than adding a curl image to the deployment's pull set.
+            image: "{{ $root.Values.api.image.repository }}:{{ $root.Values.api.image.tag | default $root.Chart.AppVersion }}"
+            imagePullPolicy: {{ $root.Values.api.image.pullPolicy }}
+            env:
+            - name: API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.api.existingSecret | default (printf "%s-api-keys" (include "kubently.fullname" $root)) }}
+                  key: keys
+            - name: KUBENTLY_API_URL
+              value: "http://{{ include "kubently.fullname" $root }}-api:{{ $root.Values.api.service.port }}"
+            - name: CHECK_NAME
+              value: {{ .name | quote }}
+            command:
+            - python
+            - -c
+            - |
+              import os, sys, httpx
+              # API_KEYS holds every configured key (comma- or newline-separated);
+              # any one of them authenticates this call.
+              key = next(k.strip() for k in os.environ["API_KEYS"].replace(",", "\n").split("\n") if k.strip())
+              key = key.split(":")[-1]  # tolerate the "service:key" form
+              r = httpx.post(
+                  f"{os.environ['KUBENTLY_API_URL']}/webhooks/scheduled-check",
+                  headers={"X-API-Key": key},
+                  json={"check": os.environ["CHECK_NAME"]},
+                  timeout=30,
+              )
+              print(r.status_code, r.text)
+              sys.exit(0 if r.status_code == 202 else 1)
+{{- end }}
+{{- end }}

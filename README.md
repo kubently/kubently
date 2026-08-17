@@ -129,6 +129,57 @@ To run the real scheduled path once — image, secrets, in-cluster URL and all:
 kubectl create job --from=cronjob/kubently-fleet-report fleet-report-test -n kubently
 ```
 
+### Deployment verification (did that deploy actually work?)
+
+Tell Kubently what you just deployed and it watches the rollout settle, then
+runs a real investigation — pods ready? events clean? errors in the new logs?
+metrics regressed vs the pre-deploy window (when Prometheus is configured)? —
+and posts a PASS/FAIL verdict with the evidence to Slack. Wire it into the last
+step of your CI pipeline:
+
+```bash
+curl -X POST https://<your-kubently-host>/webhooks/verify-deployment \
+  -H "X-API-Key: <your-api-key>" -H 'Content-Type: application/json' \
+  -d '{"cluster": "prod-east", "namespace": "shop",
+       "workload": "deploy/checkout-api", "context": "v1.42.0"}'
+```
+
+Add `"dry_run": true` to get the verdict back synchronously without posting.
+No CI access? Label the workload instead — `kubently.io/verify=enabled` — and
+enable `verifyDeployment.watch` in values: Kubently notices every generation
+change and verifies the rollout unprompted.
+
+### Scheduled checks (your recurring questions, on cron)
+
+The digest asks one broad question. Scheduled checks let you ask *your*
+questions on *their* schedules — each check is a named prompt with a cron
+schedule and optional target clusters, run by the agent and posted to Slack:
+
+```yaml
+scheduledChecks:
+  enabled: true
+  checks:
+    - name: cert-expiry
+      schedule: "0 8 * * 1"        # Monday mornings
+      prompt: |-
+        Check TLS secrets for certificates expiring within 21 days.
+        List each as namespace/name with days remaining.
+    - name: pvc-pressure
+      schedule: "0 */6 * * *"
+      clusters: [prod-east]
+      prompt: Find PersistentVolumeClaims above 85% usage.
+```
+
+A passing check posts **nothing** — silence means green (set `notifyOnPass:
+true` to hear about passes too). Failures always post, evidence included.
+Iterate on a check without waiting for cron:
+
+```bash
+curl -X POST https://<your-kubently-host>/webhooks/scheduled-check \
+  -H "X-API-Key: <your-api-key>" -H 'Content-Type: application/json' \
+  -d '{"check": "cert-expiry", "dry_run": true}'
+```
+
 **📖 See [QUICK_START.md](docs/QUICK_START.md) for full quick-start guide**
 
 **📚 See [GETTING_STARTED.md](docs/GETTING_STARTED.md) for production deployment**

@@ -116,6 +116,75 @@ fleetReport:
 #          the container memory limit - compare both before blaming traffic.
 #       3. Escalate to #payments-oncall if the DB connection pool is the cause.
 runbooks: {}
+# Deployment Verification (proactive)
+# ============================================================================
+# POST /webhooks/verify-deployment after a deploy (from CI, ArgoCD hooks, or
+# curl) and the agent watches the rollout settle, then investigates the result
+# — pods, events, error logs, and metrics vs the pre-deploy window where
+# Prometheus is configured — and posts a PASS/FAIL verdict with evidence to the
+# Slack webhook (api.slackWebhook above). Verifications always post.
+#
+#   curl -X POST $API/webhooks/verify-deployment -H "X-API-Key: $KEY" \
+#     -H 'Content-Type: application/json' \
+#     -d '{"cluster": "prod-east", "namespace": "shop", "workload": "deploy/checkout-api"}'
+#
+# Preview without posting: add "dry_run": true (runs synchronously).
+verifyDeployment:
+  # Optional deploy watch: the API sweeps registered clusters for workloads
+  # labelled `kubently.io/verify=enabled` and fires a verification whenever a
+  # workload's .metadata.generation changes (i.e. someone deployed). No CI
+  # integration needed — label the workload and every deploy gets verified.
+  watch:
+    enabled: false
+    # How often to sweep, in seconds (min 15).
+    intervalSeconds: 60
+    # Restrict the sweep to specific cluster ids. Empty = all registered.
+    clusters: []
+  # Default settle deadline (seconds) when the trigger doesn't send
+  # timeout_seconds. Clamped per-request to [60, 1800].
+  timeoutSeconds: 600
+
+# ============================================================================
+# Scheduled Checks (proactive)
+# ============================================================================
+# Named, cron-scheduled agent investigations. Each check gets its own CronJob
+# that POSTs /webhooks/scheduled-check; the agent runs the check's prompt and
+# posts the result to the Slack webhook (api.slackWebhook above).
+#
+# Noise discipline: a PASSing check posts nothing unless notifyOnPass is true
+# (globally or per check). A FAIL — or an answer whose verdict can't be parsed
+# — always posts, with the evidence trail.
+#
+# Iterate on a check without waiting for cron (runs synchronously, posts
+# nothing):
+#   curl -X POST $API/webhooks/scheduled-check -H "X-API-Key: $KEY" \
+#     -H 'Content-Type: application/json' \
+#     -d '{"check": "cert-expiry", "dry_run": true}'
+# Or run the real scheduled path once:
+#   kubectl create job --from=cronjob/kubently-check-cert-expiry check-test -n kubently
+scheduledChecks:
+  enabled: false
+  # Global default; each check may override with its own notifyOnPass.
+  notifyOnPass: false
+  # Each check: name (lowercase-hyphen, max 30 chars — becomes the CronJob
+  # name), schedule (5-field cron, cluster timezone), prompt (the question the
+  # agent investigates), and optionally clusters (empty = all registered),
+  # notifyOnPass, suspend.
+  checks: []
+  # Example:
+  #   checks:
+  #     - name: cert-expiry
+  #       schedule: "0 8 * * 1"
+  #       clusters: [prod-east, prod-west]
+  #       prompt: |-
+  #         Check TLS secrets for certificates expiring within 21 days.
+  #         List each as namespace/name with days remaining.
+  #     - name: pvc-pressure
+  #       schedule: "0 */6 * * *"
+  #       notifyOnPass: true
+  #       prompt: |-
+  #         Find PersistentVolumeClaims above 85% usage and nodes under
+  #         disk pressure.
 
 # ============================================================================
 # Loki Log Search (optional)
