@@ -1453,7 +1453,7 @@ class KubentlyAgent:
 
                 run_agent = create_deep_agent(
                     self.llm,
-                    self.tools + request_tools,
+                    [*self.tools, *request_tools],
                     system_prompt=self.system_prompt,
                     checkpointer=self.memory if self.memory else None,
                 )
@@ -1461,8 +1461,9 @@ class KubentlyAgent:
                 # messages mid-thread break the checkpointer — see the cluster
                 # context injection below for the full rationale).
                 messages = [
-                    {"role": "user", "content": per_request_note([t.name for t in request_tools])}
-                ] + messages
+                    {"role": "user", "content": per_request_note([t.name for t in request_tools])},
+                    *messages,
+                ]
                 logger.info(
                     f"Per-request MCP tools active for this invocation: "
                     f"{[t.name for t in request_tools]}"
