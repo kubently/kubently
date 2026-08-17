@@ -3,6 +3,33 @@
 ## [Unreleased] - 2026-08-17
 
 ### Added
+- **GitOps PR remediation (Track P8)** — the agent can now propose manifest
+  fixes as pull requests against a configured GitOps manifests repository
+  (GitHub or GitLab); a human reviews and merges, and the GitOps controller
+  applies. Two new agent tools, registered only when a remediation target is
+  fully configured (default OFF, Helm `gitRemediation` block):
+  `get_manifest_file` (read-only repo fetch so edits are diffed against the
+  real manifest) and `propose_fix_pr` (branch → commit → PR with the
+  investigation evidence in a body clearly marked machine-proposed, pending
+  human review). Guardrails: propose-only tool surface (no merge
+  capability), size caps (`KUBENTLY_GITOPS_MAX_FILES`/`MAX_LINES`, refusal
+  before any write reaches the Git host), evidence-summary requirement,
+  prompt guidance gated on the same switch (high-confidence RCA only,
+  minimal fixes, cite change-correlation evidence), and token isolation
+  (repo-scoped token read from a manually created secret, never in model
+  context, tool output, or traces; provider errors redacted). PR creation
+  runs API-side — executors keep their read-only posture and never hold the
+  Git token. New modules
+  `kubently/modules/a2a/protocol_bindings/a2a_server/gitops{,_tools}.py`;
+  docs in `docs/GITOPS_REMEDIATION.md`
+
+### Fixed
+- **Helm chart failed to render** (`helm template`/`install` parse error
+  "unexpected EOF"): three `{{ if .Values.runbooks }}` blocks introduced
+  with the runbooks feature (env list, volumeMounts, volumes in
+  `api-deployment.yaml`) were never closed — their `{{ end }}`s were
+  consumed by the nested scheduledChecks blocks, which also swallowed the
+  file-level `api.enabled` guard's end
 - **Operator runbook ingestion (Track P6a)** — feed org-specific knowledge
   into investigations. Hand-written markdown runbooks with lightweight YAML
   frontmatter (`name` + `match` criteria: alert-name globs,

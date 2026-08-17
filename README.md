@@ -295,6 +295,8 @@ The diagnostic agent investigates with a small set of read-only tools:
 - **`search_pod_logs`** — structured log search across every pod/container matching a label selector (substring or regex, time bounds, previous-container support). Logs are filtered on the cluster's executor so only matching lines — capped, with explicit truncation notes — come back
 - **`query_loki`** *(optional)* — LogQL range queries against a cluster's Loki for aggregated/historical log search, including logs from pods that have restarted or been deleted. Enabled by setting `loki.url` in Helm values (unset by default); queries execute on each cluster's executor through the same outbound channel as kubectl commands
 - **`query_prometheus`** *(optional)* — instant and range PromQL queries for latency, saturation, OOM-trend and restarts-over-time evidence. Enabled by setting `prometheus.url` in Helm values (unset by default); queries execute on each cluster's executor through the same outbound channel as kubectl commands
+- **`get_manifest_file`** *(optional)* — read-only fetch of a file from the configured GitOps manifests repo, so proposed fixes are diffed against the real manifest instead of a hallucinated one. Enabled with `gitRemediation` in Helm values (off by default)
+- **`propose_fix_pr`** *(optional)* — proposes a high-confidence manifest fix as a **pull request** against the configured GitOps manifests repo (GitHub or GitLab): branch → commit → PR with the investigation evidence in a body clearly marked machine-proposed. The agent **never merges** — a human reviews and merges, and your GitOps controller applies. Size-capped (files/changed lines), token never enters model context, cluster access stays read-only. See [GitOps PR Remediation](docs/GITOPS_REMEDIATION.md)
 
 ## Documentation
 
@@ -308,6 +310,7 @@ The diagnostic agent investigates with a small set of read-only tools:
 - **[Test Queries](docs/TEST_QUERIES.md)** - Example API requests and A2A protocol usage
 - **[MCP Connect Guide](docs/MCP.md)** - Connect MCP clients (Claude Desktop, Cursor, custom agents)
 - **[Environment Variables](docs/ENVIRONMENT_VARIABLES.md)** - Configuration reference
+- **[GitOps PR Remediation](docs/GITOPS_REMEDIATION.md)** - Agent-proposed fix PRs (human-merged, default off)
 
 ### Architecture & Development
 - **[Architecture](docs/ARCHITECTURE.md)** - System design and components

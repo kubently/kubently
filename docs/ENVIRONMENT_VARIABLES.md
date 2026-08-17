@@ -113,6 +113,24 @@ The API never dials this URL itself — queries execute on each cluster's execut
 |----------|---------|----------|-------------|
 | `PROMETHEUS_URL` | - | No | Presence enables the `query_prometheus` agent tool. Set via Helm `prometheus.url` |
 
+### GitOps PR Remediation (optional, default OFF)
+
+When ALL of `KUBENTLY_GITOPS_PROVIDER`, `KUBENTLY_GITOPS_REPO` and `KUBENTLY_GITOPS_TOKEN` are set on the API server, the agent registers two tools — `get_manifest_file` (read-only repo fetch) and `propose_fix_pr` (branch + commit + pull request with the investigation evidence, clearly marked machine-proposed) — and injects the matching prompt guidance. A partial configuration logs a warning and stays off; when off, the prompt never mentions the tools. The agent can only **propose**: it has no merge capability, and cluster access remains read-only. See `docs/GITOPS_REMEDIATION.md`.
+
+These run on the API server only — executors never hold the Git token.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `KUBENTLY_GITOPS_PROVIDER` | - | For the feature | `github` or `gitlab`. Set via Helm `gitRemediation.provider` |
+| `KUBENTLY_GITOPS_REPO` | - | For the feature | Manifests repo: GitHub `owner/repo`, GitLab full project path. Set via Helm `gitRemediation.repo` |
+| `KUBENTLY_GITOPS_TOKEN` | - | For the feature | Git token, from a manually created secret (Helm `gitRemediation.existingSecret`). Never exposed to the LLM, tool output, or traces |
+| `KUBENTLY_GITOPS_BASE_BRANCH` | `main` | No | Branch proposals are opened against. Set via Helm `gitRemediation.baseBranch` |
+| `KUBENTLY_GITOPS_MAX_FILES` | `5` | No | Max files per proposed PR; larger proposals are refused |
+| `KUBENTLY_GITOPS_MAX_LINES` | `200` | No | Max changed lines (diff-measured) per proposed PR; larger proposals are refused |
+| `KUBENTLY_GITOPS_API_BASE` | provider default | No | API base for GitHub Enterprise (`https://ghe.example.com/api/v3`) or self-hosted GitLab (`https://gitlab.example.com/api/v4`) |
+
+**Security — scope the token to the manifests repo only.** Use a GitHub fine-grained PAT granted to the ONE manifests repository (Contents: read/write, Pull requests: read/write) or a GitLab project access token (Developer role, `api` scope) on the ONE project. Never a user-wide or org-wide token: the token defines the blast radius of a bad proposal. Protect the base branch so merging always requires a human review enforced by the Git host, and create the secret manually (`kubectl create secret generic kubently-gitops-token --from-literal=token=...`) rather than putting the token in values files.
+
 ### Proactive Operation (Slack notifications, deploy verification, scheduled checks)
 
 One Slack incoming-webhook URL powers every proactive path: Alertmanager
@@ -294,6 +312,7 @@ The following variables contain sensitive data and should be stored in Kubernete
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
 - `KUBENTLY_TOKEN`
+- `KUBENTLY_GITOPS_TOKEN` (scope it to the manifests repo only — see the GitOps PR Remediation section)
 
 ### Example Kubernetes Secret
 
