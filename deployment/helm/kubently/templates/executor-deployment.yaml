@@ -100,11 +100,38 @@ spec:
         {{- end }}
         {{- end }}
         {{- end }}
+        {{- /* Loki log search: URL the executor queries (read-only).
+               Parenthesized lookup is nil-safe for old values files. */}}
+        {{- if (.Values.loki).url }}
+        - name: LOKI_URL
+          value: {{ .Values.loki.url | quote }}
+        {{- if .Values.loki.tenantId }}
+        - name: LOKI_TENANT_ID
+          value: {{ .Values.loki.tenantId | quote }}
+        {{- end }}
+        {{- end }}
         {{- /* Prometheus metrics tool: URL the executor queries (read-only).
                Parenthesized lookup is nil-safe for old values files. */}}
         {{- if (.Values.prometheus).url }}
         - name: PROMETHEUS_URL
           value: {{ .Values.prometheus.url | quote }}
+        {{- end }}
+        {{- /* Change-correlation sources (optional). Parenthesized lookups
+               are nil-safe for old values files. */}}
+        {{- if (((.Values.changeCorrelation).helmHistory).enabled) }}
+        - name: HELM_HISTORY_ENABLED
+          value: "true"
+        {{- end }}
+        {{- if ((.Values.changeCorrelation).argocd).url }}
+        - name: ARGOCD_URL
+          value: {{ .Values.changeCorrelation.argocd.url | quote }}
+        {{- if .Values.changeCorrelation.argocd.existingSecret }}
+        - name: ARGOCD_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.changeCorrelation.argocd.existingSecret }}
+              key: {{ .Values.changeCorrelation.argocd.existingSecretKey | default "token" }}
+        {{- end }}
         {{- end }}
         {{- /* Capability reporting configuration (optional feature) */}}
         {{- if .Values.executor.capabilities }}

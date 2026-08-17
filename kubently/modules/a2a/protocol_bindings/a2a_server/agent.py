@@ -119,6 +119,12 @@ DANGEROUS_VERBS = {
     "set", "autoscale", "rollout", "expose", "run"
 }
 
+# Partially read-only verbs: allowed only with these read-only subcommands
+# (mirrors the executor whitelist, which enforces the same restriction).
+READ_ONLY_SUBCOMMANDS = {
+    "rollout": {"history", "status"},
+}
+
 def validate_kubectl_command(command: str, allow_write: bool = False) -> bool:
     """Validate kubectl command for safety."""
     parts = command.split()
@@ -129,10 +135,13 @@ def validate_kubectl_command(command: str, allow_write: bool = False) -> bool:
 
     # Check dangerous verbs
     if verb in DANGEROUS_VERBS and not allow_write:
-        raise ValueError(
-            f"Dangerous verb '{verb}' blocked. This tool is read-only. "
-            f"Use commands like: get, describe, logs, exec, port-forward"
-        )
+        read_only_subs = READ_ONLY_SUBCOMMANDS.get(verb)
+        subcommand = next((p for p in parts[1:] if not p.startswith("-")), None)
+        if not (read_only_subs and subcommand in read_only_subs):
+            raise ValueError(
+                f"Dangerous verb '{verb}' blocked. This tool is read-only. "
+                f"Use commands like: get, describe, logs, exec, port-forward"
+            )
 
     return True
 
@@ -302,15 +311,21 @@ class KubentlyAgent:
                 "anthropic-claude, openai, google-gemini."
             )
 
-        # Load system prompt from configuration. Metrics guidance is injected
-        # only when the query_prometheus tool is registered, so the prompt
-        # never references a tool the model cannot call.
+        # Load system prompt from configuration. Loki and metrics guidance
+        # are injected only when the matching tool (query_loki /
+        # query_prometheus) is registered, so the prompt never references a
+        # tool the model cannot call.
         from kubently.modules.config import get_prompt
 
+        from .logsearch import loki_guidance
         from .prometheus import metrics_guidance
 
         self.system_prompt = get_prompt(
-            role="a2a", variables={"metrics_guidance": metrics_guidance()}
+            role="a2a",
+            variables={
+                "loki_guidance": loki_guidance(),
+                "metrics_guidance": metrics_guidance(),
+            },
         )
 
         # Initialize tools for kubectl operations
@@ -645,10 +660,546 @@ class KubentlyAgent:
                 await interceptor.record_tool_result(tool_call_id, None, error_msg)
                 return error_msg
 
+        from kubently.modules.a2a.protocol_bindings.a2a_server import changes as changes_mod
+
+        async def _call_debug(client, path: str, payload: dict) -> tuple:
+            """POST one /debug/* request; returns (output, error) — never raises."""
+            try:
+                response = await client.post(
+                    f"{api_url}{path}", headers={"X-Api-Key": api_key()}, json=payload
+                )
+                if response.status_code != 200:
+                    return None, f"HTTP {response.status_code}: {response.text[:200]}"
+                result = response.json()
+                exec_status, exec_error = result.get("status"), result.get("error")
+                if exec_error or (exec_status and exec_status != "success"):
+                    return None, exec_error or f"status: {exec_status}"
+                return result.get("output") or "", None
+            except Exception as e:
+                return None, str(e)
+
+        @tool
+        async def get_recent_changes(
+            cluster_id: str,
+            namespace: str,
+            resource_name: str | None = None,
+            resource_type: str = "deployment",
+            window: str = "24h",
+        ) -> str:
+            """Build a timeline of recent changes for a resource or namespace.
+
+            THE FIRST QUESTION of any sudden-failure investigation is "what
+            changed?" — call this BEFORE deep-diving into symptoms. It
+            aggregates, for the given time window, every change source in one
+            pass:
+            - Deployment rollouts (ReplicaSet revisions with timestamps and
+              images, rollout history change-causes)
+            - Helm release history (installs/upgrades/rollbacks, when enabled
+              on the cluster's executor)
+            - ArgoCD sync history (when configured)
+            - Kubernetes events, Normal AND Warning — Normal events
+              (ScalingReplicaSet, Killing, new-image Pulled) are the record of
+              a change; Warning events are its consequences
+
+            Then CORRELATE: compare change timestamps against the first-error
+            timestamp and name the correlated change explicitly in your RCA
+            ("the OOMKills began 90 seconds after helm revision 42 deployed").
+
+            Args:
+                cluster_id: Target cluster (same IDs as execute_kubectl)
+                namespace: Namespace to inspect
+                resource_name: Optional workload to scope to (Deployment /
+                    StatefulSet / DaemonSet name — pass the owning workload,
+                    not a pod). Omit for a namespace-wide change sweep.
+                resource_type: Kind of resource_name (default "deployment")
+                window: Look-back window like "30m", "6h", "24h" (default), "2d"
+
+            Returns:
+                Chronological changes timeline (oldest first), with
+                per-source availability notes.
+            """
+            debug_print(
+                f"get_recent_changes called: cluster_id={cluster_id}, namespace={namespace}, "
+                f"resource={resource_type}/{resource_name}, window={window}"
+            )
+            tool_call_id = await interceptor.record_tool_call(
+                tool_name="get_recent_changes",
+                args={
+                    "cluster_id": cluster_id,
+                    "namespace": namespace,
+                    "resource_name": resource_name,
+                    "resource_type": resource_type,
+                    "window": window,
+                },
+                thread_id=getattr(self, "_current_thread_id", None),
+            )
+
+            try:
+                window_delta = changes_mod.parse_window(window)
+                resource_type_normalized = resource_type.strip().lower().rstrip("s") or "deployment"
+                entries: list = []
+                unavailable: dict = {}
+
+                async with httpx.AsyncClient(timeout=45.0) as client:
+                    # 1. Workload metadata: helm/argocd ownership + revisions.
+                    workloads_json, err = await _call_debug(
+                        client,
+                        "/debug/execute",
+                        {
+                            "cluster_id": cluster_id,
+                            "command_type": "get",
+                            "args": ["deployments,statefulsets,daemonsets", "-o", "json"],
+                            "namespace": namespace,
+                            "timeout_seconds": 30,
+                        },
+                    )
+                    workloads = changes_mod.extract_workloads(workloads_json) if not err else []
+                    if err:
+                        unavailable["workload metadata"] = err
+
+                    scoped = [w for w in workloads if w.name == resource_name] if resource_name else workloads
+                    if resource_name and not scoped:
+                        unavailable["workload scope"] = (
+                            f"'{resource_name}' not found among deployments/statefulsets/"
+                            f"daemonsets in {namespace}; showing name-matched events only"
+                        )
+
+                    # 2. ReplicaSet revisions: the dated record of rollouts.
+                    rs_json, err = await _call_debug(
+                        client,
+                        "/debug/execute",
+                        {
+                            "cluster_id": cluster_id,
+                            "command_type": "get",
+                            "args": ["replicasets", "-o", "json"],
+                            "namespace": namespace,
+                            "timeout_seconds": 30,
+                        },
+                    )
+                    if not err:
+                        entries.extend(
+                            changes_mod.replicaset_changes(
+                                rs_json,
+                                deployment=resource_name
+                                if resource_name and resource_type_normalized == "deployment"
+                                else None,
+                            )
+                        )
+
+                    # 3. Rollout history change-causes for the scoped workload.
+                    if resource_name and resource_type_normalized in (
+                        "deployment",
+                        "statefulset",
+                        "daemonset",
+                    ):
+                        history_text, err = await _call_debug(
+                            client,
+                            "/debug/execute",
+                            {
+                                "cluster_id": cluster_id,
+                                "command_type": "rollout",
+                                "args": ["history", f"{resource_type_normalized}/{resource_name}"],
+                                "namespace": namespace,
+                                "timeout_seconds": 30,
+                            },
+                        )
+                        if not err:
+                            entries.extend(
+                                changes_mod.parse_rollout_history(
+                                    history_text, f"{resource_type_normalized}/{resource_name}"
+                                )
+                            )
+
+                    # 4. Events (Normal + Warning), scoped by ownership-chain prefix.
+                    events_json, err = await _call_debug(
+                        client,
+                        "/debug/execute",
+                        {
+                            "cluster_id": cluster_id,
+                            "command_type": "get",
+                            "args": ["events", "-o", "json"],
+                            "namespace": namespace,
+                            "timeout_seconds": 30,
+                        },
+                    )
+                    if not err:
+                        entries.extend(
+                            changes_mod.event_changes(
+                                events_json,
+                                name_prefixes=[resource_name] if resource_name else None,
+                            )
+                        )
+                    else:
+                        unavailable["events"] = err
+
+                    # 5. Helm history for the owning releases (deduped, capped).
+                    releases = []
+                    for w in scoped:
+                        if w.helm_release:
+                            key = (w.helm_release, w.helm_namespace or namespace)
+                            if key not in releases:
+                                releases.append(key)
+                    for release, release_ns in releases[:3]:
+                        history_json, err = await _call_debug(
+                            client,
+                            "/debug/helm",
+                            {
+                                "cluster_id": cluster_id,
+                                "subcommand": "history",
+                                "release_name": release,
+                                "namespace": release_ns,
+                                "max": 10,
+                            },
+                        )
+                        if err:
+                            unavailable["helm history"] = err
+                            break  # one clear note beats three identical ones
+                        entries.extend(changes_mod.helm_history_changes(history_json, release))
+
+                    # 6. ArgoCD sync history (only when configured — otherwise
+                    # this source is silently absent).
+                    if changes_mod.argocd_enabled():
+                        apps = []
+                        for w in scoped:
+                            if w.argocd_app and w.argocd_app not in apps:
+                                apps.append(w.argocd_app)
+                        for app_name in apps[:3]:
+                            app_json, err = await _call_debug(
+                                client,
+                                "/debug/argocd",
+                                {
+                                    "cluster_id": cluster_id,
+                                    "operation": "get_app",
+                                    "app_name": app_name,
+                                },
+                            )
+                            if err:
+                                unavailable["argocd"] = err
+                                break
+                            entries.extend(changes_mod.argocd_changes(app_json))
+
+                scope = (
+                    f"{namespace}/{resource_type_normalized}/{resource_name}"
+                    if resource_name
+                    else f"namespace {namespace}"
+                )
+                output = cap_output(
+                    changes_mod.build_timeline(
+                        entries, window_delta, scope, sources_unavailable=unavailable
+                    )
+                )
+                await interceptor.record_tool_result(tool_call_id, output)
+                return output
+            except Exception as e:
+                error_msg = f"Error building changes timeline: {e!s}"
+                await interceptor.record_tool_result(tool_call_id, None, error_msg)
+                return error_msg
+
+        @tool
+        async def get_events_for_resource(
+            cluster_id: str,
+            resource_name: str,
+            namespace: str,
+            window: str = "6h",
+        ) -> str:
+            """Get all Kubernetes events for a resource AND its children.
+
+            Prefix-matches the ownership chain: for Deployment "api" this
+            includes events on ReplicaSet "api-<hash>" and Pods
+            "api-<hash>-<id>", so one call shows the full picture (scaling,
+            image pulls, kills, probe failures, scheduling problems).
+
+            Prefer this over raw `kubectl get events` when investigating one
+            resource — it is already filtered, deduplicated by name, and
+            chronologically sorted (oldest first). Includes Normal events,
+            which record changes (ScalingReplicaSet, Pulled, Killing), not
+            just Warnings. Note events expire (default ~1h TTL), so an empty
+            result does not prove nothing happened.
+
+            Args:
+                cluster_id: Target cluster (same IDs as execute_kubectl)
+                resource_name: Resource whose events to fetch (any kind)
+                namespace: Namespace of the resource
+                window: Look-back window like "30m", "6h" (default), "24h"
+
+            Returns:
+                Chronological event timeline for the resource and its children.
+            """
+            debug_print(
+                f"get_events_for_resource called: cluster_id={cluster_id}, "
+                f"resource_name={resource_name}, namespace={namespace}"
+            )
+            tool_call_id = await interceptor.record_tool_call(
+                tool_name="get_events_for_resource",
+                args={
+                    "cluster_id": cluster_id,
+                    "resource_name": resource_name,
+                    "namespace": namespace,
+                    "window": window,
+                },
+                thread_id=getattr(self, "_current_thread_id", None),
+            )
+
+            try:
+                async with httpx.AsyncClient(timeout=45.0) as client:
+                    events_json, err = await _call_debug(
+                        client,
+                        "/debug/execute",
+                        {
+                            "cluster_id": cluster_id,
+                            "command_type": "get",
+                            "args": ["events", "-o", "json"],
+                            "namespace": namespace,
+                            "timeout_seconds": 30,
+                        },
+                    )
+                if err:
+                    error_msg = cap_output(f"Error fetching events: {err}")
+                    await interceptor.record_tool_result(tool_call_id, None, error_msg)
+                    return error_msg
+
+                entries = changes_mod.event_changes(events_json, name_prefixes=[resource_name])
+                output = cap_output(
+                    changes_mod.build_timeline(
+                        entries,
+                        changes_mod.parse_window(window),
+                        f"events for {namespace}/{resource_name} (+children)",
+                    )
+                )
+                await interceptor.record_tool_result(tool_call_id, output)
+                return output
+            except Exception as e:
+                error_msg = f"Error fetching events: {e!s}"
+                await interceptor.record_tool_result(tool_call_id, None, error_msg)
+                return error_msg
+        from kubently.modules.a2a.protocol_bindings.a2a_server.logsearch import (
+            build_log_search_payload,
+            build_loki_payload,
+            loki_tool_enabled,
+        )
+
+        async def _post_tool_request(
+            endpoint: str, payload: dict, tool_call_id, error_label: str, timeout: float = 75.0
+        ) -> str:
+            """POST a tool payload to the API, normalize errors, cap and record
+            the result. Shared by search_pod_logs and query_loki."""
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                try:
+                    response = await client.post(
+                        f"{api_url}{endpoint}",
+                        headers={"X-Api-Key": api_key()},
+                        json=payload,
+                    )
+                    if response.status_code != 200:
+                        error_msg = cap_output(
+                            f"Error: HTTP {response.status_code}: {response.text}"
+                        )
+                        await interceptor.record_tool_result(tool_call_id, None, error_msg)
+                        return error_msg
+
+                    result = response.json()
+                    exec_status, exec_error = result.get("status"), result.get("error")
+                    if exec_error or (exec_status and exec_status != "success"):
+                        error_msg = cap_output(
+                            f"Error: {exec_error or f'{error_label} status: {exec_status}'}"
+                        )
+                        await interceptor.record_tool_result(tool_call_id, None, error_msg)
+                        return error_msg
+
+                    # The executor already caps matches/lines; this is the
+                    # context-budget backstop shared with kubectl results.
+                    output = cap_output(result.get("output") or "")
+                    await interceptor.record_tool_result(tool_call_id, output)
+                    return output
+                except Exception as e:
+                    error_msg = f"Error running {error_label}: {e!s}"
+                    await interceptor.record_tool_result(tool_call_id, None, error_msg)
+                    return error_msg
+
+        @tool
+        async def search_pod_logs(
+            cluster_id: str,
+            namespace: str,
+            query: str,
+            selector: str | None = None,
+            pod_name: str | None = None,
+            container: str | None = None,
+            use_regex: bool = False,
+            case_sensitive: bool = False,
+            since: str | None = "1h",
+            since_time: str | None = None,
+            tail_lines: int = 2000,
+            previous: bool = False,
+            context_lines: int = 0,
+        ) -> str:
+            """Search logs across ALL pods matching a selector in one call.
+
+            Use this instead of dumping logs pod-by-pod when you need to find
+            WHICH pods/containers logged something: errors after a deploy,
+            correlating messages across replicas, tracing an upstream failure
+            through a workload. Logs are filtered on the cluster's executor,
+            so only matching lines (already capped) come back — far cheaper
+            than kubectl logs on each pod.
+
+            NARROW FIRST: identify the namespace and a label selector (e.g.
+            via "get pods -n <ns> --show-labels"), and keep a time bound
+            (since defaults to "1h"). Provide exactly one of `selector` or
+            `pod_name`.
+
+            Query matching:
+            - Default: case-insensitive substring
+            - use_regex=True for alternatives, e.g. "error|exception|timed? ?out"
+            - context_lines=2-3 to capture stack traces around each match
+
+            For crash investigations set previous=True to search the
+            pre-restart logs of restarted containers.
+
+            Results are capped (pods scanned, matches per container, total
+            matches, output size) and every truncation is noted in the output.
+            When a cap fires, narrow the query/selector/time window instead of
+            retrying the same search.
+
+            Args:
+                cluster_id: Target cluster (same IDs as execute_kubectl)
+                namespace: Namespace to search in
+                query: Substring or regex to search for
+                selector: Label selector (e.g. "app=api"); or use pod_name
+                pod_name: Single pod name; or use selector
+                container: Restrict to one container name
+                use_regex: Treat query as a regular expression
+                case_sensitive: Match case-sensitively
+                since: Relative time window like "30m", "1h" (default "1h")
+                since_time: Absolute RFC3339 lower bound (overrides since)
+                tail_lines: Max lines fetched per container (default 2000)
+                previous: Search previous (pre-restart) container logs
+                context_lines: Lines of context around each match (0-10)
+
+            Returns:
+                Per-container sections of matching lines with a summary
+                header, no-match list, and explicit truncation notes.
+            """
+            debug_print(
+                f"search_pod_logs called: cluster_id={cluster_id}, namespace={namespace}, "
+                f"selector={selector}, pod_name={pod_name}, query={query}"
+            )
+            tool_call_id = await interceptor.record_tool_call(
+                tool_name="search_pod_logs",
+                args={
+                    "cluster_id": cluster_id,
+                    "namespace": namespace,
+                    "query": query,
+                    "selector": selector,
+                    "pod_name": pod_name,
+                    "container": container,
+                    "use_regex": use_regex,
+                    "case_sensitive": case_sensitive,
+                    "since": since,
+                    "since_time": since_time,
+                    "tail_lines": tail_lines,
+                    "previous": previous,
+                    "context_lines": context_lines,
+                },
+                thread_id=getattr(self, "_current_thread_id", None),
+            )
+            payload = build_log_search_payload(
+                namespace=namespace,
+                query=query,
+                selector=selector,
+                pod_name=pod_name,
+                container=container,
+                use_regex=use_regex,
+                case_sensitive=case_sensitive,
+                since=since,
+                since_time=since_time,
+                tail_lines=tail_lines,
+                previous=previous,
+                context_lines=context_lines,
+            )
+            payload["cluster_id"] = cluster_id
+            return await _post_tool_request(
+                "/debug/logs/search", payload, tool_call_id, "log search"
+            )
+
         # Note: planning/todo tracking is now provided natively by deepagents
         # (write_todos via TodoListMiddleware), so the previous hand-rolled
         # todo_write tool + TodoManager were removed.
-        self.tools = [list_clusters, execute_kubectl, execute_kubectl_multi]
+        self.tools = [
+            list_clusters,
+            execute_kubectl,
+            execute_kubectl_multi,
+            search_pod_logs,
+            get_recent_changes,
+            get_events_for_resource,
+        ]
+
+        if loki_tool_enabled():
+
+            @tool
+            async def query_loki(
+                cluster_id: str,
+                query: str,
+                start: str | None = None,
+                end: str | None = None,
+                limit: int = 100,
+                direction: str = "backward",
+            ) -> str:
+                """Run a read-only LogQL range query against a cluster's Loki.
+
+                PREFER this over search_pod_logs when logs must survive pod
+                restarts/deletions, when searching across many workloads at
+                once, or when the window is further back than pods' current
+                logs reach. The query executes inside the target cluster (via
+                its executor), so use the in-cluster view of Loki.
+
+                Write BOUNDED LogQL — results are line-capped with a note when
+                truncated:
+                - Always start from a label selector: {namespace="x", app="api"}
+                - Add line filters: |= "error" (substring), |~ "regex", != / !~ to exclude
+                - Keep ranges short; Loki defaults to the last hour when
+                  start/end are omitted
+                - Count first when volume is unknown:
+                  sum by (pod) (count_over_time({namespace="x"} |= "error" [1h]))
+
+                Args:
+                    cluster_id: Target cluster (same IDs as execute_kubectl)
+                    query: LogQL expression
+                    start: Range start (RFC3339 or unix seconds; default -1h)
+                    end: Range end (RFC3339 or unix seconds; default now)
+                    limit: Max log lines returned (default 100)
+                    direction: "backward" (newest first, default) or "forward"
+
+                Returns:
+                    Per-stream sections of timestamped log lines (or compact
+                    JSON for metric-style queries), with truncation notes, or
+                    an error message (e.g. Loki not configured on that cluster
+                    — use search_pod_logs there instead).
+                """
+                debug_print(
+                    f"query_loki called: cluster_id={cluster_id}, query={query}, "
+                    f"start={start}, end={end}, limit={limit}"
+                )
+                tool_call_id = await interceptor.record_tool_call(
+                    tool_name="query_loki",
+                    args={
+                        "cluster_id": cluster_id,
+                        "query": query,
+                        "start": start,
+                        "end": end,
+                        "limit": limit,
+                        "direction": direction,
+                    },
+                    thread_id=getattr(self, "_current_thread_id", None),
+                )
+                payload = build_loki_payload(
+                    query, start=start, end=end, limit=limit, direction=direction
+                )
+                payload["cluster_id"] = cluster_id
+                return await _post_tool_request(
+                    "/debug/loki", payload, tool_call_id, "Loki query", timeout=45.0
+                )
+
+            self.tools.append(query_loki)
+            logger.info("Loki log search tool registered (LOKI_URL is set)")
 
         # Cloud telemetry tools (query_cloud_logs, query_cloud_metrics,
         # get_recent_cloud_changes). They dispatch to whichever provider the

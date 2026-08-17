@@ -44,6 +44,10 @@ try:
 except ImportError:
     CLOUD_AVAILABLE = False
 
+from kubently.modules.executor.argocd import ArgoCDRunner
+from kubently.modules.executor.helm import HelmRunner
+from kubently.modules.executor.logsearch import LogSearchRunner
+from kubently.modules.executor.loki import LokiRunner
 from kubently.modules.executor.prometheus import PrometheusRunner
 
 # Configure logging
@@ -128,12 +132,27 @@ class SSEKubentlyExecutor:
         elif self.api_url.startswith("https://"):
             logger.info("✅ Using HTTPS with TLS encryption")
 
-        # Optional Prometheus query runner. Configured entirely from local env
-        # (PROMETHEUS_URL etc.) — the control plane never supplies a URL. When
-        # unset, prometheus commands get a clear "unavailable" error back.
+        # Log search runs through the same kubectl runner as ordinary commands,
+        # so the whitelist and read-only enforcement apply unchanged.
+        self._logsearch = LogSearchRunner(kubectl_runner=self._run_kubectl)
+
+        # Optional tool runners. Each is configured entirely from local env
+        # (LOKI_URL, PROMETHEUS_URL, HELM_HISTORY_ENABLED, ARGOCD_URL/
+        # ARGOCD_TOKEN) — the control plane never supplies URLs, credentials,
+        # or raw argv. When unconfigured, their commands get a clear
+        # "unavailable" error back.
+        self._loki = LokiRunner()
+        if self._loki.available:
+            logger.info(f"Loki log search enabled: {self._loki.base_url}")
         self._prometheus = PrometheusRunner()
         if self._prometheus.available:
             logger.info(f"Prometheus tool enabled: {self._prometheus.base_url}")
+        self._helm = HelmRunner()
+        if self._helm.available:
+            logger.info("Helm history tool enabled (read-only history/list)")
+        self._argocd = ArgoCDRunner()
+        if self._argocd.available:
+            logger.info(f"ArgoCD tool enabled: {self._argocd.base_url}")
 
         # Command queue for processing
         self.command_queue = Queue()
@@ -292,23 +311,35 @@ class SSEKubentlyExecutor:
         Route a command envelope to its tool runner.
 
         Each tool enforces its own allowlist locally: kubectl commands go
-        through the DynamicCommandWhitelist, prometheus queries are limited to
-        two read-only GET paths against the locally configured base URL, and
-        cloud operations go through the cloud operation allowlist.
+        through the DynamicCommandWhitelist; log searches compose only
+        whitelist-checked `get pods` / `logs` invocations; loki and prometheus
+        queries are limited to fixed read-only GET paths against the locally
+        configured base URLs; helm is limited to read-only history/list
+        subcommands built from validated fields; argocd is limited to
+        read-only GET paths against the locally configured URL; cloud
+        operations go through the cloud operation allowlist.
         """
         tool = command.get("tool", "kubectl")
 
         if tool == "kubectl":
             return self._run_kubectl(command.get("args", []))
+        if tool == "log_search":
+            return self._logsearch.run(command.get("request") or {})
+        if tool == "loki":
+            return self._loki.run(command.get("request") or {})
         if tool == "prometheus":
             return self._prometheus.run(command.get("request") or {})
+        if tool == "helm":
+            return self._helm.run(command.get("request") or {})
+        if tool == "argocd":
+            return self._argocd.run(command.get("request") or {})
         if tool == "cloud":
             return self._run_cloud_operation(command)
 
         logger.warning(f"Rejected command with unknown tool: {tool}")
         return {
             "success": False,
-            "error": f"Unknown tool '{tool}'. This executor supports: kubectl, prometheus, cloud.",
+            "error": f"Unknown tool '{tool}'. This executor supports: kubectl, log_search, loki, prometheus, helm, argocd, cloud.",
             "status": "BLOCKED",
             "return_code": -1,
         }
@@ -386,14 +417,16 @@ class SSEKubentlyExecutor:
         Execute a whitelisted cloud read operation via the CloudOpsManager.
 
         Args:
-            command: Command envelope with "operation" and "params"
+            command: Command envelope whose "request" carries "operation" and
+                "params" (top-level fallback accepted for older envelopes)
 
         Returns:
             Result dictionary in the same shape as _run_kubectl results,
             with the structured cloud payload JSON-encoded in "output".
         """
-        operation = command.get("operation", "")
-        params = command.get("params") or {}
+        request = command.get("request") or command
+        operation = request.get("operation", "")
+        params = request.get("params") or {}
 
         if self._cloud is None:
             return {

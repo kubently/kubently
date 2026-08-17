@@ -28,11 +28,15 @@ from sse_starlette.sse import EventSourceResponse
 
 from kubently.modules.a2a import create_a2a_server
 from kubently.modules.api import (
+    ArgoCDQueryRequest,
     CommandResponse,
     CommandResult,
     CreateSessionRequest,
     ExecuteCommandRequest,
     ExecutionStatus,
+    HelmCommandRequest,
+    LogSearchRequest,
+    LokiQueryRequest,
     PrometheusQueryRequest,
     SessionResponse,
     SessionStatus,
@@ -751,6 +755,77 @@ async def execute_command(
     )
 
 
+async def _run_executor_tool(
+    cluster_id: str,
+    tool: str,
+    tool_request: dict,
+    timeout: int,
+    correlation_id: Optional[str],
+    timeout_error: str,
+) -> CommandResponse:
+    """Publish a non-kubectl tool envelope to a cluster's executor and await
+    the result.
+
+    Shares the /debug/execute flow: validate the cluster (fail fast with the
+    list of valid clusters instead of queueing a command nothing will pick
+    up), mark it active for fast polling, bind the command id to the cluster
+    so only the asked executor can answer, publish, wait.
+    """
+    token_key = f"executor:token:{cluster_id}"
+    if not await redis_client.exists(token_key):
+        valid_clusters = sorted(
+            (k.decode() if isinstance(k, bytes) else k).replace("executor:token:", "")
+            for k in await redis_client.keys("executor:token:*")
+        )
+        error_msg = f"Cluster '{cluster_id}' not found."
+        if valid_clusters:
+            error_msg += f" Available clusters: {', '.join(valid_clusters)}"
+        else:
+            error_msg += " No clusters are currently registered."
+        raise HTTPException(404, error_msg)
+
+    cluster_active_key = f"cluster:active:{cluster_id}"
+    await redis_client.setex(cluster_active_key, 60, "1")
+
+    command = {
+        "id": str(uuid.uuid4()),
+        "tool": tool,
+        "request": tool_request,
+        "timeout": timeout,
+        "correlation_id": correlation_id,
+    }
+
+    await queue_module.bind_command(command["id"], cluster_id, ttl=max(120, timeout * 2))
+
+    channel = f"executor-commands:{cluster_id}"
+    await redis_client.publish(channel, json.dumps(command))
+    logger.info(f"Published {tool} command {command['id']} to channel {channel}")
+
+    result = await queue_module.wait_for_result(command["id"], timeout=timeout)
+
+    if not result:
+        return CommandResponse(
+            command_id=command["id"],
+            session_id=None,
+            cluster_id=cluster_id,
+            status=ExecutionStatus.TIMEOUT,
+            correlation_id=correlation_id,
+            error=timeout_error,
+        )
+
+    return CommandResponse(
+        command_id=command["id"],
+        session_id=None,
+        cluster_id=cluster_id,
+        status=ExecutionStatus.SUCCESS if result.get("success") else ExecutionStatus.FAILURE,
+        correlation_id=correlation_id,
+        output=result.get("output"),
+        error=result.get("error"),
+        execution_time_ms=result.get("execution_time_ms"),
+        executed_at=result.get("executed_at"),
+    )
+
+
 class CloudExecuteRequest(BaseModel):
     """Request to run a whitelisted cloud read operation on a cluster's executor."""
 
@@ -803,62 +878,102 @@ async def execute_cloud_operation(
             f"allowlist. Allowed operations: {sorted(ALLOWED_CLOUD_OPERATIONS)}",
         )
 
-    # Cluster validation (same pattern as /debug/execute)
-    token_key = f"executor:token:{request.cluster_id}"
-    if not await redis_client.exists(token_key):
-        raise HTTPException(404, f"Cluster '{request.cluster_id}' not found.")
-
-    cluster_active_key = f"cluster:active:{request.cluster_id}"
-    await redis_client.setex(cluster_active_key, 60, "1")
-
     # Cloud queries poll remote APIs (Logs Insights can take ~25s), so the
     # default wait is longer than kubectl's.
-    timeout = request.timeout_seconds or 40
-
-    command = {
-        "id": str(uuid.uuid4()),
-        "tool": "cloud",
-        "operation": request.operation,
-        "params": request.params,
-        "timeout": timeout,
-        "correlation_id": x_correlation_id or request.correlation_id,
-    }
-
-    await queue_module.bind_command(
-        command["id"], request.cluster_id, ttl=max(120, timeout * 2)
-    )
-    channel = f"executor-commands:{request.cluster_id}"
-    await redis_client.publish(channel, json.dumps(command))
-    logger.info(
-        f"Published cloud operation {request.operation} "
-        f"({command['id']}) to channel {channel}"
-    )
-
-    result = await queue_module.wait_for_result(command["id"], timeout=timeout)
-
-    if not result:
-        return CommandResponse(
-            command_id=command["id"],
-            session_id=None,
-            cluster_id=request.cluster_id,
-            status=ExecutionStatus.TIMEOUT,
-            correlation_id=x_correlation_id or request.correlation_id,
-            error=(
-                "Cloud operation timeout - the executor may be offline, or "
-                "may not have cloud mode enabled"
-            ),
-        )
-
-    return CommandResponse(
-        command_id=command["id"],
-        session_id=None,
+    return await _run_executor_tool(
         cluster_id=request.cluster_id,
-        status=ExecutionStatus.SUCCESS if result.get("success") else ExecutionStatus.FAILURE,
+        tool="cloud",
+        tool_request={"operation": request.operation, "params": request.params},
+        timeout=request.timeout_seconds or 40,
         correlation_id=x_correlation_id or request.correlation_id,
-        output=result.get("output"),
-        error=result.get("error"),
-        execution_time_ms=result.get("execution_time_ms"),
-        executed_at=result.get("executed_at"),
+        timeout_error=(
+            "Cloud operation timeout - the executor may be offline, or "
+            "may not have cloud mode enabled"
+        ),
+    )
+
+
+@app.post("/debug/logs/search", response_model=CommandResponse)
+async def search_logs(
+    request: LogSearchRequest,
+    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+):
+    """
+    Search logs across the pods matching a selector on one cluster.
+
+    The search rides the same outbound channel as kubectl commands (Redis
+    pub/sub -> executor SSE -> result POST): the executor inside the target
+    cluster resolves pods, fetches logs through its whitelist-enforced kubectl
+    runner, filters locally and returns only matching lines (capped). Raw logs
+    never transit this API.
+
+    Returns:
+        200: Search result (or executor-side error)
+        404: Cluster not found
+        401: Unauthorized
+    """
+    if not redis_client or not queue_module:
+        raise HTTPException(503, "Service not initialized")
+
+    return await _run_executor_tool(
+        cluster_id=request.cluster_id,
+        tool="log_search",
+        tool_request={
+            "namespace": request.namespace,
+            "selector": request.selector,
+            "pod_name": request.pod_name,
+            "container": request.container,
+            "query": request.query,
+            "use_regex": request.use_regex,
+            "case_sensitive": request.case_sensitive,
+            "since": request.since,
+            "since_time": request.since_time,
+            "tail_lines": request.tail_lines,
+            "previous": request.previous,
+            "context_lines": request.context_lines,
+        },
+        timeout=request.timeout_seconds or 60,
+        correlation_id=x_correlation_id or request.correlation_id,
+        timeout_error="Log search timeout (no executor picked it up in time)",
+    )
+
+
+@app.post("/debug/loki", response_model=CommandResponse)
+async def execute_loki_query(
+    request: LokiQueryRequest,
+    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+):
+    """
+    Run a read-only LogQL range query on a cluster's Loki.
+
+    The query rides the same outbound channel as kubectl commands: the
+    executor inside the target cluster performs the HTTP GET against its
+    locally configured LOKI_URL. This API never contacts Loki directly and
+    never forwards a URL — only the validated query parameters.
+
+    Returns:
+        200: Query result (or executor-side error, e.g. Loki not configured)
+        404: Cluster not found
+        401: Unauthorized
+    """
+    if not redis_client or not queue_module:
+        raise HTTPException(503, "Service not initialized")
+
+    return await _run_executor_tool(
+        cluster_id=request.cluster_id,
+        tool="loki",
+        tool_request={
+            "query": request.query,
+            "start": request.start,
+            "end": request.end,
+            "limit": request.limit,
+            "direction": request.direction.value,
+        },
+        timeout=request.timeout_seconds or 30,
+        correlation_id=x_correlation_id or request.correlation_id,
+        timeout_error="Loki query timeout (no executor picked it up in time)",
     )
 
 
@@ -885,28 +1000,10 @@ async def execute_prometheus_query(
     if not redis_client or not queue_module:
         raise HTTPException(503, "Service not initialized")
 
-    # Same cluster validation as /debug/execute: fail fast with the list of
-    # valid clusters instead of queueing a command nothing will pick up.
-    token_key = f"executor:token:{request.cluster_id}"
-    if not await redis_client.exists(token_key):
-        valid_clusters = sorted(
-            (k.decode() if isinstance(k, bytes) else k).replace("executor:token:", "")
-            for k in await redis_client.keys("executor:token:*")
-        )
-        error_msg = f"Cluster '{request.cluster_id}' not found."
-        if valid_clusters:
-            error_msg += f" Available clusters: {', '.join(valid_clusters)}"
-        else:
-            error_msg += " No clusters are currently registered."
-        raise HTTPException(404, error_msg)
-
-    cluster_active_key = f"cluster:active:{request.cluster_id}"
-    await redis_client.setex(cluster_active_key, 60, "1")
-
-    command = {
-        "id": str(uuid.uuid4()),
-        "tool": "prometheus",
-        "request": {
+    return await _run_executor_tool(
+        cluster_id=request.cluster_id,
+        tool="prometheus",
+        tool_request={
             "query_type": request.query_type.value,
             "query": request.query,
             "time": request.time,
@@ -914,44 +1011,84 @@ async def execute_prometheus_query(
             "end": request.end,
             "step": request.step,
         },
-        "timeout": request.timeout_seconds or 30,
-        "correlation_id": x_correlation_id or request.correlation_id,
-    }
-
-    # Same cluster binding as /debug/execute: without it the executor's result
-    # POST is rejected (results are only accepted from the cluster the command
-    # was issued to).
-    timeout = request.timeout_seconds or config.get("command_timeout")
-    await queue_module.bind_command(
-        command["id"], request.cluster_id, ttl=max(120, int(timeout) * 2)
+        timeout=request.timeout_seconds or 30,
+        correlation_id=x_correlation_id or request.correlation_id,
+        timeout_error="Prometheus query timeout (no executor picked it up in time)",
     )
 
-    channel = f"executor-commands:{request.cluster_id}"
-    await redis_client.publish(channel, json.dumps(command))
-    logger.info(f"Published prometheus query {command['id']} to channel {channel}")
 
-    result = await queue_module.wait_for_result(command["id"], timeout=timeout)
+@app.post("/debug/helm", response_model=CommandResponse)
+async def execute_helm_command(
+    request: HelmCommandRequest,
+    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+):
+    """
+    Run a read-only helm subcommand (history/list) on a cluster's executor.
 
-    if not result:
-        return CommandResponse(
-            command_id=command["id"],
-            session_id=None,
-            cluster_id=request.cluster_id,
-            status=ExecutionStatus.TIMEOUT,
-            correlation_id=x_correlation_id or request.correlation_id,
-            error="Prometheus query timeout (no executor picked it up in time)",
-        )
+    Used for change correlation: helm release history answers "what was
+    deployed, and when?". The executor builds the argv from these validated
+    fields — no raw arguments travel over the channel. Requires the executor
+    to have helm history enabled (HELM_HISTORY_ENABLED / RBAC on release
+    Secrets); otherwise the executor answers with a clear "unavailable" error.
 
-    return CommandResponse(
-        command_id=command["id"],
-        session_id=None,
+    Returns:
+        200: Subcommand result (or executor-side error)
+        404: Cluster not found
+        401: Unauthorized
+    """
+    if not redis_client or not queue_module:
+        raise HTTPException(503, "Service not initialized")
+
+    return await _run_executor_tool(
         cluster_id=request.cluster_id,
-        status=ExecutionStatus.SUCCESS if result.get("success") else ExecutionStatus.FAILURE,
+        tool="helm",
+        tool_request={
+            "subcommand": request.subcommand.value,
+            "release_name": request.release_name,
+            "namespace": request.namespace,
+            "max": request.max,
+        },
+        timeout=request.timeout_seconds or 30,
         correlation_id=x_correlation_id or request.correlation_id,
-        output=result.get("output"),
-        error=result.get("error"),
-        execution_time_ms=result.get("execution_time_ms"),
-        executed_at=result.get("executed_at"),
+        timeout_error="Helm command timeout (no executor picked it up in time)",
+    )
+
+
+@app.post("/debug/argocd", response_model=CommandResponse)
+async def execute_argocd_query(
+    request: ArgoCDQueryRequest,
+    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+):
+    """
+    Run a read-only ArgoCD Application query on a cluster's executor.
+
+    Used for change correlation: sync history answers "which GitOps deploys
+    happened, and when?". The executor performs the HTTP GET against its
+    locally configured ARGOCD_URL with its own token — this API never
+    contacts ArgoCD and never forwards a URL or credentials.
+
+    Returns:
+        200: Query result (or executor-side error, e.g. ArgoCD not configured)
+        404: Cluster not found
+        401: Unauthorized
+    """
+    if not redis_client or not queue_module:
+        raise HTTPException(503, "Service not initialized")
+
+    return await _run_executor_tool(
+        cluster_id=request.cluster_id,
+        tool="argocd",
+        tool_request={
+            "operation": request.operation.value,
+            "app_name": request.app_name,
+            "revision": request.revision,
+            "selector": request.selector,
+        },
+        timeout=request.timeout_seconds or 30,
+        correlation_id=x_correlation_id or request.correlation_id,
+        timeout_error="ArgoCD query timeout (no executor picked it up in time)",
     )
 
 

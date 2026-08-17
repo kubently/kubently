@@ -101,6 +101,14 @@ class DynamicCommandWhitelist:
         "/etc/kubernetes",
     }
 
+    # kubectl verbs that are only partially read-only: allowed only with a
+    # read-only subcommand (checked in validate_command, immutable). "rollout"
+    # covers rollout history/status for change correlation; rollout restart/
+    # undo/pause/resume stay blocked in every mode.
+    VERB_ALLOWED_SUBCOMMANDS = {
+        "rollout": {"history", "status"},
+    }
+
     # Default configurations per security mode
     MODE_DEFAULTS = {
         SecurityMode.READ_ONLY: {
@@ -114,6 +122,7 @@ class DynamicCommandWhitelist:
                 "api-versions",
                 "events",
                 "version",
+                "rollout",
             },
             # configmaps are allowed (RBAC permits them and they're core to troubleshooting);
             # secrets stay restricted as defense-in-depth alongside RBAC.
@@ -139,6 +148,7 @@ class DynamicCommandWhitelist:
                 "api-versions",
                 "events",
                 "version",
+                "rollout",
                 "port-forward",
                 "exec",
             },
@@ -168,6 +178,7 @@ class DynamicCommandWhitelist:
                 "api-versions",
                 "events",
                 "version",
+                "rollout",
                 "port-forward",
                 "exec",
                 "cp",
@@ -468,6 +479,17 @@ class DynamicCommandWhitelist:
         verb = args[0]
         if verb not in config.allowed_verbs:
             return False, f"Verb '{verb}' not allowed in {config.mode.value} mode"
+
+        # Immutable subcommand restriction for partially read-only verbs
+        # (e.g. rollout history is allowed, rollout restart never is).
+        allowed_subcommands = self.VERB_ALLOWED_SUBCOMMANDS.get(verb)
+        if allowed_subcommands is not None:
+            subcommand = next((a for a in args[1:] if not a.startswith("-")), None)
+            if subcommand not in allowed_subcommands:
+                return False, (
+                    f"Subcommand '{subcommand}' of '{verb}' not allowed. "
+                    f"Allowed: {', '.join(sorted(allowed_subcommands))}"
+                )
 
         # Check for immutable forbidden patterns
         for arg in args:
