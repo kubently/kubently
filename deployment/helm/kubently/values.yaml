@@ -269,6 +269,50 @@ changeCorrelation:
     existingSecretKey: "token"
 
 # ============================================================================
+# GitOps PR Remediation (optional, default OFF)
+# ============================================================================
+# Lets the agent PROPOSE manifest fixes as pull requests against your GitOps
+# manifests repository when an investigation reaches a high-confidence root
+# cause. The agent NEVER merges and never mutates cluster state: a human
+# reviews and merges the PR, and your GitOps controller (ArgoCD/Flux) applies
+# it. PR bodies are clearly marked machine-proposed, carry the investigation
+# evidence, and proposals are size-capped (maxFiles/maxLines).
+#
+# Runs on the API server (control plane), NOT on executors: the Git host is
+# an external service, and executors deliberately never hold write-capable
+# credentials — their read-only posture is unchanged by this feature.
+#
+# SECURITY — scope the token to the manifests repo only:
+# - Use a fine-grained GitHub PAT (or GitHub App token) granted to the ONE
+#   manifests repository with Contents: read/write + Pull requests:
+#   read/write, or a GitLab project access token on the ONE project with the
+#   Developer role and api scope. Never use a user-wide/org-wide token.
+# - Create the secret manually (never in values files):
+#     kubectl create secret generic kubently-gitops-token \
+#       --from-literal=token="<repo-scoped-token>" --namespace kubently
+# - The token reaches only the API pod's environment and outbound calls to
+#   the Git host. It is never exposed to the LLM, tool output, or traces.
+# - Protect the base branch so review is enforced by the Git host, not by
+#   convention.
+gitRemediation:
+  enabled: false
+  # "github" or "gitlab"
+  provider: "github"
+  # GitHub: "owner/repo". GitLab: full project path, e.g. "group/manifests".
+  repo: ""
+  # Branch PRs are proposed against.
+  baseBranch: "main"
+  # Secret in the release namespace holding the repo-scoped Git token.
+  existingSecret: "kubently-gitops-token"
+  existingSecretKey: "token"
+  # Size caps: proposals touching more files / changed lines are refused.
+  maxFiles: 5
+  maxLines: 200
+  # Override for GitHub Enterprise / self-hosted GitLab, e.g.
+  # "https://github.example.com/api/v3" or "https://gitlab.example.com/api/v4".
+  apiBase: ""
+
+# ============================================================================
 # Executor Configuration
 # ============================================================================
 # The executor runs IN the cluster being monitored and executes kubectl

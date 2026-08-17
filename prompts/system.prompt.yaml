@@ -17,6 +17,12 @@ variables:
   - name: metrics_guidance
     required: false
     default: ""
+  # Injected by the agent ONLY when the GitOps remediation tools are
+  # registered (provider + repo + token configured); defaults to empty so
+  # unconfigured deployments never reference tools the model cannot call.
+  - name: gitops_guidance
+    required: false
+    default: ""
 content: |-
   # Kubently System Prompt
 
@@ -435,6 +441,8 @@ content: |-
   {{loki_guidance}}
 
   {{metrics_guidance}}
+
+  {{gitops_guidance}}
 
   # Code References
 
