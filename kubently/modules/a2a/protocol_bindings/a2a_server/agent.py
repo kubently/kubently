@@ -51,6 +51,24 @@ def structured_log(log_data: dict, thread_id: str = None):
 _POSTHOG_CLIENT = None  # module-level singleton, see _posthog_llm_callbacks
 
 
+def _user_message_text(messages: list[dict]) -> str:
+    """Concatenated text of the user messages in an incoming turn.
+
+    This is what runbook matching runs against; it handles the same
+    multi-part content shape the LangChain conversion below does.
+    """
+    parts = []
+    for msg in messages:
+        if msg.get("role", "user") != "user":
+            continue
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(p.get("text", "") for p in content if p.get("type") == "text")
+        if content:
+            parts.append(str(content))
+    return " ".join(parts)
+
+
 def _namespaced_thread_id(thread_id: str | None) -> str | None:
     """Bind a conversation thread to the authenticated caller.
 
@@ -196,6 +214,13 @@ class KubentlyAgent:
         self._memory_disabled = False
         self._initialized = False
         self.system_prompt = None
+        # Operator runbooks (kubently.modules.runbooks): matched per
+        # investigation and injected as context. None until initialize().
+        self.runbooks = None
+        # thread_id -> set of runbook names already injected into that thread,
+        # so multi-turn conversations don't accumulate duplicate copies.
+        # Best-effort (in-memory): a restart re-injects once, which is harmless.
+        self._injected_runbooks: dict[str, set] = {}
         # Investigation tracking
         self.investigation_steps = []
         self.min_investigation_steps = 4  # Minimum steps for thoroughness
@@ -327,6 +352,13 @@ class KubentlyAgent:
                 "metrics_guidance": metrics_guidance(),
             },
         )
+
+        # Operator runbooks: directory (KUBENTLY_RUNBOOKS_DIR, ConfigMap-mounted
+        # in Helm deployments) of markdown files matched per investigation and
+        # injected as context. Missing directory just means an empty store.
+        from kubently.modules.runbooks import RunbookStore
+
+        self.runbooks = RunbookStore()
 
         # Initialize tools for kubectl operations
         await self._initialize_tools()
@@ -1361,6 +1393,36 @@ class KubentlyAgent:
 
         # Store thread ID for tool call tracking
         self._current_thread_id = thread_id
+
+        # Operator runbooks: match against this turn's user text (covers chat
+        # questions, alert-derived queries and A2A calls — they all arrive
+        # here as text) and inject the best match(es) as context. Injected
+        # with role "user" for the same checkpointer reason as cluster
+        # context below, and deduped per thread so multi-turn conversations
+        # don't accumulate copies.
+        if self.runbooks is not None:
+            query_text = _user_message_text(messages)
+            matched = self.runbooks.select(query_text)
+            dedup_key = thread_id or ""
+            already = self._injected_runbooks.get(dedup_key, set())
+            fresh = [r for r in matched if r.name not in already]
+            if fresh:
+                from kubently.modules.runbooks import build_runbook_context
+
+                runbook_context = build_runbook_context(fresh, self.runbooks.max_chars)
+                if runbook_context:
+                    injected = [r.name for r in fresh if f"Runbook: {r.name} " in runbook_context]
+                    logger.info(f"Injecting runbook(s) into investigation: {injected}")
+                    structured_log(
+                        {"event": "runbooks_injected", "runbooks": injected},
+                        thread_id=thread_id,
+                    )
+                    messages = [{"role": "user", "content": runbook_context}] + messages
+                    # Cap the dedup map so long-lived processes don't grow it
+                    # unboundedly across threads.
+                    if len(self._injected_runbooks) > 1024:
+                        self._injected_runbooks.pop(next(iter(self._injected_runbooks)))
+                    self._injected_runbooks.setdefault(dedup_key, set()).update(injected)
 
         # If cluster_id is specified, inject context at the start.
         # Must be role "user", not "system": the checkpointer appends each turn's

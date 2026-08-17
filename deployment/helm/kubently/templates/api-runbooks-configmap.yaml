@@ -1,0 +1,14 @@
+{{- if and .Values.api.enabled .Values.runbooks }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubently.fullname" . }}-runbooks
+  labels:
+    {{- include "kubently.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+data:
+{{- range $filename, $content := .Values.runbooks }}
+  {{ $filename }}: |
+{{ $content | indent 4 }}
+{{- end }}
+{{- end }}

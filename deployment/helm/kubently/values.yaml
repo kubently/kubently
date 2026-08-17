@@ -90,6 +90,34 @@ fleetReport:
   query: ""
 
 # ============================================================================
+# Operator Runbooks (optional)
+# ============================================================================
+# Hand-written markdown runbooks the agent follows during matching
+# investigations. Each entry becomes a file in a ConfigMap mounted at
+# /etc/kubently/runbooks; when an investigation's text matches a runbook's
+# criteria (alert name patterns, namespace/workload selectors, topic tags),
+# the best match(es) are injected into the agent's context and cited by name
+# in the diagnosis. ConfigMap edits go live without a pod restart (kubelet
+# volume sync + periodic reload, like the executor command whitelist).
+#
+# Leave empty (default) to disable. Example:
+#   runbooks:
+#     payments-crashloop.md: |
+#       ---
+#       name: Payments CrashLoopBackOff
+#       match:
+#         alerts: ["KubePodCrashLooping"]
+#         namespaces: ["payments"]
+#         workloads: ["payment-api*"]
+#         topics: ["crashloop", "payment"]
+#       ---
+#       1. Check recent deploys first: payment-api ships through ArgoCD.
+#       2. OOMKilled here is almost always the JVM heap flag drifting from
+#          the container memory limit - compare both before blaming traffic.
+#       3. Escalate to #payments-oncall if the DB connection pool is the cause.
+runbooks: {}
+
+# ============================================================================
 # Loki Log Search (optional)
 # ============================================================================
 # Gives the diagnostic agent a read-only LogQL tool (query_loki) for searching
