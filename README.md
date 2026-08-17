@@ -190,6 +190,7 @@ The diagnostic agent investigates with a small set of read-only tools:
 - **`execute_kubectl_multi`** — one read-only kubectl command fanned out across many clusters
 - **`search_pod_logs`** — structured log search across every pod/container matching a label selector (substring or regex, time bounds, previous-container support). Logs are filtered on the cluster's executor so only matching lines — capped, with explicit truncation notes — come back
 - **`query_loki`** *(optional)* — LogQL range queries against a cluster's Loki for aggregated/historical log search, including logs from pods that have restarted or been deleted. Enabled by setting `loki.url` in Helm values (unset by default); queries execute on each cluster's executor through the same outbound channel as kubectl commands
+- **`query_prometheus`** *(optional)* — instant and range PromQL queries for latency, saturation, OOM-trend and restarts-over-time evidence. Enabled by setting `prometheus.url` in Helm values (unset by default); queries execute on each cluster's executor through the same outbound channel as kubectl commands
 
 ## Documentation
 

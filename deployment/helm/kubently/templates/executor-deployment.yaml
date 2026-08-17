@@ -91,6 +91,12 @@ spec:
           value: {{ .Values.loki.tenantId | quote }}
         {{- end }}
         {{- end }}
+        {{- /* Prometheus metrics tool: URL the executor queries (read-only).
+               Parenthesized lookup is nil-safe for old values files. */}}
+        {{- if (.Values.prometheus).url }}
+        - name: PROMETHEUS_URL
+          value: {{ .Values.prometheus.url | quote }}
+        {{- end }}
         {{- /* Capability reporting configuration (optional feature) */}}
         {{- if .Values.executor.capabilities }}
         {{- if .Values.executor.capabilities.enabled }}

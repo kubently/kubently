@@ -304,6 +304,80 @@ class LokiQueryRequest(BaseModel):
         return v
 
 
+class PrometheusQueryType(str, Enum):
+    """Types of Prometheus queries (maps to the two allowed read-only API paths)."""
+
+    INSTANT = "instant"
+    RANGE = "range"
+
+
+# Prometheus timestamps: RFC3339 or unix seconds; step/timeout: Prometheus
+# duration (e.g. "30s", "5m") or a bare number of seconds.
+_PROM_TIME_PATTERN = re.compile(
+    r"^\d+(\.\d+)?$|^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$"
+)
+_PROM_DURATION_PATTERN = re.compile(r"^\d+(\.\d+)?(ms|s|m|h|d|w|y)?$")
+
+
+class PrometheusQueryRequest(BaseModel):
+    """Request to run a read-only PromQL query on a cluster's Prometheus.
+
+    The query executes on the cluster's executor against its locally configured
+    PROMETHEUS_URL — this API never dials Prometheus itself and never forwards
+    a URL, only the validated query parameters.
+    """
+
+    cluster_id: str = Field(..., description="Target cluster identifier")
+    query: str = Field(
+        ..., min_length=1, max_length=4000, description="PromQL expression"
+    )
+    query_type: PrometheusQueryType = Field(
+        default=PrometheusQueryType.INSTANT, description="instant or range query"
+    )
+    time: Optional[str] = Field(
+        None, max_length=64, description="Evaluation time for instant queries (RFC3339 or unix)"
+    )
+    start: Optional[str] = Field(
+        None, max_length=64, description="Range start (RFC3339 or unix); required for range"
+    )
+    end: Optional[str] = Field(
+        None, max_length=64, description="Range end (RFC3339 or unix); required for range"
+    )
+    step: Optional[str] = Field(
+        None, max_length=32, description="Range resolution step (e.g. '30s', '5m'); required for range"
+    )
+    timeout_seconds: Optional[int] = Field(default=30, description="Query timeout", ge=1, le=60)
+    correlation_id: Optional[str] = Field(
+        None, description="Correlation ID for A2A request tracking"
+    )
+
+    @field_validator("time", "start", "end")
+    @classmethod
+    def validate_timestamp(cls, v):
+        if v is not None and not _PROM_TIME_PATTERN.match(v):
+            raise ValueError(
+                f"Invalid timestamp '{v}': use RFC3339 (2026-08-16T12:00:00Z) or unix seconds"
+            )
+        return v
+
+    @field_validator("step")
+    @classmethod
+    def validate_step(cls, v):
+        if v is not None and not _PROM_DURATION_PATTERN.match(v):
+            raise ValueError(
+                f"Invalid step '{v}': use a Prometheus duration like '30s', '5m', '1h'"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_range_fields(self):
+        if self.query_type == PrometheusQueryType.RANGE:
+            missing = [f for f in ("start", "end", "step") if not getattr(self, f)]
+            if missing:
+                raise ValueError(f"Range query requires: {', '.join(missing)}")
+        return self
+
+
 # Response Models (API Output)
 
 
@@ -596,6 +670,8 @@ __all__ = [
     "LogSearchRequest",
     "LokiQueryRequest",
     "LokiQueryDirection",
+    "PrometheusQueryRequest",
+    "PrometheusQueryType",
     # Response models
     "SessionResponse",
     "CommandResponse",

@@ -18,6 +18,8 @@ from .models import (
     LogSearchRequest,
     LokiQueryDirection,
     LokiQueryRequest,
+    PrometheusQueryRequest,
+    PrometheusQueryType,
     SessionResponse,
     SessionStatus,
 )
@@ -28,6 +30,8 @@ __all__ = [
     "LogSearchRequest",
     "LokiQueryRequest",
     "LokiQueryDirection",
+    "PrometheusQueryRequest",
+    "PrometheusQueryType",
     "SessionResponse",
     "CommandResponse",
     "CommandResult",

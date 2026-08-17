@@ -39,6 +39,7 @@ except ImportError:
 
 from kubently.modules.executor.logsearch import LogSearchRunner
 from kubently.modules.executor.loki import LokiRunner
+from kubently.modules.executor.prometheus import PrometheusRunner
 
 # Configure logging
 logging.basicConfig(
@@ -104,6 +105,13 @@ class SSEKubentlyExecutor:
         self._loki = LokiRunner()
         if self._loki.available:
             logger.info(f"Loki log search enabled: {self._loki.base_url}")
+
+        # Optional Prometheus query runner. Configured entirely from local env
+        # (PROMETHEUS_URL etc.) — the control plane never supplies a URL. When
+        # unset, prometheus commands get a clear "unavailable" error back.
+        self._prometheus = PrometheusRunner()
+        if self._prometheus.available:
+            logger.info(f"Prometheus tool enabled: {self._prometheus.base_url}")
 
         # Command queue for processing
         self.command_queue = Queue()
@@ -263,9 +271,9 @@ class SSEKubentlyExecutor:
 
         Each tool enforces its own allowlist locally: kubectl commands go
         through the DynamicCommandWhitelist, log searches compose only
-        whitelist-checked `get pods` / `logs` invocations, and loki queries
-        are limited to one read-only GET path against the locally configured
-        base URL.
+        whitelist-checked `get pods` / `logs` invocations, and loki/prometheus
+        queries are limited to fixed read-only GET paths against the locally
+        configured base URLs.
         """
         tool = command.get("tool", "kubectl")
 
@@ -275,11 +283,13 @@ class SSEKubentlyExecutor:
             return self._logsearch.run(command.get("request") or {})
         if tool == "loki":
             return self._loki.run(command.get("request") or {})
+        if tool == "prometheus":
+            return self._prometheus.run(command.get("request") or {})
 
         logger.warning(f"Rejected command with unknown tool: {tool}")
         return {
             "success": False,
-            "error": f"Unknown tool '{tool}'. This executor supports: kubectl, log_search, loki.",
+            "error": f"Unknown tool '{tool}'. This executor supports: kubectl, log_search, loki, prometheus.",
             "status": "BLOCKED",
             "return_code": -1,
         }

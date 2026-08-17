@@ -1,4 +1,4 @@
-version: 4
+version: 5
 name: kubently_thorough_investigation
 role: system
 metadata:
@@ -9,6 +9,12 @@ variables:
   # (LOKI_URL set); defaults to empty so unconfigured deployments never
   # reference a Loki tool the model cannot call.
   - name: loki_guidance
+    required: false
+    default: ""
+  # Injected by the agent ONLY when the query_prometheus tool is registered
+  # (PROMETHEUS_URL set); defaults to empty so unconfigured deployments never
+  # reference a metrics tool the model cannot call.
+  - name: metrics_guidance
     required: false
     default: ""
 content: |-
@@ -383,6 +389,8 @@ content: |-
   - For ONE known pod where you just want recent context (not a search), plain `logs <pod> --tail=50` via execute_kubectl is still the cheaper call.
 
   {{loki_guidance}}
+
+  {{metrics_guidance}}
 
   # Code References
 

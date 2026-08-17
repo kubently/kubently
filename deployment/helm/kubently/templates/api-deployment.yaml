@@ -192,6 +192,13 @@ spec:
         - name: LOKI_URL
           value: {{ .Values.loki.url | quote }}
         {{- end }}
+        {{- /* Presence of PROMETHEUS_URL switches on the agent's
+               query_prometheus tool + prompt guidance. The API never dials
+               this URL itself — queries run on each cluster's executor. */}}
+        {{- if (.Values.prometheus).url }}
+        - name: PROMETHEUS_URL
+          value: {{ .Values.prometheus.url | quote }}
+        {{- end }}
         - name: KUBENTLY_A2A_PROMPT_FILE
           value: "/etc/kubently/prompts/system.prompt.yaml"
         - name: KUBENTLY_FLEET_REPORT_PROMPT_FILE
