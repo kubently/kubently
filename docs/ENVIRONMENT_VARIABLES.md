@@ -48,6 +48,22 @@
 | `KUBENTLY_MAX_FLEET_CLUSTERS` | `10` | No | Max clusters per `execute_kubectl_multi` fan-out call (each cluster adds up to ~4KB to the agent context) |
 | `A2A_SERVER_DEBUG` | `false` | No | Enable A2A debug logging |
 
+### Operator Runbooks (optional)
+
+The agent loads hand-written markdown runbooks (YAML frontmatter with `name`
+and `match` criteria: alert-name globs, namespace/workload selectors, topic
+tags) from a directory and injects the best match(es) into investigations
+whose text matches. In Helm deployments the directory is a ConfigMap built
+from the `runbooks` values map; the store rescans it periodically (mtime +
+size signature, like the executor command whitelist), so ConfigMap edits go
+live without a pod restart.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `KUBENTLY_RUNBOOKS_DIR` | `/etc/kubently/runbooks` | No | Directory of `*.md` runbooks. Missing directory = feature off. Set automatically by Helm when `runbooks` values are provided |
+| `KUBENTLY_RUNBOOKS_RELOAD_SECONDS` | `30` | No | Minimum seconds between directory rescans |
+| `KUBENTLY_RUNBOOKS_MAX_CHARS` | `8000` | No | Cap on total injected runbook characters per investigation. Best match packs first; an oversized best match is truncated rather than dropped |
+
 ### Loki Log Search (optional)
 
 When `LOKI_URL` is set on the API server, the agent registers the read-only `query_loki` tool (LogQL range queries) and injects Loki guidance into the system prompt. When unset (default), the tool does not exist and the prompt never mentions Loki. The selector-based `search_pod_logs` tool is always registered and needs no configuration.

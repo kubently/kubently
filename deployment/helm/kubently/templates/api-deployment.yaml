@@ -210,6 +210,9 @@ spec:
           value: "/etc/kubently/prompts/system.prompt.yaml"
         - name: KUBENTLY_FLEET_REPORT_PROMPT_FILE
           value: "/etc/kubently/prompts/fleet_report.prompt.yaml"
+        {{- if .Values.runbooks }}
+        - name: KUBENTLY_RUNBOOKS_DIR
+          value: "/etc/kubently/runbooks"
         {{- if .Values.scheduledChecks.enabled }}
         - name: KUBENTLY_CHECKS_FILE
           value: "/etc/kubently/checks/checks.yaml"
@@ -232,6 +235,9 @@ spec:
         - name: prompt-config
           mountPath: /etc/kubently/prompts
           readOnly: true
+        {{- if .Values.runbooks }}
+        - name: runbooks
+          mountPath: /etc/kubently/runbooks
         {{- if .Values.scheduledChecks.enabled }}
         - name: checks-config
           mountPath: /etc/kubently/checks
@@ -271,6 +277,10 @@ spec:
       - name: prompt-config
         configMap:
           name: {{ include "kubently.fullname" . }}-prompt
+      {{- if .Values.runbooks }}
+      - name: runbooks
+        configMap:
+          name: {{ include "kubently.fullname" . }}-runbooks
       {{- if .Values.scheduledChecks.enabled }}
       - name: checks-config
         configMap:
