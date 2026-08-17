@@ -221,6 +221,13 @@ class KubentlyAgent:
         # so multi-turn conversations don't accumulate duplicate copies.
         # Best-effort (in-memory): a restart re-injects once, which is harmless.
         self._injected_runbooks: dict[str, set] = {}
+        # Incident history (kubently.modules.incidents): past diagnoses become
+        # searchable institutional memory. None until initialize() (or when
+        # disabled / no Redis).
+        self.incidents = None
+        # thread_id -> incident ids already auto-surfaced into that thread
+        # (same dedup pattern as _injected_runbooks).
+        self._surfaced_incidents: dict[str, set] = {}
         # Investigation tracking
         self.investigation_steps = []
         self.min_investigation_steps = 4  # Minimum steps for thoroughness
@@ -359,6 +366,22 @@ class KubentlyAgent:
         from kubently.modules.runbooks import RunbookStore
 
         self.runbooks = RunbookStore()
+
+        # Incident history: retrieval over compact summaries of concluded
+        # investigations, stored in Redis per caller namespace. Default on;
+        # KUBENTLY_INCIDENT_HISTORY=false or a missing Redis client turns it
+        # off (the agent then just has no institutional memory, as before).
+        from kubently.modules.incidents import IncidentStore, incidents_enabled
+
+        if incidents_enabled() and self.redis_client is not None:
+            try:
+                self.incidents = IncidentStore(self.redis_client)
+                logger.info("Incident history enabled (search_past_incidents + auto-surface)")
+            except Exception as e:
+                logger.warning(f"Incident history unavailable: {e}")
+                self.incidents = None
+        else:
+            self.incidents = None
 
         # Initialize tools for kubectl operations
         await self._initialize_tools()
@@ -1164,6 +1187,76 @@ class KubentlyAgent:
             get_events_for_resource,
         ]
 
+        if self.incidents is not None:
+            from kubently.modules.incidents import caller_namespace, format_search_results
+
+            @tool
+            async def search_past_incidents(
+                query: str,
+                cluster_id: str | None = None,
+                limit: int = 5,
+            ) -> str:
+                """Search this deployment's history of past diagnosed incidents.
+
+                Institutional memory: every investigation that concluded with a
+                root cause left a compact record (date, cluster, resources,
+                symptom keywords, root-cause one-liner, resolution when
+                stated). Use this to answer "have we seen this before?" —
+                when current symptoms feel like a recurrence, when the user
+                asks about past issues, or before concluding a novel root
+                cause for a familiar-looking failure.
+
+                Matching is keyword-based: mention the failing resource names,
+                namespace, and symptom words (e.g. "checkout-api payments
+                CrashLoopBackOff OOMKilled") for the best results. Pass an
+                empty query to list the most recent incidents.
+
+                IMPORTANT: results are summaries of PAST states, not evidence
+                about the current cluster. Verify against fresh kubectl/log
+                evidence before relying on one. If a past incident materially
+                informs your diagnosis, cite it in your root-cause summary
+                (e.g. "same root cause as the 2026-07-03 incident").
+
+                Args:
+                    query: Free-text search (resource names, namespaces,
+                        symptoms, root-cause words). Empty = newest first.
+                    cluster_id: Optionally boost incidents from this cluster
+                    limit: Max results (default 5)
+
+                Returns:
+                    Matching incidents (best first) with date, cluster,
+                    resources, root cause and resolution, or a clear
+                    "no matching past incidents" note.
+                """
+                debug_print(
+                    f"search_past_incidents called: query={query!r}, "
+                    f"cluster_id={cluster_id}, limit={limit}"
+                )
+                tool_call_id = await interceptor.record_tool_call(
+                    tool_name="search_past_incidents",
+                    args={"query": query, "cluster_id": cluster_id, "limit": limit},
+                    thread_id=getattr(self, "_current_thread_id", None),
+                )
+                try:
+                    # Same per-caller namespace derivation as conversation
+                    # memory: a caller can only ever search their own records.
+                    results = await self.incidents.search(
+                        caller_namespace(),
+                        query=query,
+                        cluster_id=cluster_id,
+                        limit=max(1, min(int(limit), 20)),
+                    )
+                    output = cap_output(format_search_results(results))
+                    await interceptor.record_tool_result(tool_call_id, output)
+                    return output
+                except Exception as e:
+                    error_msg = f"Error searching past incidents: {e!s}"
+                    await interceptor.record_tool_result(tool_call_id, None, error_msg)
+                    return error_msg
+
+            self.tools.append(search_past_incidents)
+            logger.info("Incident history search tool registered")
+
         if loki_tool_enabled():
 
             @tool
@@ -1394,6 +1487,10 @@ class KubentlyAgent:
         # Store thread ID for tool call tracking
         self._current_thread_id = thread_id
 
+        # This turn's user text: matched against runbooks and past incidents,
+        # and kept as the "query" on any incident record this turn produces.
+        query_text = _user_message_text(messages)
+
         # Operator runbooks: match against this turn's user text (covers chat
         # questions, alert-derived queries and A2A calls — they all arrive
         # here as text) and inject the best match(es) as context. Injected
@@ -1401,7 +1498,6 @@ class KubentlyAgent:
         # context below, and deduped per thread so multi-turn conversations
         # don't accumulate copies.
         if self.runbooks is not None:
-            query_text = _user_message_text(messages)
             matched = self.runbooks.select(query_text)
             dedup_key = thread_id or ""
             already = self._injected_runbooks.get(dedup_key, set())
@@ -1423,6 +1519,42 @@ class KubentlyAgent:
                     if len(self._injected_runbooks) > 1024:
                         self._injected_runbooks.pop(next(iter(self._injected_runbooks)))
                     self._injected_runbooks.setdefault(dedup_key, set()).update(injected)
+
+        # Incident history auto-surface: when this investigation strongly
+        # matches a past diagnosed incident in the caller's namespace, inject
+        # a one-line "similar past incident" note framed as context to verify,
+        # never as a conclusion. Role "user" for the same checkpointer reason
+        # as runbooks/cluster context; deduped per thread; the thread's own
+        # records are excluded so turn 2 doesn't surface turn 1's diagnosis.
+        # Any failure here is logged and skipped — surfacing must never break
+        # an investigation.
+        if self.incidents is not None and query_text.strip():
+            try:
+                from kubently.modules.incidents import build_surface_note, caller_namespace
+
+                dedup_key = thread_id or ""
+                match = await self.incidents.best_match(
+                    caller_namespace(),
+                    query_text,
+                    cluster_id=cluster_id,
+                    exclude_thread_id=thread_id,
+                    exclude_ids=self._surfaced_incidents.get(dedup_key, set()),
+                )
+                if match:
+                    score, past = match
+                    logger.info(
+                        f"Auto-surfacing past incident {past.id} (score={score})"
+                    )
+                    structured_log(
+                        {"event": "incident_surfaced", "incident_id": past.id, "score": score},
+                        thread_id=thread_id,
+                    )
+                    messages = [{"role": "user", "content": build_surface_note(past)}] + messages
+                    if len(self._surfaced_incidents) > 1024:
+                        self._surfaced_incidents.pop(next(iter(self._surfaced_incidents)))
+                    self._surfaced_incidents.setdefault(dedup_key, set()).add(past.id)
+            except Exception as e:
+                logger.warning(f"Incident auto-surface failed (continuing without): {e}")
 
         # If cluster_id is specified, inject context at the start.
         # Must be role "user", not "system": the checkpointer appends each turn's
@@ -1525,6 +1657,39 @@ class KubentlyAgent:
 
                         # Add a note about checking raw outputs
                         response_text += "\n\nPlease review the raw command outputs above to understand the issue."
+
+                    # Incident history: if this answer states a root cause,
+                    # persist a compact record to the caller's namespace so
+                    # future investigations can find it. Extraction returning
+                    # None means no RCA was produced — nothing to record.
+                    # Best-effort: a storage failure must never break the
+                    # user-facing response.
+                    if self.incidents is not None:
+                        try:
+                            from kubently.modules.incidents import (
+                                caller_namespace,
+                                extract_incident,
+                            )
+
+                            trace = await get_tool_call_interceptor().get_tool_calls_for_thread(
+                                actual_thread_id
+                            )
+                            incident = extract_incident(
+                                response_text,
+                                user_text=query_text,
+                                tool_calls=trace,
+                                cluster_id=cluster_id,
+                                thread_id=actual_thread_id,
+                            )
+                            if incident:
+                                await self.incidents.record(caller_namespace(), incident)
+                                logger.info(f"Recorded incident {incident.id}")
+                                structured_log(
+                                    {"event": "incident_recorded", "incident_id": incident.id},
+                                    thread_id=actual_thread_id,
+                                )
+                        except Exception as e:
+                            logger.warning(f"Incident recording failed (response unaffected): {e}")
 
                     yield {
                         "type": "message",
