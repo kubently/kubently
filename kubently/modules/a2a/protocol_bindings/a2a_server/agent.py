@@ -1532,13 +1532,16 @@ class KubentlyAgent:
             try:
                 from kubently.modules.incidents import build_surface_note, caller_namespace
 
-                dedup_key = thread_id or ""
+                # Dedup only applies within a real conversation thread: a
+                # one-shot request (no thread) is a fresh conversation every
+                # time, so nothing to dedup against.
+                already = self._surfaced_incidents.get(thread_id, set()) if thread_id else set()
                 match = await self.incidents.best_match(
                     caller_namespace(),
                     query_text,
                     cluster_id=cluster_id,
                     exclude_thread_id=thread_id,
-                    exclude_ids=self._surfaced_incidents.get(dedup_key, set()),
+                    exclude_ids=already,
                 )
                 if match:
                     score, past = match
@@ -1550,9 +1553,10 @@ class KubentlyAgent:
                         thread_id=thread_id,
                     )
                     messages = [{"role": "user", "content": build_surface_note(past)}] + messages
-                    if len(self._surfaced_incidents) > 1024:
-                        self._surfaced_incidents.pop(next(iter(self._surfaced_incidents)))
-                    self._surfaced_incidents.setdefault(dedup_key, set()).add(past.id)
+                    if thread_id:
+                        if len(self._surfaced_incidents) > 1024:
+                            self._surfaced_incidents.pop(next(iter(self._surfaced_incidents)))
+                        self._surfaced_incidents.setdefault(thread_id, set()).add(past.id)
             except Exception as e:
                 logger.warning(f"Incident auto-surface failed (continuing without): {e}")
 
