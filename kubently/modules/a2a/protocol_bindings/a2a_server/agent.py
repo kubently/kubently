@@ -643,6 +643,23 @@ class KubentlyAgent:
         # (write_todos via TodoListMiddleware), so the previous hand-rolled
         # todo_write tool + TodoManager were removed.
         self.tools = [list_clusters, execute_kubectl, execute_kubectl_multi]
+
+        # Cloud telemetry tools (query_cloud_logs, query_cloud_metrics,
+        # get_recent_cloud_changes). They dispatch to whichever provider the
+        # target executor reports a workload identity for, and refuse per-call
+        # when a cluster's executor reports none.
+        from kubently.modules.a2a.protocol_bindings.a2a_server.cloud_tools import (
+            build_cloud_tools,
+        )
+
+        self.tools.extend(
+            build_cloud_tools(
+                api_url,
+                api_key,
+                interceptor,
+                lambda: getattr(self, "_current_thread_id", None),
+            )
+        )
         logger.info(f"Initialized {len(self.tools)} tools")
 
     async def run(

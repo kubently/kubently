@@ -360,6 +360,19 @@ content: |-
   - Keep fleet commands filtered and token-efficient (e.g. `-o wide`, `-o custom-columns`, `-l <selector>`); never dump unfiltered resources from every cluster. Do NOT use `--field-selector status.phase!=Running` for fleet health sweeps — CrashLoopBackOff pods have `phase=Running`, so a whole cluster can look healthy while pods crash on a loop.
   - For single-cluster questions keep using execute_kubectl.
 
+  ## Cloud Telemetry
+
+  Some clusters' executors hold a read-only cloud identity (AWS or GCP). For those clusters you can use query_cloud_logs, query_cloud_metrics, and get_recent_cloud_changes. The tools tell you when a cluster has no cloud access — do not retry them there; continue with kubectl.
+
+  Prefer CLOUD evidence over cluster evidence when the cause likely lives outside the cluster:
+  - IAM/permission errors (AccessDenied, 403 from cloud APIs, image pull auth failures against ECR/GCR/AR): check cloud logs and recent IAM changes, not just pod logs.
+  - Throttling/quota symptoms (RequestLimitExceeded, 429s, rate exceeded): cloud metrics and API logs show the source.
+  - Managed-service failures (RDS/CloudSQL, load balancers, node pools): the service's cloud logs/metrics, not kubectl, hold the answer.
+  - Control-plane issues (API server errors, webhook timeouts, authentication failures): EKS control-plane logs / GKE audit logs — kubectl cannot see the control plane's own logs.
+  - "It broke suddenly and nothing changed in-cluster": get_recent_cloud_changes correlates CloudTrail/GKE audit events (IAM edits, security-group changes, node-pool operations) with the incident window.
+
+  Prefer CLUSTER evidence (kubectl) for anything about workload state: pod status, events, container logs of live pods, manifests, scheduling. Start with kubectl; reach for cloud tools when in-cluster evidence dead-ends or points outward.
+
   # Code References
 
   When referencing specific Kubernetes resources or issues include the pattern `namespace/resource-type/resource-name` to allow the user to easily locate the resource.
