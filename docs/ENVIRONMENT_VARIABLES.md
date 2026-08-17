@@ -103,6 +103,30 @@ Whatever the backend, initialization failure degrades gracefully: the agent
 logs a warning and continues without cross-request memory, and single-request
 diagnoses are unaffected.
 
+### Incident History (institutional memory)
+
+When an investigation concludes with a root cause, the agent persists a
+compact incident record (timestamp, cluster, resources involved, symptom
+keywords, root-cause one-liner, resolution when stated) to Redis. Past
+incidents are retrievable through the `search_past_incidents` agent tool,
+and a strong match against a new investigation auto-surfaces a one-line
+"similar past incident" note (framed as context to verify, never a
+conclusion). Records are stored per authenticated caller using the same
+namespace derivation as conversation-memory thread ids, so incidents never
+cross tenant boundaries. Core Redis commands only — works on managed Redis
+without RediSearch. On by default; requires a Redis connection.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `KUBENTLY_INCIDENT_HISTORY` | `true` | No | Kill switch. `false` disables recording, the `search_past_incidents` tool, and auto-surfacing |
+| `KUBENTLY_INCIDENT_TTL_SECONDS` | `7776000` (90 days) | No | TTL for incident records. Set to `0` to disable expiry |
+| `KUBENTLY_INCIDENT_MAX_PER_NAMESPACE` | `200` | No | Per-caller-namespace record cap; oldest records are evicted beyond it |
+| `KUBENTLY_INCIDENT_SURFACE_MIN_SCORE` | `40` | No | Minimum match score before a past incident is auto-surfaced into a new investigation. Raise to surface less often; the search tool is unaffected |
+
+In Helm deployments set these under `api.env`. Recording and retrieval
+failures are logged and skipped — incident history can never break an
+investigation or a response.
+
 ### Prometheus Metrics Tool (optional)
 
 When `PROMETHEUS_URL` is set on the API server, the agent registers the read-only `query_prometheus` tool and injects metrics guidance into the system prompt. When unset (default), the tool does not exist and the prompt never mentions metrics.

@@ -82,12 +82,12 @@ _TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 # loose variants (markdown decoration, missing bullet, en-dash) because the
 # model does not always follow the template exactly.
 _ROOT_CAUSE_RE = re.compile(
-    r"root\s*cause\s*[:\-–]\s*[*_`]*\s*(?P<cause>[^\n]+)", re.IGNORECASE
+    r"root\s*cause\s*[:\-\u2013]\s*[*_`]*\s*(?P<cause>[^\n]+)", re.IGNORECASE
 )
 
 # "🔧 Fix:" heading (content on following lines) or inline "Fix:/Resolution:".
 _RESOLUTION_RE = re.compile(
-    r"(?:fix|resolution|remediation)\s*[:\-–]\s*[*_`]*\s*(?P<res>[^\n]*)",
+    r"(?:fix|resolution|remediation)\s*[:\-\u2013]\s*[*_`]*\s*(?P<res>[^\n]*)",
     re.IGNORECASE,
 )
 
@@ -218,6 +218,28 @@ def _flatten_text(content) -> str:
     return str(content or "")
 
 
+def _significant_ns(value) -> str | None:
+    """A namespace worth recording ("default"/"all" carry no signal)."""
+    if value in (None, "default", "all"):
+        return None
+    return str(value)
+
+
+def _named_resources(args: dict) -> list:
+    """(namespace, name) pairs one tool call's args point at."""
+    ns = _significant_ns(args.get("namespace"))
+    pairs = []
+    for key in ("resource_name", "pod_name", "selector"):
+        if args.get(key):
+            pairs.append((ns, str(args[key])))
+    parsed = args.get("parsed") or {}
+    if parsed.get("name"):
+        pairs.append((_significant_ns(parsed.get("namespace")) or ns, str(parsed["name"])))
+    if ns:
+        pairs.append((None, ns))
+    return pairs
+
+
 def extract_resources(tool_calls) -> tuple:
     """Resources touched during the investigation, from the tool-call trace.
 
@@ -227,37 +249,11 @@ def extract_resources(tool_calls) -> tuple:
     otherwise.
     """
     resources: list = []
-
-    def add(item: str | None) -> None:
-        if not item:
-            return
-        item = str(item).strip()
-        if not item or item in ("default", "all") or item in resources:
-            return
-        if len(resources) < MAX_RESOURCES:
-            resources.append(item)
-
     for call in tool_calls or ():
-        args = call.get("args") or {}
-        ns = args.get("namespace")
-        if ns in ("default", "all"):
-            ns = None
-        for key in ("resource_name", "pod_name"):
-            name = args.get(key)
-            if name:
-                add(f"{ns}/{name}" if ns else str(name))
-        parsed = args.get("parsed") or {}
-        pns = parsed.get("namespace")
-        if pns in ("default", "all"):
-            pns = None
-        name = parsed.get("name")
-        if name:
-            add(f"{pns or ns}/{name}" if (pns or ns) else str(name))
-        selector = args.get("selector")
-        if selector:
-            add(f"{ns}/{selector}" if ns else str(selector))
-        if ns:
-            add(str(ns))
+        for ns, name in _named_resources(call.get("args") or {}):
+            item = f"{ns}/{name}" if ns else name
+            if item not in resources and len(resources) < MAX_RESOURCES:
+                resources.append(item)
     return tuple(resources)
 
 
@@ -302,9 +298,9 @@ def extract_incident(
         return None
 
     ts = (now or datetime.now(UTC)).isoformat()
-    incident_id = hashlib.sha256(
-        f"{thread_id or ''}|{root_cause.lower()}".encode()
-    ).hexdigest()[:16]
+    incident_id = hashlib.sha256(f"{thread_id or ''}|{root_cause.lower()}".encode()).hexdigest()[
+        :16
+    ]
 
     query = _clean_line(user_text) if user_text else None
     return IncidentRecord(

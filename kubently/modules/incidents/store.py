@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from .records import IncidentRecord, tokens
@@ -63,9 +63,47 @@ SEARCH_SCAN_LIMIT = 500
 
 # Generic words that would otherwise inflate root-cause text overlap.
 _STOPWORDS = frozenset(
-    "the a an is are was were to of in on for with and or not no by at it its "
-    "this that pod pods container containers due caused causing because from "
-    "has have had be been being as".split()
+    {
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "to",
+        "of",
+        "in",
+        "on",
+        "for",
+        "with",
+        "and",
+        "or",
+        "not",
+        "no",
+        "by",
+        "at",
+        "it",
+        "its",
+        "this",
+        "that",
+        "pod",
+        "pods",
+        "container",
+        "containers",
+        "due",
+        "caused",
+        "causing",
+        "because",
+        "from",
+        "has",
+        "have",
+        "had",
+        "be",
+        "been",
+        "being",
+        "as",
+    }
 )
 
 
@@ -126,8 +164,7 @@ def score_incident(
     resource_hits = 0
     for rt in resource_tokens:
         if rt in query_tokens or any(
-            len(qt) >= 4 and (rt.startswith(qt) or qt.startswith(rt))
-            for qt in query_tokens
+            len(qt) >= 4 and (rt.startswith(qt) or qt.startswith(rt)) for qt in query_tokens
         ):
             resource_hits += 1
     score += RESOURCE_WEIGHT * min(resource_hits, MAX_RESOURCE_HITS)
@@ -138,9 +175,7 @@ def score_incident(
 
     # Root cause + original question: token overlap minus stopwords.
     cause_tokens = (tokens(record.root_cause) | tokens(record.query or "")) - _STOPWORDS
-    score += TEXT_WEIGHT * min(
-        len(cause_tokens & (query_tokens - _STOPWORDS)), MAX_TEXT_HITS
-    )
+    score += TEXT_WEIGHT * min(len(cause_tokens & (query_tokens - _STOPWORDS)), MAX_TEXT_HITS)
     return score
 
 
@@ -215,7 +250,7 @@ class IncidentStore:
         raws = await self._redis.mget([self._rec_key(namespace, i) for i in ids])
         records: list = []
         expired: list = []
-        for incident_id, raw in zip(ids, raws):
+        for incident_id, raw in zip(ids, raws, strict=False):
             if raw is None:
                 expired.append(incident_id)
                 continue
@@ -286,8 +321,8 @@ RESULTS_FRAMING = (
     "Past incidents are summaries of previous diagnoses in this deployment — "
     "context, not evidence. Verify against the current cluster state before "
     "relying on one; if a past incident materially informs your diagnosis, "
-    "cite it in your root-cause summary (e.g. \"same root cause as the "
-    "{date} incident\")."
+    'cite it in your root-cause summary (e.g. "same root cause as the '
+    '{date} incident").'
 )
 
 
@@ -329,7 +364,7 @@ def build_surface_note(record: IncidentRecord) -> str:
         f"SIMILAR PAST INCIDENT ({record.date()}): {record.root_cause}.{resolution} "
         "This past diagnosis may or may not apply now — verify with fresh "
         "evidence rather than assuming. If it materially informs your "
-        "diagnosis, cite it (e.g. \"same root cause as the "
-        f"{record.date()} incident\"). Use the search_past_incidents tool "
+        'diagnosis, cite it (e.g. "same root cause as the '
+        f'{record.date()} incident"). Use the search_past_incidents tool '
         "for more history."
     )

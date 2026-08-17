@@ -3,6 +3,27 @@
 ## [Unreleased] - 2026-08-17
 
 ### Added
+- **Incident history (Track P6c)** — past diagnoses become searchable
+  institutional memory ("have we seen this before?"). When an investigation
+  concludes with a root cause, a compact record (timestamp, cluster,
+  resources involved, symptom keywords, root-cause one-liner, resolution
+  when stated) is persisted to Redis under the same per-caller namespace
+  derivation the conversation checkpointer uses for thread ids — records
+  never cross tenant namespaces, and every key embeds the namespace. Core
+  Redis commands only (no RediSearch/SCAN), configurable TTL
+  (`KUBENTLY_INCIDENT_TTL_SECONDS`, default 90d) and per-namespace cap
+  (`KUBENTLY_INCIDENT_MAX_PER_NAMESPACE`, default 200, oldest evicted).
+  Retrieval: the `search_past_incidents` agent tool (v1 keyword scoring —
+  resource > cluster > symptom > root-cause-text overlap, prefix-aware for
+  hashed pod names — behind a `search()`/`best_match()` interface an
+  embedding backend could implement later), plus auto-surfacing: a new
+  investigation strongly matching a past incident
+  (`KUBENTLY_INCIDENT_SURFACE_MIN_SCORE`, default 40) gets a one-line
+  "SIMILAR PAST INCIDENT (date): <root cause>" context note framed as
+  something to verify — and cite in the RCA when it materially informs the
+  diagnosis — never to assume. Explicitly retrieval over stored summaries,
+  not a learning system. Default on; `KUBENTLY_INCIDENT_HISTORY=false`
+  disables. New module `kubently/modules/incidents/`
 - **Operator runbook ingestion (Track P6a)** — feed org-specific knowledge
   into investigations. Hand-written markdown runbooks with lightweight YAML
   frontmatter (`name` + `match` criteria: alert-name globs,
