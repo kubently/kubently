@@ -176,6 +176,45 @@ executor:
   # See docs/CLOUD_AUTH.md.
   serviceAccount:
     annotations: {}
+    # Examples (uncomment ONE, matching your platform):
+    #
+    # AWS — IRSA (works on any EKS cluster with an OIDC provider):
+    # annotations:
+    #   eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/kubently-executor-readonly"
+    #
+    # AWS — EKS Pod Identity needs NO annotation; create a pod identity
+    # association instead (see docs/CLOUD_TELEMETRY.md).
+    #
+    # GCP — GKE Workload Identity:
+    # annotations:
+    #   iam.gke.io/gcp-service-account: "kubently-executor@my-project.iam.gserviceaccount.com"
+
+  # ----------------------------------------------------------------------------
+  # Cloud Telemetry Access (workload identity, zero stored credentials)
+  # ----------------------------------------------------------------------------
+  # When enabled, the executor detects the cloud identity its pod holds (via
+  # the ServiceAccount annotations above / EKS Pod Identity) and serves
+  # READ-ONLY cloud telemetry queries: CloudWatch Logs/Metrics, EKS control
+  # plane logs, CloudTrail on AWS; Cloud Logging, Cloud Monitoring, GKE audit
+  # logs on GCP. Operations are whitelisted in code AND limited by the IAM
+  # role YOU create and can revoke at any time. No keys are configured here,
+  # uploaded anywhere, or stored by the control plane.
+  #
+  # Onboarding (exact IAM policy, Terraform + CLI): docs/CLOUD_TELEMETRY.md
+  cloud:
+    # Master switch — keep OFF unless you have granted a read-only role
+    enabled: false
+
+    # Which identity to look for: "auto" (try AWS, then GCP), "aws", or "gcp"
+    provider: "auto"
+
+    # Optional overrides (usually auto-detected from the pod environment)
+    awsRegion: ""       # e.g. "us-west-2"
+    gcpProject: ""      # e.g. "my-project"
+
+    # How often (seconds) to re-detect identity + usable permissions,
+    # so IAM changes (grants, revocations) are picked up without a restart
+    refreshInterval: 3600
 
   # ----------------------------------------------------------------------------
   # Security & Command Whitelist
