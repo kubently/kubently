@@ -48,6 +48,20 @@
 | `KUBENTLY_MAX_FLEET_CLUSTERS` | `10` | No | Max clusters per `execute_kubectl_multi` fan-out call (each cluster adds up to ~4KB to the agent context) |
 | `A2A_SERVER_DEBUG` | `false` | No | Enable A2A debug logging |
 
+### Change Correlation (optional sources)
+
+The agent's `get_recent_changes` tool always aggregates rollout history,
+ReplicaSet revisions and events through the executor's read-only kubectl
+surface. Two additional change sources are configurable:
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `ARGOCD_URL` | - | No | Presence makes `get_recent_changes` include ArgoCD sync history. Set via Helm `changeCorrelation.argocd.url`. The API never dials this URL itself — queries execute on each cluster's executor against the executor's own `ARGOCD_URL` (see Executor Configuration below); on the API side the variable only switches the source on |
+
+Helm release history has no API-side switch: the tool always asks, and each
+executor answers with history or with a clear "not enabled" note (see
+`HELM_HISTORY_ENABLED` under Executor Configuration).
+
 ### Conversation Memory (A2A Checkpointing)
 
 The A2A agent persists multi-turn conversation state through a LangGraph
@@ -109,6 +123,40 @@ diagnoses are unaffected.
 | `WHITELIST_PATH` | `/etc/kubently/whitelist.yaml` | No | Path to whitelist configuration |
 | `REFRESH_INTERVAL` | `30` | No | Whitelist refresh interval in seconds |
 | `TIMEOUT_SECONDS` | `30` | No | Command execution timeout |
+
+The kubectl whitelist accepts the `rollout` verb in every mode, restricted in
+code (immutably) to its read-only subcommands `history` and `status`;
+`rollout restart/undo/pause/resume` are rejected in all modes.
+
+### Helm Release History (optional, change correlation)
+
+The executor runs read-only `helm history` / `helm list` locally (argv built
+executor-side from validated fields — the control plane never sends raw
+arguments). Opt-in because Helm 3 stores release records in Secrets: enabling
+it in the Helm chart (`changeCorrelation.helmHistory.enabled`) also grants
+the executor get/list on Secrets. The kubectl whitelist still blocks
+`kubectl get secrets`; only helm's history/list output leaves the executor.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `HELM_HISTORY_ENABLED` | `false` | No | Set to `true` to allow read-only helm history/list. Set via Helm `changeCorrelation.helmHistory.enabled` |
+| `HELM_TIMEOUT` | `30` | No | helm command timeout in seconds |
+| `HELM_MAX_OUTPUT_CHARS` | `20000` | No | Hard cap on helm output size |
+
+### ArgoCD Sync History (optional, change correlation)
+
+The executor performs ArgoCD queries locally (read-only GETs against
+`/api/v1/applications...` only). URL and token come exclusively from this
+local configuration — the control plane never supplies either. When unset
+(default), ArgoCD requests are answered with a clear "not configured" error.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `ARGOCD_URL` | - | No | ArgoCD API base URL reachable from the executor pod, e.g. `https://argocd-server.argocd.svc.cluster.local`. Set via Helm `changeCorrelation.argocd.url` |
+| `ARGOCD_TOKEN` | - | No | Read-only ArgoCD API token (from a Secret via Helm `changeCorrelation.argocd.existingSecret`) |
+| `ARGOCD_CA_CERT` | - | No | Path to a CA bundle for a self-signed argocd-server certificate (TLS verification stays on) |
+| `ARGOCD_TIMEOUT` | `30` | No | Query timeout in seconds |
+| `ARGOCD_MAX_OUTPUT_CHARS` | `20000` | No | Hard cap on serialized result size |
 
 ## Deployment-Specific Variables
 

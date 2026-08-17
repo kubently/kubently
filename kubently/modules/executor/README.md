@@ -91,9 +91,30 @@ The executor uses a read-only ClusterRole that allows:
 
 The executor validates all commands before execution:
 - Only whitelisted kubectl verbs (get, describe, logs, etc.)
+- `rollout` is allowed only with its read-only subcommands (`history`,
+  `status`) — enforced in code in every mode; `restart`/`undo`/`pause`/
+  `resume` are always rejected
 - Rejects any write operations
 - Blocks credential-related arguments
 - Prevents command injection
+
+### Non-kubectl Tools (change correlation)
+
+Command envelopes carry a `tool` field (default `kubectl`). Two additional
+read-only runners exist, each enforcing its own allowlist locally:
+
+- **helm** (`helm.py`): only `helm history` and `helm list`, argv built by the
+  executor from validated fields (release name, namespace, max) — raw
+  arguments never travel over the channel. Opt-in via `HELM_HISTORY_ENABLED`
+  because Helm 3 reads release records from Secrets (the Helm chart grants the
+  matching RBAC only when enabled). The kubectl whitelist continues to block
+  `kubectl get secrets`.
+- **argocd** (`argocd.py`): only read-only GETs against fixed
+  `/api/v1/applications...` paths of the locally configured `ARGOCD_URL`,
+  authenticated with the local `ARGOCD_TOKEN`. The control plane never
+  supplies a URL or credentials, so the executor cannot be used as an SSRF
+  proxy. Responses are compacted to sync/health/history before leaving the
+  executor.
 
 ### Network Security
 

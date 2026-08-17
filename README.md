@@ -181,6 +181,16 @@ helm install kubently deployment/helm -f deployment/helm/test-values.yaml
 - **Test Automation**: Comprehensive testing framework with 20+ Kubernetes scenarios
 - **CLI Tools**: Modern Node.js CLI for interactive debugging
 
+### Agent Toolset
+
+The diagnostic agent investigates with a small set of read-only tools:
+
+- **`list_clusters`** — enumerate registered clusters
+- **`execute_kubectl`** — read-only kubectl against one cluster (whitelist-enforced on the executor)
+- **`execute_kubectl_multi`** — one read-only kubectl command fanned out across many clusters
+- **`get_recent_changes`** — "what changed?" timeline for a workload or namespace: rollouts (ReplicaSet revisions + change-causes), Helm release history *(opt-in: `changeCorrelation.helmHistory.enabled`)*, ArgoCD sync history *(optional: `changeCorrelation.argocd.url`)*, and Normal+Warning events — correlated against first-error timestamps in the RCA
+- **`get_events_for_resource`** — chronological events for a resource and its children (deployment → replicasets → pods)
+
 ## Documentation
 
 ### Getting Started
