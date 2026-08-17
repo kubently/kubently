@@ -44,6 +44,10 @@ class ExecutorCapabilities:
     # Feature flags derived from mode
     features: Dict[str, bool] = field(default_factory=dict)
 
+    # Cloud telemetry access held via workload identity (provider, identity,
+    # whitelisted operations). None when the executor holds no cloud identity.
+    cloud: Optional[Dict[str, Any]] = None
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
@@ -62,6 +66,7 @@ class ExecutorCapabilities:
             reported_at=data.get("reported_at"),
             expires_at=data.get("expires_at"),
             features=data.get("features", {}),
+            cloud=data.get("cloud"),
         )
 
     @classmethod

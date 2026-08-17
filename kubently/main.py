@@ -17,7 +17,7 @@ import os
 import uuid
 from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime, timezone
-from typing import AsyncGenerator, Optional, Tuple
+from typing import Any, AsyncGenerator, Dict, Optional, Tuple
 
 import redis.asyncio as redis
 import uvicorn
@@ -448,6 +448,14 @@ class CapabilityReport(BaseModel):
         max_length=253,  # Max K8s pod name length
         description="Executor pod name"
     )
+    cloud: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "Cloud telemetry access held via workload identity: provider, "
+            "identity, and the whitelisted operations usable with it. Absent "
+            "when the executor holds no cloud identity."
+        ),
+    )
 
 
 @app.post("/executor/capabilities")
@@ -482,6 +490,7 @@ async def report_capabilities(
         allowed_flags=report.allowed_flags,
         executor_version=report.executor_version,
         executor_pod=report.executor_pod,
+        cloud=report.cloud,
         features={
             "exec": report.mode in ["extendedReadOnly", "fullAccess"],
             "port_forward": report.mode in ["extendedReadOnly", "fullAccess"],
@@ -733,6 +742,117 @@ async def execute_command(
         session_id=request.session_id,
         cluster_id=request.cluster_id,
         status=result.get("status", ExecutionStatus.SUCCESS),
+        correlation_id=x_correlation_id or request.correlation_id,
+        output=result.get("output"),
+        error=result.get("error"),
+        execution_time_ms=result.get("execution_time_ms"),
+        executed_at=result.get("executed_at"),
+    )
+
+
+class CloudExecuteRequest(BaseModel):
+    """Request to run a whitelisted cloud read operation on a cluster's executor."""
+
+    cluster_id: str = Field(..., min_length=1, max_length=253)
+    operation: str = Field(
+        ...,
+        max_length=100,
+        description="Whitelisted operation name, e.g. 'aws.logs.insights_query'",
+    )
+    params: Dict[str, Any] = Field(default_factory=dict)
+    timeout_seconds: Optional[int] = Field(
+        None, ge=1, le=60, description="How long to wait for the executor"
+    )
+    correlation_id: Optional[str] = None
+
+
+@app.post("/cloud/execute", response_model=CommandResponse)
+async def execute_cloud_operation(
+    request: CloudExecuteRequest,
+    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+):
+    """
+    Execute a read-only cloud telemetry operation on a cluster's executor.
+
+    The executor queries cloud APIs (CloudWatch, CloudTrail, Cloud Logging,
+    Cloud Monitoring) from inside the customer's account using the workload
+    identity its pod holds. Results stream back over the existing outbound-only
+    channel; no cloud credentials ever touch this control plane.
+
+    The operation must be on the code-level allowlist — validated here AND
+    again on the executor, so neither side alone can widen the surface.
+
+    Returns:
+        200: Operation result (structured JSON in `output`)
+        400: Operation not on the allowlist
+        404: Unknown cluster
+        401: Unauthorized
+    """
+    if not redis_client or not queue_module:
+        raise HTTPException(503, "Service not initialized")
+
+    # Allowlist validation (dependency-free import; no cloud SDKs needed here)
+    from kubently.modules.executor.cloud.operations import ALLOWED_CLOUD_OPERATIONS
+
+    if request.operation not in ALLOWED_CLOUD_OPERATIONS:
+        raise HTTPException(
+            400,
+            f"Operation '{request.operation}' is not on the cloud operation "
+            f"allowlist. Allowed operations: {sorted(ALLOWED_CLOUD_OPERATIONS)}",
+        )
+
+    # Cluster validation (same pattern as /debug/execute)
+    token_key = f"executor:token:{request.cluster_id}"
+    if not await redis_client.exists(token_key):
+        raise HTTPException(404, f"Cluster '{request.cluster_id}' not found.")
+
+    cluster_active_key = f"cluster:active:{request.cluster_id}"
+    await redis_client.setex(cluster_active_key, 60, "1")
+
+    # Cloud queries poll remote APIs (Logs Insights can take ~25s), so the
+    # default wait is longer than kubectl's.
+    timeout = request.timeout_seconds or 40
+
+    command = {
+        "id": str(uuid.uuid4()),
+        "type": "cloud",
+        "operation": request.operation,
+        "params": request.params,
+        "timeout": timeout,
+        "correlation_id": x_correlation_id or request.correlation_id,
+    }
+
+    await queue_module.bind_command(
+        command["id"], request.cluster_id, ttl=max(120, timeout * 2)
+    )
+    channel = f"executor-commands:{request.cluster_id}"
+    await redis_client.publish(channel, json.dumps(command))
+    logger.info(
+        f"Published cloud operation {request.operation} "
+        f"({command['id']}) to channel {channel}"
+    )
+
+    result = await queue_module.wait_for_result(command["id"], timeout=timeout)
+
+    if not result:
+        return CommandResponse(
+            command_id=command["id"],
+            session_id=None,
+            cluster_id=request.cluster_id,
+            status=ExecutionStatus.TIMEOUT,
+            correlation_id=x_correlation_id or request.correlation_id,
+            error=(
+                "Cloud operation timeout - the executor may be offline, or "
+                "may not have cloud mode enabled"
+            ),
+        )
+
+    return CommandResponse(
+        command_id=command["id"],
+        session_id=None,
+        cluster_id=request.cluster_id,
+        status=ExecutionStatus.SUCCESS if result.get("success") else ExecutionStatus.FAILURE,
         correlation_id=x_correlation_id or request.correlation_id,
         output=result.get("output"),
         error=result.get("error"),
