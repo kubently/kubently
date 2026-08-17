@@ -71,3 +71,26 @@ redis://{{ .Release.Name }}-redis-master:6379
 redis://localhost:6379
 {{- end -}}
 {{- end }}
+{{/*
+Env var name carrying one external MCP server's bearer token
+(referenced as bearer_token_env in the KUBENTLY_MCP_SERVERS JSON).
+*/}}
+{{- define "kubently.mcpTokenEnvName" -}}
+MCP_TOKEN_{{ regexReplaceAll "[^A-Za-z0-9]" . "_" | upper }}
+{{- end }}
+
+{{/*
+KUBENTLY_MCP_SERVERS JSON from .Values.mcpServers. Tokens themselves never
+enter this JSON — entries with existingSecret reference the env var above,
+which the deployment fills from the secret.
+*/}}
+{{- define "kubently.mcpServersJson" -}}
+{{- $servers := list -}}
+{{- range .Values.mcpServers -}}
+{{- $entry := dict "name" .name "url" .url -}}
+{{- if .headers -}}{{- $_ := set $entry "headers" .headers -}}{{- end -}}
+{{- if .existingSecret -}}{{- $_ := set $entry "bearer_token_env" (include "kubently.mcpTokenEnvName" .name) -}}{{- end -}}
+{{- $servers = append $servers $entry -}}
+{{- end -}}
+{{- toJson $servers -}}
+{{- end }}

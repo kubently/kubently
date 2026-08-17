@@ -343,6 +343,7 @@ class KubentlyAgent:
         from kubently.modules.config import get_prompt
 
         from .logsearch import loki_guidance
+        from .mcp_client import mcp_guidance
         from .prometheus import metrics_guidance
 
         self.system_prompt = get_prompt(
@@ -350,6 +351,7 @@ class KubentlyAgent:
             variables={
                 "loki_guidance": loki_guidance(),
                 "metrics_guidance": metrics_guidance(),
+                "mcp_guidance": mcp_guidance(),
             },
         )
 
@@ -1364,6 +1366,28 @@ class KubentlyAgent:
             self.tools.append(query_prometheus)
             logger.info("Prometheus metrics tool registered (PROMETHEUS_URL is set)")
 
+        # External MCP servers (operator-configured): tools register with an
+        # mcp_<server>_ prefix; an unreachable server contributes nothing and
+        # the investigation proceeds with native tools (see mcp_client.py for
+        # the untrusted-input framing and result caps).
+        from kubently.modules.a2a.protocol_bindings.a2a_server.mcp_client import (
+            build_mcp_tools,
+            load_static_servers,
+        )
+
+        static_mcp_specs = load_static_servers()
+        if static_mcp_specs:
+            mcp_tools = await build_mcp_tools(
+                static_mcp_specs,
+                interceptor,
+                lambda: getattr(self, "_current_thread_id", None),
+            )
+            self.tools.extend(mcp_tools)
+            logger.info(
+                f"Registered {len(mcp_tools)} external MCP tool(s) from "
+                f"{len(static_mcp_specs)} configured server(s)"
+            )
+
         logger.info(f"Initialized {len(self.tools)} tools")
 
     async def run(
@@ -1372,6 +1396,7 @@ class KubentlyAgent:
         thread_id: str | None = None,
         context_id: str | None = None,
         cluster_id: str | None = None,
+        mcp_servers: list | None = None,
     ) -> AsyncIterable[dict]:
         """Run the agent and stream responses.
 
@@ -1380,6 +1405,12 @@ class KubentlyAgent:
             thread_id: Thread ID for memory/conversation tracking
             context_id: Context ID for the A2A protocol
             cluster_id: Target cluster ID from CLI (if specified)
+            mcp_servers: Optional per-request external MCP servers — a list of
+                mcp_client.MCPServerSpec (or dicts of the same shape). The
+                extension point for an embedding service: tools from these
+                servers exist only for THIS invocation, and any credentials in
+                the specs are used for the call and never stored by the agent.
+                Unreachable servers degrade to "tools unavailable".
         """
         await self.initialize()
 
@@ -1393,6 +1424,50 @@ class KubentlyAgent:
 
         # Store thread ID for tool call tracking
         self._current_thread_id = thread_id
+
+        # Per-request MCP servers (embedding-service seam): build their tools
+        # for this invocation only and run a per-request agent that sees the
+        # base toolset plus the injected ones. The specs (and the credentials
+        # inside them) live only for the duration of this call — nothing is
+        # stored on the agent. Failure to reach a server just means its tools
+        # are absent; the investigation proceeds either way.
+        run_agent = self.agent
+        if mcp_servers:
+            from .mcp_client import MCPServerSpec, build_mcp_tools, per_request_note
+
+            try:
+                specs = [
+                    s if isinstance(s, MCPServerSpec) else MCPServerSpec.from_dict(s)
+                    for s in mcp_servers
+                ]
+            except ValueError as e:
+                logger.warning(f"Invalid per-request MCP server spec, ignoring all: {e}")
+                specs = []
+            request_tools = await build_mcp_tools(
+                specs,
+                get_tool_call_interceptor(),
+                lambda: getattr(self, "_current_thread_id", None),
+            )
+            if request_tools:
+                from deepagents import create_deep_agent
+
+                run_agent = create_deep_agent(
+                    self.llm,
+                    [*self.tools, *request_tools],
+                    system_prompt=self.system_prompt,
+                    checkpointer=self.memory if self.memory else None,
+                )
+                # Announce the extra tools as a user-role message (system
+                # messages mid-thread break the checkpointer — see the cluster
+                # context injection below for the full rationale).
+                messages = [
+                    {"role": "user", "content": per_request_note([t.name for t in request_tools])},
+                    *messages,
+                ]
+                logger.info(
+                    f"Per-request MCP tools active for this invocation: "
+                    f"{[t.name for t in request_tools]}"
+                )
 
         # Operator runbooks: match against this turn's user text (covers chat
         # questions, alert-derived queries and A2A calls — they all arrive
@@ -1482,8 +1557,8 @@ class KubentlyAgent:
         })
 
         try:
-            # Run the single agent
-            result = await self.agent.ainvoke(
+            # Run the single agent (per-request variant when MCP servers were injected)
+            result = await run_agent.ainvoke(
                 {"messages": lc_messages},
                 config=config
             )
