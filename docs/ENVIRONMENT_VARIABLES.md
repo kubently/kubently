@@ -58,6 +58,21 @@ The API never dials this URL itself — queries execute on each cluster's execut
 |----------|---------|----------|-------------|
 | `PROMETHEUS_URL` | - | No | Presence enables the `query_prometheus` agent tool. Set via Helm `prometheus.url` |
 
+### Conversation Memory (A2A Checkpointing)
+
+The A2A agent persists multi-turn conversation state through a LangGraph
+checkpointer. The backend is selectable so checkpointing works on Redis
+servers without the RediSearch module (e.g. Upstash):
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `KUBENTLY_CHECKPOINTER_BACKEND` | `redisearch` | No | Checkpointer backend: `redisearch` (AsyncRedisSaver; requires the RediSearch module), `plain-redis` (core Redis commands only; works on Upstash and any managed Redis), `memory` (per-process, dev/test only), or `none` (disable cross-request memory) |
+| `KUBENTLY_CHECKPOINT_TTL_SECONDS` | `604800` (7 days) | No | TTL for `plain-redis` checkpoint keys; refreshed on every checkpoint write, so active conversations never expire mid-flight. Set to `0` to disable expiry. Ignored by other backends |
+
+Whatever the backend, initialization failure degrades gracefully: the agent
+logs a warning and continues without cross-request memory, and single-request
+diagnoses are unaffected.
+
 ### LLM Configuration (for A2A)
 
 | Variable | Default | Required | Description |
@@ -66,6 +81,7 @@ The API never dials this URL itself — queries execute on each cluster's execut
 | `OPENAI_API_KEY` | - | If OpenAI | OpenAI API key |
 | `OPENAI_ENDPOINT` | `https://api.openai.com/v1` | No | OpenAI API endpoint |
 | `OPENAI_MODEL_NAME` | `gpt-4o` | No | OpenAI model to use |
+| `OPENAI_MAX_TOKENS` | `4096` | No | Max completion tokens on the OpenAI path (parity with the Anthropic path). Note: previously unbounded — OpenAI-compatible brokers such as OpenRouter reserve `max_tokens` against the account balance per request, so an unbounded value can 402 on small balances. Raise it if long diagnoses are being truncated |
 | `ANTHROPIC_API_KEY` | - | If Anthropic | Anthropic API key |
 | `ANTHROPIC_MODEL_NAME` | `claude-3-5-sonnet-20241022` | No | Anthropic model to use |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | No | Ollama server URL |
@@ -77,6 +93,8 @@ The API never dials this URL itself — queries execute on each cluster's execut
 |----------|---------|----------|-------------|
 | `LANGSMITH_TRACING` | `false` | No | Enable LangSmith tracing for observability |
 | `LANGSMITH_API_KEY` | - | If tracing enabled | LangSmith API key (set via secret) |
+| `POSTHOG_API_KEY` | - | No | Enables PostHog LLM observability (model, tokens, cost, latency per generation). Unset = no telemetry is collected or sent |
+| `POSTHOG_HOST` | `https://us.i.posthog.com` | No | PostHog ingestion host (use `https://eu.i.posthog.com` for the EU region, or your own reverse proxy) |
 | `LANGSMITH_PROJECT` | `default` | No | Project name in LangSmith UI |
 | `LANGSMITH_ENDPOINT` | `https://api.smith.langchain.com` | No | LangSmith API endpoint |
 | `LANGSMITH_SAMPLE_RATE` | `1.0` | No | Sampling rate (0.0-1.0) for trace volume reduction |

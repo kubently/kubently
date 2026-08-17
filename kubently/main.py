@@ -395,6 +395,18 @@ async def post_result(payload: CommandResult, cluster_id: str = Depends(verify_e
     if not queue_module:
         raise HTTPException(503, "Service not initialized")
 
+    # An executor may only answer commands issued to ITS cluster. Executors are
+    # operated by the customer whose cluster they run in, so without this check
+    # any authenticated executor could submit a result for another tenant's
+    # in-flight command and inject fabricated kubectl output into their
+    # diagnosis. Unknown/expired command ids are rejected.
+    if not await queue_module.command_belongs_to(payload.command_id, cluster_id):
+        logger.warning(
+            "Rejected result for command %s from cluster %s (not the issuing cluster)",
+            payload.command_id, cluster_id,
+        )
+        raise HTTPException(403, "Command was not issued to this cluster")
+
     # Store result using queue module
     await queue_module.store_result(payload.command_id, payload.dict())
 
@@ -684,13 +696,21 @@ async def execute_command(
         "correlation_id": x_correlation_id or request.correlation_id,
     }
 
+    # Bind this command to the target cluster BEFORE publishing, so a result
+    # can only be accepted from the executor that was actually asked. The TTL is
+    # derived from how long we will actually wait, so an operator who raises
+    # COMMAND_TIMEOUT past the default can't have valid slow results rejected.
+    timeout = x_request_timeout or request.timeout_seconds or config.get("command_timeout")
+    await queue_module.bind_command(
+        command["id"], request.cluster_id, ttl=max(120, int(timeout) * 2)
+    )
+
     # Publish command to executor's Redis channel
     channel = f"executor-commands:{request.cluster_id}"
     await redis_client.publish(channel, json.dumps(command))
     logger.info(f"Published command {command['id']} to channel {channel}")
 
     # Wait for result using existing queue mechanism
-    timeout = x_request_timeout or request.timeout_seconds or config.get("command_timeout")
     result = await queue_module.wait_for_result(command["id"], timeout=timeout)
 
     # === OPTIONAL ENHANCEMENT ===
@@ -778,11 +798,18 @@ async def execute_prometheus_query(
         "correlation_id": x_correlation_id or request.correlation_id,
     }
 
+    # Same cluster binding as /debug/execute: without it the executor's result
+    # POST is rejected (results are only accepted from the cluster the command
+    # was issued to).
+    timeout = request.timeout_seconds or config.get("command_timeout")
+    await queue_module.bind_command(
+        command["id"], request.cluster_id, ttl=max(120, int(timeout) * 2)
+    )
+
     channel = f"executor-commands:{request.cluster_id}"
     await redis_client.publish(channel, json.dumps(command))
     logger.info(f"Published prometheus query {command['id']} to channel {channel}")
 
-    timeout = request.timeout_seconds or config.get("command_timeout")
     result = await queue_module.wait_for_result(command["id"], timeout=timeout)
 
     if not result:

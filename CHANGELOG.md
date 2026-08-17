@@ -24,8 +24,61 @@
   trends survive), and a character backstop — with every truncation announced
   in the payload the model reads, plus the shared `cap_output` context guard
   on the agent side
+- **Selectable checkpointer backend for A2A conversation memory** — new
+  `KUBENTLY_CHECKPOINTER_BACKEND` env var chooses how LangGraph checkpoints are
+  stored: `redisearch` (default, unchanged AsyncRedisSaver path), `plain-redis`
+  (new `PlainRedisSaver` using only core Redis commands — enables cross-request
+  memory on RediSearch-less Redis such as Upstash), `memory` (per-process, for
+  dev/tests), or `none` (explicitly off). Selection lives in
+  `kubently/modules/a2a/protocol_bindings/a2a_server/checkpointer.py`; graceful
+  degradation is preserved — any backend init failure logs a warning and the
+  agent keeps answering single-request diagnoses without memory
+- **`KUBENTLY_CHECKPOINT_TTL_SECONDS`** (default 7 days, `0` disables) bounds
+  checkpoint key growth for the `plain-redis` backend; TTLs are refreshed on
+  every checkpoint write so active conversations never expire mid-flight
+- **Checkpointer tests** (`tests/test_checkpointer.py`) — backend selection,
+  save/restore round-trips, thread isolation, TTL behavior, and end-to-end
+  LangGraph graphs checkpointed on fakeredis (which, like Upstash, has no
+  RediSearch); `fakeredis` added to the `test` extra
 
 ## [Unreleased] - 2026-08-15 (later)
+
+### Changed
+- **`OPENAI_MAX_TOKENS` (default 4096) now caps the OpenAI path** — previously
+  unbounded, so this is a behaviour change for existing OpenAI self-hosters:
+  very long diagnoses can now truncate (raise the value if so). The cap exists
+  because OpenAI-compatible brokers (OpenRouter) reserve `max_tokens` against
+  the account balance per request and 402 without it
+- **Upgrade note: agent conversation memory resets once** — checkpointer threads
+  are now namespaced per caller (see below), so existing threads land in a new
+  namespace and prior history is not resumed. Only affects deployments running
+  the optional Redis checkpointer
+
+### Fixed
+- **Executors can no longer answer another cluster's commands (result injection)**
+  — `/executor/results` stored a result for any `command_id` an authenticated
+  executor submitted, with no check that the command was issued to that
+  executor's cluster. Executors run inside customer clusters (customer-
+  controlled), so a malicious one could inject fabricated kubectl output into
+  another tenant's in-flight diagnosis. Commands are now bound to their target
+  cluster at publish time (`command:cluster:{id}`, TTL-bounded) and results from
+  any other cluster — or for unknown/expired ids — are rejected with 403
+- **Conversation threads are now private to the caller (cross-tenant memory
+  leak)** — the A2A `contextId` is client-supplied and was passed straight to
+  the LangGraph checkpointer as its thread namespace, so any caller could resume
+  another caller's conversation (their questions, kubectl output, cluster
+  internals) by reusing their `contextId`. Threads are now prefixed with a hash
+  of the authenticated caller's key; unauthenticated/local invocation is
+  unchanged. Latent rather than exploited in hosted deployments where the Redis
+  checkpointer is unavailable, but live the moment persistent memory is enabled
+- **Mock OAuth provider now speaks RFC 8628** — the device-flow token endpoint
+  returned FastAPI-style `{"detail": ...}` errors (428 for pending), so the
+  spec-compliant CLI treated `authorization_pending` as fatal and the
+  `kubently login` device flow could never complete against the local harness.
+  Token errors are now HTTP 400 `{"error": "<code>"}` per spec. CLI device flow
+  verified end-to-end: device code → approval → RS256 JWT stored in
+  ~/.kubently/auth.json, signature validated against the provider JWKS.
+  (Harness also needs `python-multipart` for its form endpoints.)
 
 ### Added
 - **Scheduled fleet health digest (#54, chart 1.0.5)** — a Helm CronJob POSTs
@@ -101,6 +154,17 @@
   re-run narrowed. Error bodies are capped too
 
 ### Added
+- **Dynamic Redis-backed API keys** — `AuthModule.verify_api_key` now also
+  accepts keys registered at runtime as `api:key:{sha256(key)}` = identity in
+  Redis (only the hash is stored), alongside the static `API_KEYS` env keys.
+  Lets a control plane issue/revoke per-tenant keys without restarts
+- **Agent tools act as the caller** — the A2A/MCP auth wrapper records the
+  caller's validated key in a `current_api_key` contextvar
+  (`kubently.modules.auth.context`), and agent tool calls (`list_clusters`,
+  `execute_kubectl`, `execute_kubectl_multi`) forward it on internal API calls
+  instead of the shared first `API_KEYS` key (which remains the fallback).
+  Least-privilege: a gateway can now scope what each caller's diagnostics may
+  touch
 - **Fleet fan-out cap is configurable** — `KUBENTLY_MAX_FLEET_CLUSTERS` env var
   overrides the default 10-cluster cap per `execute_kubectl_multi` call (read at
   call time; the cap bounds agent-context growth at ~4KB per cluster)

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import os
@@ -9,8 +10,7 @@ import httpx
 from deepagents import create_deep_agent
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables.config import RunnableConfig
-from langgraph.checkpoint.redis.aio import AsyncRedisSaver
-
+from .checkpointer import create_checkpointer
 from .fleet import cap_output
 from .tool_call_interceptor import get_tool_call_interceptor
 
@@ -46,6 +46,70 @@ def structured_log(log_data: dict, thread_id: str = None):
 
         # Log as formatted JSON
         logger.info(json.dumps(log_data, indent=2, default=str))
+
+
+_POSTHOG_CLIENT = None  # module-level singleton, see _posthog_llm_callbacks
+
+
+def _namespaced_thread_id(thread_id: str | None) -> str | None:
+    """Bind a conversation thread to the authenticated caller.
+
+    The A2A contextId is client-supplied and is used directly as the LangGraph
+    checkpointer's thread namespace, so without this two callers who pick the
+    same contextId share conversation memory. Prefixing with a hash of the
+    caller's API key keeps threads private per caller while staying stable
+    across that caller's turns (which is what makes multi-turn memory work).
+
+    Returns thread_id unchanged when there is no authenticated caller (direct
+    or local invocation), preserving existing single-tenant behaviour.
+    """
+    if not thread_id:
+        return thread_id
+    try:
+        from kubently.modules.auth.context import current_api_key
+
+        key = current_api_key.get()
+    except Exception:
+        key = None
+    if not key:
+        return thread_id
+    caller = hashlib.sha256(key.encode()).hexdigest()[:16]
+    return f"{caller}:{thread_id}"
+
+
+def _posthog_llm_callbacks():
+    """PostHog LLM observability, opt-in via POSTHOG_API_KEY.
+
+    Returns a LangChain callback list that reports each generation
+    (model, tokens, cost, latency) to PostHog, or [] when unset. The import is
+    guarded so an absent/older posthog SDK degrades to no-op rather than breaking
+    the agent. Spike scope: fleet-level capture; per-tenant distinct_id (from the
+    caller's identity) is the follow-up.
+    """
+    key = os.getenv("POSTHOG_API_KEY")
+    if not key:
+        return []
+
+    global _POSTHOG_CLIENT
+    if _POSTHOG_CLIENT is None:
+        try:
+            from posthog import Posthog
+        except Exception as e:  # SDK missing/too old — never fail the agent for telemetry
+            logger.warning(f"PostHog LLM observability requested but unavailable: {e}")
+            return []
+        # Singleton: the client owns a background flush thread and connection
+        # pool, and initialize() runs per agent construction — a client per call
+        # would leak both.
+        _POSTHOG_CLIENT = Posthog(
+            key, host=os.getenv("POSTHOG_HOST", "https://us.i.posthog.com")
+        )
+
+    try:
+        from posthog.ai.langchain import CallbackHandler
+    except Exception as e:
+        logger.warning(f"PostHog LangChain callback unavailable: {e}")
+        return []
+    return [CallbackHandler(client=_POSTHOG_CLIENT)]
 
 
 # Dangerous kubectl verbs that require explicit permission
@@ -118,6 +182,9 @@ class KubentlyAgent:
         self.agent = None
         # Memory will be initialized in async context
         self.memory = None
+        # True when checkpointing is intentionally off (backend "none" or no
+        # Redis client), so initialize() doesn't retry on every request.
+        self._memory_disabled = False
         self._initialized = False
         self.system_prompt = None
         # Investigation tracking
@@ -159,26 +226,20 @@ class KubentlyAgent:
 
     async def initialize(self):
         """Initialize the agent with LLM and tools."""
-        if self._initialized and self.memory is not None:
+        if self._initialized and (self.memory is not None or self._memory_disabled):
             return
 
         if self._initialized and self.memory is None:
             logger.info("Agent initialized but memory failed previously, retrying memory setup...")
 
-        # Initialize memory in async context
-        memory_initialized = False
+        # Initialize memory in async context. Backend selection (RediSearch,
+        # plain Redis, in-memory, none) lives in checkpointer.create_checkpointer.
         try:
-
-            if self.redis_client:
-                # Test Redis connection first
-                await self.redis_client.ping()
-                self.memory = AsyncRedisSaver(redis_client=self.redis_client)
-                # Setup is required to initialize indices
-                await self.memory.setup()
-                logger.info("AsyncRedisSaver initialized and setup successfully")
-                memory_initialized = True
+            self.memory = await create_checkpointer(self.redis_client)
+            if self.memory is None:
+                self._memory_disabled = True
         except Exception as e:
-            logger.warning(f"Failed to initialize AsyncRedisSaver: {e}")
+            logger.warning(f"Failed to initialize checkpointer: {e}")
             logger.warning("Continuing without memory persistence")
             self.memory = None
 
@@ -186,6 +247,11 @@ class KubentlyAgent:
         # https://docs.claude.com/en/docs/build-with-claude/context-editing#how-it-works
         llm_provider = os.getenv("LLM_PROVIDER", "").lower()
         enable_context_management = os.getenv("ANTHROPIC_CONTEXT_CLEARING", "true").lower() == "true"
+
+        # PostHog LLM observability (optional): when POSTHOG_API_KEY is set, every
+        # generation reports model/tokens/cost/latency to PostHog. Attached to the
+        # model, so it flows through deepagents without touching the graph.
+        posthog_cbs = _posthog_llm_callbacks()
 
         if "anthropic" in llm_provider or "claude" in llm_provider:
             # For Anthropic models, use direct initialization to enable context management
@@ -201,7 +267,8 @@ class KubentlyAgent:
                     betas=["context-management-2025-06-27"],
                     context_management={
                         "edits": [{"type": "clear_tool_uses_20250919"}]
-                    }
+                    },
+                    callbacks=posthog_cbs,
                 )
                 logger.info(f"Anthropic Claude initialized with context management: {model_name}")
                 logger.info("Context management will automatically clear tool results to prevent context overflow")
@@ -210,17 +277,24 @@ class KubentlyAgent:
                 from langchain_anthropic import ChatAnthropic
 
                 model_name = os.getenv("ANTHROPIC_MODEL_NAME", "claude-sonnet-4-6")
-                self.llm = ChatAnthropic(model=model_name, max_tokens=4096)
+                self.llm = ChatAnthropic(model=model_name, max_tokens=4096, callbacks=posthog_cbs)
                 logger.info(f"Anthropic Claude initialized without context management: {model_name}")
         elif "openai" in llm_provider or "azure" in llm_provider:
             from langchain_openai import ChatOpenAI
 
-            self.llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL_NAME", "gpt-4o"))
+            # Cap completion tokens (parity with the Anthropic branch's 4096).
+            # Matters for OpenAI-compatible brokers like OpenRouter, which
+            # reserve max_tokens against the account balance per request.
+            self.llm = ChatOpenAI(
+                model=os.getenv("OPENAI_MODEL_NAME", "gpt-4o"),
+                max_tokens=int(os.getenv("OPENAI_MAX_TOKENS", "4096")),
+                callbacks=posthog_cbs,
+            )
             logger.info(f"OpenAI initialized: {llm_provider}")
         elif "google" in llm_provider or "gemini" in llm_provider:
             from langchain_google_genai import ChatGoogleGenerativeAI
 
-            self.llm = ChatGoogleGenerativeAI(model=os.getenv("GOOGLE_MODEL_NAME", "gemini-2.0-flash"))
+            self.llm = ChatGoogleGenerativeAI(model=os.getenv("GOOGLE_MODEL_NAME", "gemini-2.0-flash"), callbacks=posthog_cbs)
             logger.info(f"Google Gemini initialized: {llm_provider}")
         else:
             raise ValueError(
@@ -265,7 +339,15 @@ class KubentlyAgent:
 
         # Use the auth module utility to extract API key (handles service:key format)
         from kubently.modules.auth import AuthModule
-        api_key = AuthModule.extract_first_api_key()
+        from kubently.modules.auth.context import current_api_key
+
+        internal_api_key = AuthModule.extract_first_api_key()
+
+        def api_key() -> str:
+            # Per-call: prefer the caller's key (set by the auth wrapper at the
+            # A2A/MCP mount) so tool calls execute with the caller's privileges;
+            # fall back to the internal service key (direct/local invocation).
+            return current_api_key.get() or internal_api_key
 
         # Create tool functions for kubectl operations
         from langchain_core.tools import tool
@@ -295,7 +377,7 @@ class KubentlyAgent:
                 try:
                     response = await client.get(
                         f"{api_url}/debug/clusters",
-                        headers={"X-Api-Key": api_key},
+                        headers={"X-Api-Key": api_key()},
                     )
                     if response.status_code == 200:
                         result = response.json()
@@ -464,7 +546,7 @@ class KubentlyAgent:
 
                     response = await client.post(
                         f"{api_url}/debug/execute",
-                        headers={"X-Api-Key": api_key},
+                        headers={"X-Api-Key": api_key()},
                         json=payload,
                     )
 
@@ -554,7 +636,7 @@ class KubentlyAgent:
             )
             try:
                 output = await run_fleet_command(
-                    api_url, api_key, cluster_ids, build_execute_payload(command, namespace)
+                    api_url, api_key(), cluster_ids, build_execute_payload(command, namespace)
                 )
                 await interceptor.record_tool_result(tool_call_id, output)
                 return output
@@ -700,6 +782,14 @@ class KubentlyAgent:
             cluster_id: Target cluster ID from CLI (if specified)
         """
         await self.initialize()
+
+        # SECURITY: thread_id is the checkpointer's namespace, and it comes from
+        # the A2A message's client-supplied contextId. Un-namespaced, any caller
+        # could resume another caller's conversation — replaying their questions,
+        # kubectl output and cluster internals — by guessing/reusing a contextId.
+        # Bind it to the authenticated caller so threads can never collide across
+        # tenants. Falls back to the raw id for unauthenticated/local invocation.
+        thread_id = _namespaced_thread_id(thread_id)
 
         # Store thread ID for tool call tracking
         self._current_thread_id = thread_id
