@@ -35,6 +35,8 @@ from kubently.modules.api import (
     ExecuteCommandRequest,
     ExecutionStatus,
     HelmCommandRequest,
+    LogSearchRequest,
+    LokiQueryRequest,
     PrometheusQueryRequest,
     SessionResponse,
     SessionStatus,
@@ -744,29 +746,22 @@ async def execute_command(
     )
 
 
-async def _run_tool_command(
-    tool: str,
+async def _run_executor_tool(
     cluster_id: str,
-    request_payload: dict,
+    tool: str,
+    tool_request: dict,
     timeout: int,
     correlation_id: Optional[str],
     timeout_error: str,
 ) -> CommandResponse:
-    """
-    Publish a non-kubectl tool envelope over the executor channel and wait.
+    """Publish a non-kubectl tool envelope to a cluster's executor and await
+    the result.
 
-    Shared plumbing for /debug/prometheus, /debug/helm and /debug/argocd:
-    same cluster validation, command binding (result-injection protection),
-    publish and wait semantics as /debug/execute — only the envelope differs.
-    The executor performs the actual work locally (Prometheus/ArgoCD HTTP,
-    helm binary); this API never dials those systems or runs helm itself and
-    only forwards validated fields.
+    Shares the /debug/execute flow: validate the cluster (fail fast with the
+    list of valid clusters instead of queueing a command nothing will pick
+    up), mark it active for fast polling, bind the command id to the cluster
+    so only the asked executor can answer, publish, wait.
     """
-    if not redis_client or not queue_module:
-        raise HTTPException(503, "Service not initialized")
-
-    # Fail fast with the list of valid clusters instead of queueing a
-    # command nothing will pick up.
     token_key = f"executor:token:{cluster_id}"
     if not await redis_client.exists(token_key):
         valid_clusters = sorted(
@@ -786,12 +781,12 @@ async def _run_tool_command(
     command = {
         "id": str(uuid.uuid4()),
         "tool": tool,
-        "request": request_payload,
+        "request": tool_request,
         "timeout": timeout,
         "correlation_id": correlation_id,
     }
 
-    await queue_module.bind_command(command["id"], cluster_id, ttl=max(120, int(timeout) * 2))
+    await queue_module.bind_command(command["id"], cluster_id, ttl=max(120, timeout * 2))
 
     channel = f"executor-commands:{cluster_id}"
     await redis_client.publish(channel, json.dumps(command))
@@ -822,6 +817,90 @@ async def _run_tool_command(
     )
 
 
+@app.post("/debug/logs/search", response_model=CommandResponse)
+async def search_logs(
+    request: LogSearchRequest,
+    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+):
+    """
+    Search logs across the pods matching a selector on one cluster.
+
+    The search rides the same outbound channel as kubectl commands (Redis
+    pub/sub -> executor SSE -> result POST): the executor inside the target
+    cluster resolves pods, fetches logs through its whitelist-enforced kubectl
+    runner, filters locally and returns only matching lines (capped). Raw logs
+    never transit this API.
+
+    Returns:
+        200: Search result (or executor-side error)
+        404: Cluster not found
+        401: Unauthorized
+    """
+    if not redis_client or not queue_module:
+        raise HTTPException(503, "Service not initialized")
+
+    return await _run_executor_tool(
+        cluster_id=request.cluster_id,
+        tool="log_search",
+        tool_request={
+            "namespace": request.namespace,
+            "selector": request.selector,
+            "pod_name": request.pod_name,
+            "container": request.container,
+            "query": request.query,
+            "use_regex": request.use_regex,
+            "case_sensitive": request.case_sensitive,
+            "since": request.since,
+            "since_time": request.since_time,
+            "tail_lines": request.tail_lines,
+            "previous": request.previous,
+            "context_lines": request.context_lines,
+        },
+        timeout=request.timeout_seconds or 60,
+        correlation_id=x_correlation_id or request.correlation_id,
+        timeout_error="Log search timeout (no executor picked it up in time)",
+    )
+
+
+@app.post("/debug/loki", response_model=CommandResponse)
+async def execute_loki_query(
+    request: LokiQueryRequest,
+    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+):
+    """
+    Run a read-only LogQL range query on a cluster's Loki.
+
+    The query rides the same outbound channel as kubectl commands: the
+    executor inside the target cluster performs the HTTP GET against its
+    locally configured LOKI_URL. This API never contacts Loki directly and
+    never forwards a URL — only the validated query parameters.
+
+    Returns:
+        200: Query result (or executor-side error, e.g. Loki not configured)
+        404: Cluster not found
+        401: Unauthorized
+    """
+    if not redis_client or not queue_module:
+        raise HTTPException(503, "Service not initialized")
+
+    return await _run_executor_tool(
+        cluster_id=request.cluster_id,
+        tool="loki",
+        tool_request={
+            "query": request.query,
+            "start": request.start,
+            "end": request.end,
+            "limit": request.limit,
+            "direction": request.direction.value,
+        },
+        timeout=request.timeout_seconds or 30,
+        correlation_id=x_correlation_id or request.correlation_id,
+        timeout_error="Loki query timeout (no executor picked it up in time)",
+    )
+
+
 @app.post("/debug/prometheus", response_model=CommandResponse)
 async def execute_prometheus_query(
     request: PrometheusQueryRequest,
@@ -842,10 +921,13 @@ async def execute_prometheus_query(
         404: Cluster not found
         401: Unauthorized
     """
-    return await _run_tool_command(
-        tool="prometheus",
+    if not redis_client or not queue_module:
+        raise HTTPException(503, "Service not initialized")
+
+    return await _run_executor_tool(
         cluster_id=request.cluster_id,
-        request_payload={
+        tool="prometheus",
+        tool_request={
             "query_type": request.query_type.value,
             "query": request.query,
             "time": request.time,
@@ -853,7 +935,7 @@ async def execute_prometheus_query(
             "end": request.end,
             "step": request.step,
         },
-        timeout=request.timeout_seconds or config.get("command_timeout"),
+        timeout=request.timeout_seconds or 30,
         correlation_id=x_correlation_id or request.correlation_id,
         timeout_error="Prometheus query timeout (no executor picked it up in time)",
     )
@@ -879,16 +961,19 @@ async def execute_helm_command(
         404: Cluster not found
         401: Unauthorized
     """
-    return await _run_tool_command(
-        tool="helm",
+    if not redis_client or not queue_module:
+        raise HTTPException(503, "Service not initialized")
+
+    return await _run_executor_tool(
         cluster_id=request.cluster_id,
-        request_payload={
+        tool="helm",
+        tool_request={
             "subcommand": request.subcommand.value,
             "release_name": request.release_name,
             "namespace": request.namespace,
             "max": request.max,
         },
-        timeout=request.timeout_seconds or config.get("command_timeout"),
+        timeout=request.timeout_seconds or 30,
         correlation_id=x_correlation_id or request.correlation_id,
         timeout_error="Helm command timeout (no executor picked it up in time)",
     )
@@ -913,16 +998,19 @@ async def execute_argocd_query(
         404: Cluster not found
         401: Unauthorized
     """
-    return await _run_tool_command(
-        tool="argocd",
+    if not redis_client or not queue_module:
+        raise HTTPException(503, "Service not initialized")
+
+    return await _run_executor_tool(
         cluster_id=request.cluster_id,
-        request_payload={
+        tool="argocd",
+        tool_request={
             "operation": request.operation.value,
             "app_name": request.app_name,
             "revision": request.revision,
             "selector": request.selector,
         },
-        timeout=request.timeout_seconds or config.get("command_timeout"),
+        timeout=request.timeout_seconds or 30,
         correlation_id=x_correlation_id or request.correlation_id,
         timeout_error="ArgoCD query timeout (no executor picked it up in time)",
     )

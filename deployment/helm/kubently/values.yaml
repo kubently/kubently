@@ -90,6 +90,31 @@ fleetReport:
   query: ""
 
 # ============================================================================
+# Loki Log Search (optional)
+# ============================================================================
+# Gives the diagnostic agent a read-only LogQL tool (query_loki) for searching
+# aggregated logs — including logs from pods that have restarted, been
+# rescheduled or deleted, which plain kubectl-based search cannot reach.
+#
+# The URL must be reachable FROM THE EXECUTOR POD — queries are executed by the
+# executor inside the monitored cluster (same outbound channel as kubectl
+# commands), never by the central API. Example for the loki-stack chart:
+#   url: "http://loki.monitoring.svc.cluster.local:3100"
+#
+# Leave empty (default) to disable: the agent does not register the tool, the
+# system prompt never mentions Loki, and the executor rejects Loki queries
+# with a clear "not configured" error. The selector-based search_pod_logs
+# tool is always available and needs no configuration.
+#
+# Split deployments (central API + remote executors): set loki.url on BOTH
+# installs. On an executor install it is the URL the executor queries; on the
+# API install it only enables the tool (the control plane never dials it).
+loki:
+  url: ""
+  # Optional X-Scope-OrgID header for multi-tenant Loki (executor-side only).
+  tenantId: ""
+
+# ============================================================================
 # Prometheus Metrics Tool (optional)
 # ============================================================================
 # Gives the diagnostic agent a read-only PromQL tool (query_prometheus) for

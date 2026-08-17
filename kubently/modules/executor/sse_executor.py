@@ -39,6 +39,8 @@ except ImportError:
 
 from kubently.modules.executor.argocd import ArgoCDRunner
 from kubently.modules.executor.helm import HelmRunner
+from kubently.modules.executor.logsearch import LogSearchRunner
+from kubently.modules.executor.loki import LokiRunner
 from kubently.modules.executor.prometheus import PrometheusRunner
 
 # Configure logging
@@ -95,10 +97,18 @@ class SSEKubentlyExecutor:
         elif self.api_url.startswith("https://"):
             logger.info("✅ Using HTTPS with TLS encryption")
 
+        # Log search runs through the same kubectl runner as ordinary commands,
+        # so the whitelist and read-only enforcement apply unchanged.
+        self._logsearch = LogSearchRunner(kubectl_runner=self._run_kubectl)
+
         # Optional tool runners. Each is configured entirely from local env
-        # (PROMETHEUS_URL, HELM_HISTORY_ENABLED, ARGOCD_URL/ARGOCD_TOKEN) — the
-        # control plane never supplies URLs, credentials, or raw argv. When
-        # unconfigured, their commands get a clear "unavailable" error back.
+        # (LOKI_URL, PROMETHEUS_URL, HELM_HISTORY_ENABLED, ARGOCD_URL/
+        # ARGOCD_TOKEN) — the control plane never supplies URLs, credentials,
+        # or raw argv. When unconfigured, their commands get a clear
+        # "unavailable" error back.
+        self._loki = LokiRunner()
+        if self._loki.available:
+            logger.info(f"Loki log search enabled: {self._loki.base_url}")
         self._prometheus = PrometheusRunner()
         if self._prometheus.available:
             logger.info(f"Prometheus tool enabled: {self._prometheus.base_url}")
@@ -266,16 +276,21 @@ class SSEKubentlyExecutor:
         Route a command envelope to its tool runner.
 
         Each tool enforces its own allowlist locally: kubectl commands go
-        through the DynamicCommandWhitelist; prometheus is limited to two
-        read-only GET paths against the locally configured base URL; helm is
-        limited to read-only history/list subcommands built from validated
-        fields; argocd is limited to read-only GET paths against the locally
-        configured URL.
+        through the DynamicCommandWhitelist; log searches compose only
+        whitelist-checked `get pods` / `logs` invocations; loki and prometheus
+        queries are limited to fixed read-only GET paths against the locally
+        configured base URLs; helm is limited to read-only history/list
+        subcommands built from validated fields; argocd is limited to
+        read-only GET paths against the locally configured URL.
         """
         tool = command.get("tool", "kubectl")
 
         if tool == "kubectl":
             return self._run_kubectl(command.get("args", []))
+        if tool == "log_search":
+            return self._logsearch.run(command.get("request") or {})
+        if tool == "loki":
+            return self._loki.run(command.get("request") or {})
         if tool == "prometheus":
             return self._prometheus.run(command.get("request") or {})
         if tool == "helm":
@@ -286,7 +301,7 @@ class SSEKubentlyExecutor:
         logger.warning(f"Rejected command with unknown tool: {tool}")
         return {
             "success": False,
-            "error": f"Unknown tool '{tool}'. This executor supports: kubectl, prometheus, helm, argocd.",
+            "error": f"Unknown tool '{tool}'. This executor supports: kubectl, log_search, loki, prometheus, helm, argocd.",
             "status": "BLOCKED",
             "return_code": -1,
         }

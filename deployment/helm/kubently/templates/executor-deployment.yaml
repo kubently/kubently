@@ -81,6 +81,16 @@ spec:
         - name: KUBENTLY_WHITELIST_DB
           value: "/var/lib/kubently/whitelist.db"
         {{- end }}
+        {{- /* Loki log search: URL the executor queries (read-only).
+               Parenthesized lookup is nil-safe for old values files. */}}
+        {{- if (.Values.loki).url }}
+        - name: LOKI_URL
+          value: {{ .Values.loki.url | quote }}
+        {{- if .Values.loki.tenantId }}
+        - name: LOKI_TENANT_ID
+          value: {{ .Values.loki.tenantId | quote }}
+        {{- end }}
+        {{- end }}
         {{- /* Prometheus metrics tool: URL the executor queries (read-only).
                Parenthesized lookup is nil-safe for old values files. */}}
         {{- if (.Values.prometheus).url }}
