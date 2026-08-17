@@ -48,6 +48,16 @@
 | `KUBENTLY_MAX_FLEET_CLUSTERS` | `10` | No | Max clusters per `execute_kubectl_multi` fan-out call (each cluster adds up to ~4KB to the agent context) |
 | `A2A_SERVER_DEBUG` | `false` | No | Enable A2A debug logging |
 
+### Loki Log Search (optional)
+
+When `LOKI_URL` is set on the API server, the agent registers the read-only `query_loki` tool (LogQL range queries) and injects Loki guidance into the system prompt. When unset (default), the tool does not exist and the prompt never mentions Loki. The selector-based `search_pod_logs` tool is always registered and needs no configuration.
+
+The API never dials this URL itself — queries execute on each cluster's executor against the executor's own `LOKI_URL` (see Executor Configuration below). On the API side the variable only switches the tool on.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `LOKI_URL` | - | No | Presence enables the `query_loki` agent tool. Set via Helm `loki.url` |
+
 ### Conversation Memory (A2A Checkpointing)
 
 The A2A agent persists multi-turn conversation state through a LangGraph
@@ -109,6 +119,32 @@ diagnoses are unaffected.
 | `WHITELIST_PATH` | `/etc/kubently/whitelist.yaml` | No | Path to whitelist configuration |
 | `REFRESH_INTERVAL` | `30` | No | Whitelist refresh interval in seconds |
 | `TIMEOUT_SECONDS` | `30` | No | Command execution timeout |
+
+### Log Search (search_pod_logs)
+
+The executor performs selector-based log searches locally: pods are resolved and logs fetched through the same whitelist-enforced kubectl runner as ordinary commands, filtered on the executor, and only matching lines come back. All caps announce themselves in the tool output when they fire.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `LOG_SEARCH_MAX_PODS` | `20` | No | Max pods scanned per search (excess noted) |
+| `LOG_SEARCH_MAX_MATCHES_PER_CONTAINER` | `50` | No | Max matching lines shown per container |
+| `LOG_SEARCH_MAX_TOTAL_MATCHES` | `200` | No | Max matching lines shown per search |
+| `LOG_SEARCH_MAX_LINE_CHARS` | `500` | No | Individual lines truncated beyond this |
+| `LOG_SEARCH_MAX_OUTPUT_CHARS` | `20000` | No | Hard cap on assembled result size |
+| `LOG_SEARCH_TIME_BUDGET` | `50` | No | Seconds of kubectl fetching before the search stops early (with a note) |
+
+### Loki Log Search (optional)
+
+The executor performs Loki queries locally (read-only GETs against `/loki/api/v1/query_range` only). The base URL comes exclusively from this local configuration — the control plane never supplies one. When unset (default), Loki queries are answered with a clear "not configured" error.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `LOKI_URL` | - | No | Loki base URL reachable from the executor pod, e.g. `http://loki.monitoring.svc.cluster.local:3100`. Set via Helm `loki.url` |
+| `LOKI_TENANT_ID` | - | No | Optional `X-Scope-OrgID` header for multi-tenant Loki. Set via Helm `loki.tenantId` |
+| `LOKI_TIMEOUT` | `30` | No | Query timeout in seconds |
+| `LOKI_MAX_LINES` | `500` | No | Max log lines per query (the request `limit` is clamped to this) |
+| `LOKI_MAX_LINE_CHARS` | `500` | No | Individual lines truncated beyond this |
+| `LOKI_MAX_OUTPUT_CHARS` | `20000` | No | Hard cap on serialized result size |
 
 ## Deployment-Specific Variables
 

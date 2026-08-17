@@ -181,6 +181,16 @@ helm install kubently deployment/helm -f deployment/helm/test-values.yaml
 - **Test Automation**: Comprehensive testing framework with 20+ Kubernetes scenarios
 - **CLI Tools**: Modern Node.js CLI for interactive debugging
 
+### Agent Toolset
+
+The diagnostic agent investigates with a small set of read-only tools:
+
+- **`list_clusters`** — enumerate registered clusters
+- **`execute_kubectl`** — read-only kubectl against one cluster (whitelist-enforced on the executor)
+- **`execute_kubectl_multi`** — one read-only kubectl command fanned out across many clusters
+- **`search_pod_logs`** — structured log search across every pod/container matching a label selector (substring or regex, time bounds, previous-container support). Logs are filtered on the cluster's executor so only matching lines — capped, with explicit truncation notes — come back
+- **`query_loki`** *(optional)* — LogQL range queries against a cluster's Loki for aggregated/historical log search, including logs from pods that have restarted or been deleted. Enabled by setting `loki.url` in Helm values (unset by default); queries execute on each cluster's executor through the same outbound channel as kubectl commands
+
 ## Documentation
 
 ### Getting Started
