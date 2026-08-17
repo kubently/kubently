@@ -181,6 +181,15 @@ helm install kubently deployment/helm -f deployment/helm/test-values.yaml
 - **Test Automation**: Comprehensive testing framework with 20+ Kubernetes scenarios
 - **CLI Tools**: Modern Node.js CLI for interactive debugging
 
+### Agent Toolset
+
+The diagnostic agent investigates with a small set of read-only tools:
+
+- **`list_clusters`** — enumerate registered clusters
+- **`execute_kubectl`** — read-only kubectl against one cluster (whitelist-enforced on the executor)
+- **`execute_kubectl_multi`** — one read-only kubectl command fanned out across many clusters
+- **`query_prometheus`** *(optional)* — instant and range PromQL queries for latency, saturation, OOM-trend and restarts-over-time evidence. Enabled by setting `prometheus.url` in Helm values (unset by default); queries execute on each cluster's executor through the same outbound channel as kubectl commands
+
 ## Documentation
 
 ### Getting Started
