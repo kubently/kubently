@@ -87,6 +87,18 @@ rules:
 #     - apiGroups: ["cert-manager.io"]
 #       resources: ["*"]
 #       verbs: ["get", "list", "watch"]
+
+{{- if (((.Values.changeCorrelation).helmHistory).enabled) }}
+# Helm release history (opt-in via changeCorrelation.helmHistory.enabled):
+# Helm 3 stores release records in Secrets (type helm.sh/release.v1), so
+# `helm history`/`helm list` need get/list on Secrets. The executor's kubectl
+# command whitelist still blocks `kubectl get secrets`; only helm's own
+# history/list output ever leaves the executor.
+- apiGroups: [""]
+  resources:
+    - secrets
+  verbs: ["get", "list"]
+{{- end }}
 {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

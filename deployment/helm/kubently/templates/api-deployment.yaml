@@ -184,6 +184,13 @@ spec:
         - name: SLACK_WEBHOOK_URL
           value: {{ .Values.api.env.SLACK_WEBHOOK_URL | quote }}
         {{- end }}
+        {{- /* Presence of ARGOCD_URL switches on the ArgoCD source of the
+               agent's get_recent_changes tool. The API never dials this URL
+               itself — queries run on each cluster's executor. */}}
+        {{- if ((.Values.changeCorrelation).argocd).url }}
+        - name: ARGOCD_URL
+          value: {{ .Values.changeCorrelation.argocd.url | quote }}
+        {{- end }}
         - name: KUBENTLY_A2A_PROMPT_FILE
           value: "/etc/kubently/prompts/system.prompt.yaml"
         - name: KUBENTLY_FLEET_REPORT_PROMPT_FILE

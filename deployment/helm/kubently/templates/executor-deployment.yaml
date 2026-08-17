@@ -81,6 +81,23 @@ spec:
         - name: KUBENTLY_WHITELIST_DB
           value: "/var/lib/kubently/whitelist.db"
         {{- end }}
+        {{- /* Change-correlation sources (optional). Parenthesized lookups
+               are nil-safe for old values files. */}}
+        {{- if (((.Values.changeCorrelation).helmHistory).enabled) }}
+        - name: HELM_HISTORY_ENABLED
+          value: "true"
+        {{- end }}
+        {{- if ((.Values.changeCorrelation).argocd).url }}
+        - name: ARGOCD_URL
+          value: {{ .Values.changeCorrelation.argocd.url | quote }}
+        {{- if .Values.changeCorrelation.argocd.existingSecret }}
+        - name: ARGOCD_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.changeCorrelation.argocd.existingSecret }}
+              key: {{ .Values.changeCorrelation.argocd.existingSecretKey | default "token" }}
+        {{- end }}
+        {{- end }}
         {{- /* Capability reporting configuration (optional feature) */}}
         {{- if .Values.executor.capabilities }}
         {{- if .Values.executor.capabilities.enabled }}
