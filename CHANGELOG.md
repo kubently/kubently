@@ -3,6 +3,39 @@
 ## [Unreleased] - 2026-08-17
 
 ### Added
+- **Deployment verification (Track P5)** — new `POST /webhooks/verify-deployment`
+  (X-API-Key or Bearer auth) takes `{cluster, namespace, workload}` (workload
+  accepts `deploy/name`, `sts/name`, `ds/name` forms), watches the rollout
+  settle by polling `kubectl rollout status --watch=false` through the
+  executor channel (deadline `timeout_seconds`, default 600s), then has the
+  agent run a real post-deploy investigation — pod readiness/restarts, Warning
+  events, error logs via the log-search tools, metrics vs the pre-deploy
+  window where Prometheus is configured, and change correlation — and posts a
+  PASS/FAIL verdict **with evidence** to `SLACK_WEBHOOK_URL`. Verifications
+  always post; an agent PASS cannot overrule a rollout that never settled.
+  `dry_run: true` runs synchronously and returns the verdict without posting.
+  Optional zero-CI trigger: label a workload `kubently.io/verify=enabled` and
+  enable `verifyDeployment.watch` — the API sweeps registered clusters and
+  verifies every `.metadata.generation` change (first sighting only records a
+  baseline, so enabling the label never triggers a verification storm)
+- **Scheduled checks (Track P5)** — named, cron-scheduled agent
+  investigations. `scheduledChecks.checks` in Helm values (name + 5-field
+  cron schedule + optional target clusters + a question prompt) renders into
+  a ConfigMap (`KUBENTLY_CHECKS_FILE`, read per request — edits need no pod
+  restart) plus one CronJob per check POSTing
+  `POST /webhooks/scheduled-check {"check": name}`. Config validation is
+  all-or-nothing with pointed error messages — a misspelled check fails
+  loudly instead of silently vanishing. **Noise discipline**: a PASSing check
+  posts nothing unless `notifyOnPass` (global or per-check) opts in; FAIL —
+  or an answer whose verdict can't be parsed — always posts with the
+  evidence trail. `dry_run: true` returns the verdict plus `wouldPost`
+  synchronously, posting nothing
+- **Shared verdict contract** (`kubently/modules/webhook/verdict.py`) — both
+  proactive features ask the agent to open with `VERDICT: PASS` or
+  `VERDICT: FAIL`; the tolerant parser (case, model decoration, short
+  preambles) maps anything unreadable to *unknown*, which is treated like a
+  failure for posting purposes — an unparseable verdict never mutes a
+  notification
 - **Cloud telemetry access via workload identity (Track D1)** — the executor
   can now query cloud logs/metrics/audit trails from inside the customer's
   account with **zero stored credentials**: the pod assumes a

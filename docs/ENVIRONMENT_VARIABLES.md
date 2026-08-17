@@ -97,6 +97,24 @@ The API never dials this URL itself — queries execute on each cluster's execut
 |----------|---------|----------|-------------|
 | `PROMETHEUS_URL` | - | No | Presence enables the `query_prometheus` agent tool. Set via Helm `prometheus.url` |
 
+### Proactive Operation (Slack notifications, deploy verification, scheduled checks)
+
+One Slack incoming-webhook URL powers every proactive path: Alertmanager
+diagnoses (`/webhooks/alertmanager`), the fleet health digest
+(`/webhooks/fleet-report`), deployment verifications
+(`/webhooks/verify-deployment`) and scheduled checks
+(`/webhooks/scheduled-check`). The URL is a credential — set it via the Helm
+`api.slackWebhook.existingSecret` reference rather than a values file.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `SLACK_WEBHOOK_URL` | - | For posting paths | Slack incoming-webhook URL all proactive results post to. `dry_run` calls never need it. Set via Helm `api.slackWebhook` |
+| `KUBENTLY_FLEET_REPORT_PROMPT_FILE` | `/etc/kubently/prompts/fleet_report.prompt.yaml` | No | Fleet digest query file (rendered from Helm `fleetReport.query`) |
+| `KUBENTLY_CHECKS_FILE` | `/etc/kubently/checks/checks.yaml` | No | Scheduled-checks config file (rendered from Helm `scheduledChecks.checks`, read per request — no restart on change) |
+| `KUBENTLY_VERIFY_TIMEOUT_SECONDS` | `600` | No | Default rollout settle deadline for `/webhooks/verify-deployment` when the request doesn't send `timeout_seconds` (per-request values clamp to 60–1800) |
+| `KUBENTLY_VERIFY_WATCH_SECONDS` | `0` (off) | No | Enables the deploy watch: sweep interval in seconds (min 15) for finding `kubently.io/verify=enabled` workloads whose generation changed. Set via Helm `verifyDeployment.watch` |
+| `KUBENTLY_VERIFY_WATCH_CLUSTERS` | - (all registered) | No | Comma-separated cluster ids to restrict the deploy watch sweep to |
+
 ### LLM Configuration (for A2A)
 
 | Variable | Default | Required | Description |
