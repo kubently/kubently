@@ -210,10 +210,33 @@ spec:
           value: "/etc/kubently/prompts/system.prompt.yaml"
         - name: KUBENTLY_FLEET_REPORT_PROMPT_FILE
           value: "/etc/kubently/prompts/fleet_report.prompt.yaml"
+        {{- if .Values.scheduledChecks.enabled }}
+        - name: KUBENTLY_CHECKS_FILE
+          value: "/etc/kubently/checks/checks.yaml"
+        {{- end }}
+        {{- /* Deploy watch: sweep for kubently.io/verify=enabled workloads and
+               verify on generation change. 0/absent disables the watch. */}}
+        {{- if ((.Values.verifyDeployment).watch).enabled }}
+        - name: KUBENTLY_VERIFY_WATCH_SECONDS
+          value: {{ .Values.verifyDeployment.watch.intervalSeconds | default 60 | quote }}
+        {{- with .Values.verifyDeployment.watch.clusters }}
+        - name: KUBENTLY_VERIFY_WATCH_CLUSTERS
+          value: {{ join "," . | quote }}
+        {{- end }}
+        {{- end }}
+        {{- if (.Values.verifyDeployment).timeoutSeconds }}
+        - name: KUBENTLY_VERIFY_TIMEOUT_SECONDS
+          value: {{ .Values.verifyDeployment.timeoutSeconds | quote }}
+        {{- end }}
         volumeMounts:
         - name: prompt-config
           mountPath: /etc/kubently/prompts
           readOnly: true
+        {{- if .Values.scheduledChecks.enabled }}
+        - name: checks-config
+          mountPath: /etc/kubently/checks
+          readOnly: true
+        {{- end }}
         livenessProbe:
           httpGet:
             path: /healthz
@@ -248,4 +271,9 @@ spec:
       - name: prompt-config
         configMap:
           name: {{ include "kubently.fullname" . }}-prompt
+      {{- if .Values.scheduledChecks.enabled }}
+      - name: checks-config
+        configMap:
+          name: {{ include "kubently.fullname" . }}-checks
+      {{- end }}
 {{- end }}
