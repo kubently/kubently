@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Enums
 
@@ -48,6 +48,9 @@ class CommandType(str, Enum):
     API_RESOURCES = "api-resources"
     API_VERSIONS = "api-versions"
     EXPLAIN = "explain"
+    # Partially read-only: the executor whitelist only accepts the read-only
+    # subcommands (rollout history / rollout status); restart/undo stay blocked.
+    ROLLOUT = "rollout"
 
 
 # Request Models (API Input)
@@ -175,6 +178,103 @@ class ExecuteCommandRequest(BaseModel):
             raise ValueError(f"Unrecognized or unsafe flag in extra_args: {arg}")
         
         return v
+
+
+class HelmSubcommand(str, Enum):
+    """Read-only helm subcommands (the executor's complete helm surface)."""
+
+    HISTORY = "history"
+    LIST = "list"
+
+
+class HelmCommandRequest(BaseModel):
+    """Request to run a read-only helm subcommand on a cluster's executor.
+
+    Only validated fields travel to the executor — the executor builds the
+    argv itself, so no raw arguments or extra flags are constructible from a
+    request. Helm history support is opt-in per executor (HELM_HISTORY_ENABLED).
+    """
+
+    cluster_id: str = Field(..., description="Target cluster identifier")
+    subcommand: HelmSubcommand = Field(..., description="history or list")
+    release_name: Optional[str] = Field(
+        None,
+        max_length=53,
+        pattern=r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$",
+        description="Release name (required for history)",
+    )
+    namespace: Optional[str] = Field(
+        None,
+        max_length=63,
+        pattern=r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$",
+        description="Release namespace (list without it spans all namespaces)",
+    )
+    max: Optional[int] = Field(
+        None, ge=1, le=100, description="Max revisions (history) or releases (list)"
+    )
+    timeout_seconds: Optional[int] = Field(default=30, description="Command timeout", ge=1, le=60)
+    correlation_id: Optional[str] = Field(
+        None, description="Correlation ID for A2A request tracking"
+    )
+
+    @model_validator(mode="after")
+    def validate_history_fields(self):
+        if self.subcommand == HelmSubcommand.HISTORY and not self.release_name:
+            raise ValueError("helm history requires release_name")
+        return self
+
+
+class ArgoCDOperation(str, Enum):
+    """Read-only ArgoCD API operations (the executor's complete ArgoCD surface)."""
+
+    GET_APP = "get_app"
+    LIST_APPS = "list_apps"
+    REVISION_METADATA = "revision_metadata"
+
+
+class ArgoCDQueryRequest(BaseModel):
+    """Request to query a cluster's ArgoCD API (read-only).
+
+    The query executes on the cluster's executor against its locally
+    configured ARGOCD_URL/ARGOCD_TOKEN — this API never dials ArgoCD itself
+    and never forwards a URL or credentials, only validated query fields.
+    """
+
+    cluster_id: str = Field(..., description="Target cluster identifier")
+    operation: ArgoCDOperation = Field(
+        ..., description="get_app, list_apps, or revision_metadata"
+    )
+    app_name: Optional[str] = Field(
+        None,
+        max_length=253,
+        pattern=r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$",
+        description="Application name (required for get_app / revision_metadata)",
+    )
+    revision: Optional[str] = Field(
+        None,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._/-]+$",
+        description="Git revision (required for revision_metadata)",
+    )
+    selector: Optional[str] = Field(
+        None,
+        max_length=256,
+        pattern=r"^[A-Za-z0-9=.,_/-]+$",
+        description="Label selector filter for list_apps",
+    )
+    timeout_seconds: Optional[int] = Field(default=30, description="Query timeout", ge=1, le=60)
+    correlation_id: Optional[str] = Field(
+        None, description="Correlation ID for A2A request tracking"
+    )
+
+    @model_validator(mode="after")
+    def validate_operation_fields(self):
+        if self.operation in (ArgoCDOperation.GET_APP, ArgoCDOperation.REVISION_METADATA):
+            if not self.app_name:
+                raise ValueError(f"{self.operation.value} requires app_name")
+        if self.operation == ArgoCDOperation.REVISION_METADATA and not self.revision:
+            raise ValueError("revision_metadata requires revision")
+        return self
 
 
 # Response Models (API Output)
@@ -466,6 +566,10 @@ __all__ = [
     # Request models
     "CreateSessionRequest",
     "ExecuteCommandRequest",
+    "HelmCommandRequest",
+    "HelmSubcommand",
+    "ArgoCDQueryRequest",
+    "ArgoCDOperation",
     # Response models
     "SessionResponse",
     "CommandResponse",

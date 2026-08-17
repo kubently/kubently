@@ -28,11 +28,13 @@ from sse_starlette.sse import EventSourceResponse
 
 from kubently.modules.a2a import create_a2a_server
 from kubently.modules.api import (
+    ArgoCDQueryRequest,
     CommandResponse,
     CommandResult,
     CreateSessionRequest,
     ExecuteCommandRequest,
     ExecutionStatus,
+    HelmCommandRequest,
     SessionResponse,
     SessionStatus,
 )
@@ -738,6 +740,153 @@ async def execute_command(
         error=result.get("error"),
         execution_time_ms=result.get("execution_time_ms"),
         executed_at=result.get("executed_at"),
+    )
+
+
+async def _run_tool_command(
+    tool: str,
+    cluster_id: str,
+    request_payload: dict,
+    timeout: int,
+    correlation_id: Optional[str],
+    timeout_error: str,
+) -> CommandResponse:
+    """
+    Publish a non-kubectl tool envelope over the executor channel and wait.
+
+    Shared plumbing for /debug/helm and /debug/argocd: same cluster
+    validation, command binding (result-injection protection), publish and
+    wait semantics as /debug/execute — only the envelope differs. The
+    executor performs the actual work locally (helm binary / ArgoCD HTTP);
+    this API never runs helm or dials ArgoCD itself and only forwards
+    validated fields.
+    """
+    if not redis_client or not queue_module:
+        raise HTTPException(503, "Service not initialized")
+
+    # Fail fast with the list of valid clusters instead of queueing a
+    # command nothing will pick up.
+    token_key = f"executor:token:{cluster_id}"
+    if not await redis_client.exists(token_key):
+        valid_clusters = sorted(
+            (k.decode() if isinstance(k, bytes) else k).replace("executor:token:", "")
+            for k in await redis_client.keys("executor:token:*")
+        )
+        error_msg = f"Cluster '{cluster_id}' not found."
+        if valid_clusters:
+            error_msg += f" Available clusters: {', '.join(valid_clusters)}"
+        else:
+            error_msg += " No clusters are currently registered."
+        raise HTTPException(404, error_msg)
+
+    cluster_active_key = f"cluster:active:{cluster_id}"
+    await redis_client.setex(cluster_active_key, 60, "1")
+
+    command = {
+        "id": str(uuid.uuid4()),
+        "tool": tool,
+        "request": request_payload,
+        "timeout": timeout,
+        "correlation_id": correlation_id,
+    }
+
+    await queue_module.bind_command(command["id"], cluster_id, ttl=max(120, int(timeout) * 2))
+
+    channel = f"executor-commands:{cluster_id}"
+    await redis_client.publish(channel, json.dumps(command))
+    logger.info(f"Published {tool} command {command['id']} to channel {channel}")
+
+    result = await queue_module.wait_for_result(command["id"], timeout=timeout)
+
+    if not result:
+        return CommandResponse(
+            command_id=command["id"],
+            session_id=None,
+            cluster_id=cluster_id,
+            status=ExecutionStatus.TIMEOUT,
+            correlation_id=correlation_id,
+            error=timeout_error,
+        )
+
+    return CommandResponse(
+        command_id=command["id"],
+        session_id=None,
+        cluster_id=cluster_id,
+        status=ExecutionStatus.SUCCESS if result.get("success") else ExecutionStatus.FAILURE,
+        correlation_id=correlation_id,
+        output=result.get("output"),
+        error=result.get("error"),
+        execution_time_ms=result.get("execution_time_ms"),
+        executed_at=result.get("executed_at"),
+    )
+
+
+@app.post("/debug/helm", response_model=CommandResponse)
+async def execute_helm_command(
+    request: HelmCommandRequest,
+    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+):
+    """
+    Run a read-only helm subcommand (history/list) on a cluster's executor.
+
+    Used for change correlation: helm release history answers "what was
+    deployed, and when?". The executor builds the argv from these validated
+    fields — no raw arguments travel over the channel. Requires the executor
+    to have helm history enabled (HELM_HISTORY_ENABLED / RBAC on release
+    Secrets); otherwise the executor answers with a clear "unavailable" error.
+
+    Returns:
+        200: Subcommand result (or executor-side error)
+        404: Cluster not found
+        401: Unauthorized
+    """
+    return await _run_tool_command(
+        tool="helm",
+        cluster_id=request.cluster_id,
+        request_payload={
+            "subcommand": request.subcommand.value,
+            "release_name": request.release_name,
+            "namespace": request.namespace,
+            "max": request.max,
+        },
+        timeout=request.timeout_seconds or config.get("command_timeout"),
+        correlation_id=x_correlation_id or request.correlation_id,
+        timeout_error="Helm command timeout (no executor picked it up in time)",
+    )
+
+
+@app.post("/debug/argocd", response_model=CommandResponse)
+async def execute_argocd_query(
+    request: ArgoCDQueryRequest,
+    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+):
+    """
+    Run a read-only ArgoCD Application query on a cluster's executor.
+
+    Used for change correlation: sync history answers "which GitOps deploys
+    happened, and when?". The executor performs the HTTP GET against its
+    locally configured ARGOCD_URL with its own token — this API never
+    contacts ArgoCD and never forwards a URL or credentials.
+
+    Returns:
+        200: Query result (or executor-side error, e.g. ArgoCD not configured)
+        404: Cluster not found
+        401: Unauthorized
+    """
+    return await _run_tool_command(
+        tool="argocd",
+        cluster_id=request.cluster_id,
+        request_payload={
+            "operation": request.operation.value,
+            "app_name": request.app_name,
+            "revision": request.revision,
+            "selector": request.selector,
+        },
+        timeout=request.timeout_seconds or config.get("command_timeout"),
+        correlation_id=x_correlation_id or request.correlation_id,
+        timeout_error="ArgoCD query timeout (no executor picked it up in time)",
     )
 
 
