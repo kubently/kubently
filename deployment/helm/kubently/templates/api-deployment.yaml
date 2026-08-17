@@ -206,6 +206,23 @@ spec:
         - name: ARGOCD_URL
           value: {{ .Values.changeCorrelation.argocd.url | quote }}
         {{- end }}
+        {{- /* External MCP servers: presence switches on the agent's
+               mcp_<server>_* tools + prompt guidance. Bearer tokens stay in
+               secrets — the JSON only names the env var that carries each
+               one (bearer_token_env), filled from secretKeyRef below. */}}
+        {{- if .Values.mcpServers }}
+        - name: KUBENTLY_MCP_SERVERS
+          value: {{ include "kubently.mcpServersJson" . | quote }}
+        {{- range .Values.mcpServers }}
+        {{- if .existingSecret }}
+        - name: {{ include "kubently.mcpTokenEnvName" .name }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ .existingSecret }}
+              key: {{ .secretKey | default "token" }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
         - name: KUBENTLY_A2A_PROMPT_FILE
           value: "/etc/kubently/prompts/system.prompt.yaml"
         - name: KUBENTLY_FLEET_REPORT_PROMPT_FILE
@@ -213,6 +230,7 @@ spec:
         {{- if .Values.runbooks }}
         - name: KUBENTLY_RUNBOOKS_DIR
           value: "/etc/kubently/runbooks"
+        {{- end }}
         {{- if .Values.scheduledChecks.enabled }}
         - name: KUBENTLY_CHECKS_FILE
           value: "/etc/kubently/checks/checks.yaml"
@@ -238,6 +256,7 @@ spec:
         {{- if .Values.runbooks }}
         - name: runbooks
           mountPath: /etc/kubently/runbooks
+        {{- end }}
         {{- if .Values.scheduledChecks.enabled }}
         - name: checks-config
           mountPath: /etc/kubently/checks
@@ -281,6 +300,7 @@ spec:
       - name: runbooks
         configMap:
           name: {{ include "kubently.fullname" . }}-runbooks
+      {{- end }}
       {{- if .Values.scheduledChecks.enabled }}
       - name: checks-config
         configMap:
