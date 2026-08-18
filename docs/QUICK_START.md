@@ -57,18 +57,28 @@ helm install kubently ./deployment/helm/kubently -n kubently \
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kubently -n kubently --timeout=120s
 ```
 
-## Register the Executor Token
+## How the Executor Gets Authenticated
 
-Helm puts the token in a Secret for the executor to *present*, but nothing in
-the chart tells the API to *accept* it — the API validates against Redis key
-`executor:token:{cluster_id}`, which only the admin API writes. Register it
-once, and the executor's next reconnect attempt succeeds:
+The API only accepts an executor whose token matches Redis key
+`executor:token:{cluster_id}`. In this single-cluster layout you get that for
+free: because `api.enabled` and `executor.enabled` are on in the *same* release
+and the token came from `--set executor.token=...`, the API Deployment's
+`sync-executor-tokens` init container writes the key into Redis before the API
+starts.
+
+Two cases where that does **not** happen, and you must register the token
+yourself through the admin API:
+
+- **A remote executor** installed as its own release (`api.enabled=false`) —
+  there is no API pod in that release to run the init container. This is the
+  normal multi-cluster case; see
+  [GETTING_STARTED.md - Step 5](GETTING_STARTED.md#step-5-register-and-deploy-executors).
+- **Rotating a token on an existing release**, where `helm upgrade` may not
+  restart the API pod and so never re-runs the init container.
 
 ```bash
-# Port-forward the API
 kubectl port-forward -n kubently svc/kubently-api 8080:8080 &
 
-# Teach the API about this executor's token
 curl -X POST http://localhost:8080/admin/agents/local/token \
   -H "X-API-Key: $(cat ~/kubently-admin-key.txt)" \
   -H 'Content-Type: application/json' \
@@ -77,7 +87,7 @@ curl -X POST http://localhost:8080/admin/agents/local/token \
 
 The endpoint returns 409 if a token already exists for that cluster id; delete
 it first (`DELETE /admin/agents/local/token`) to replace it. Custom tokens must
-be 32–128 characters of letters, digits, hyphens or underscores — the
+be 32-128 characters of letters, digits, hyphens or underscores — the
 `openssl rand -hex 32` value above qualifies.
 
 ## Configure CLI
