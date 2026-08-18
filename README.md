@@ -200,30 +200,51 @@ ANTHROPIC_API_KEY=sk-... ./deployment/scripts/kind-e2e.sh
 
 ### LLM Providers
 
-Configure your preferred LLM provider in `.env`:
+Pick a provider with `LLM_PROVIDER` and supply that provider's key. There is
+no default provider — the agent refuses to start without `LLM_PROVIDER`. For
+local development with `deployment/docker-compose.yaml`, put both in `.env`
+(see `deployment/.env.example`):
 
 ```bash
-# Google Gemini
-GOOGLE_API_KEY=your-gemini-api-key
+# Anthropic
+LLM_PROVIDER=anthropic-claude
+ANTHROPIC_API_KEY=your-anthropic-api-key
 
-# OpenAI
+# OpenAI (also matches Azure and OpenAI-compatible endpoints)
+LLM_PROVIDER=openai
 OPENAI_API_KEY=your-openai-api-key
 
-# Anthropic
-ANTHROPIC_API_KEY=your-anthropic-api-key
+# Google Gemini
+LLM_PROVIDER=google-gemini
+GOOGLE_API_KEY=your-gemini-api-key
 ```
+
+In Kubernetes the keys come from the `kubently-llm-secrets` secret and
+`LLM_PROVIDER` goes under `api.env`.
 
 ### Helm Deployment
 
 Customize deployment using Helm values:
 
-```bash
-# Edit deployment configuration
-vim deployment/helm/test-values.yaml
+Kubently ships as a single chart. Its components are switched on and off with
+`api.enabled`, `redis.enabled` and `executor.enabled` — an executor-only
+install on a remote cluster is the same chart with the first two disabled.
 
-# Deploy with custom values
-helm install kubently deployment/helm -f deployment/helm/test-values.yaml
+```bash
+# From a checkout
+helm install kubently ./deployment/helm/kubently -n kubently \
+  -f deployment/helm/test-values.yaml
+
+# Or from the published chart repository
+helm repo add kubently https://kubently.github.io/kubently
+helm install kubently kubently/kubently -n kubently -f my-values.yaml
 ```
+
+`LLM_PROVIDER` is required and has no chart default — set it under `api.env`
+(`anthropic-claude`, `openai`, or `google-gemini`). See
+[ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md) for the full
+configuration surface, and [GETTING_STARTED.md](docs/GETTING_STARTED.md) for
+the production walkthrough.
 
 ### Operator Runbooks
 
@@ -327,6 +348,7 @@ The diagnostic agent investigates with a small set of read-only tools:
 - **`search_past_incidents`** — keyword search over this deployment's incident history (see below). On by default when Redis is available; disable with `KUBENTLY_INCIDENT_HISTORY=false`
 - **`get_manifest_file`** *(optional)* — read-only fetch of a file from the configured GitOps manifests repo, so proposed fixes are diffed against the real manifest instead of a hallucinated one. Enabled with `gitRemediation` in Helm values (off by default)
 - **`propose_fix_pr`** *(optional)* — proposes a high-confidence manifest fix as a **pull request** against the configured GitOps manifests repo (GitHub or GitLab): branch → commit → PR with the investigation evidence in a body clearly marked machine-proposed. The agent **never merges** — a human reviews and merges, and your GitOps controller applies. Size-capped (files/changed lines), token never enters model context, cluster access stays read-only. See [GitOps PR Remediation](docs/GITOPS_REMEDIATION.md)
+- **`query_cloud_logs`**, **`query_cloud_metrics`**, **`get_recent_cloud_changes`** *(optional)* — read-only cloud telemetry for a cluster: CloudWatch Logs Insights / CloudWatch metrics / CloudTrail on AWS, Cloud Logging / Cloud Monitoring / GKE audit logs on GCP. The executor answers them using the workload identity **you** grant its ServiceAccount (EKS Pod Identity, IRSA, or GKE Workload Identity) — no cloud key is ever stored by Kubently, and revoking the IAM role kills the capability instantly. Enabled per cluster with `executor.cloud.enabled` in Helm values (off by default); each call re-checks that the target cluster's executor actually reports an identity. Operations are additionally limited by a code-level allowlist. See [Cloud Telemetry](docs/CLOUD_TELEMETRY.md)
 - **`mcp_<server>_*`** *(optional)* — tools from external MCP servers (streamable HTTP, e.g. Grafana Cloud's or Datadog's remote MCP) configured via `mcpServers` in Helm values (unset by default). Tool names are prefixed with the server name to avoid collisions; results are treated as untrusted input (framed and size-capped) and credentials stay in Kubernetes secrets. **Connect read-scoped servers/credentials only** — Kubently cannot enforce read-only semantics on a remote server's tools. See `docs/MCP_CLIENT_TOOLS.md`
 
 ## Documentation
@@ -342,6 +364,8 @@ The diagnostic agent investigates with a small set of read-only tools:
 - **[MCP Connect Guide](docs/MCP.md)** - Connect MCP clients (Claude Desktop, Cursor, custom agents)
 - **[Environment Variables](docs/ENVIRONMENT_VARIABLES.md)** - Configuration reference
 - **[GitOps PR Remediation](docs/GITOPS_REMEDIATION.md)** - Agent-proposed fix PRs (human-merged, default off)
+- **[Cloud Telemetry](docs/CLOUD_TELEMETRY.md)** - Read-only CloudWatch / Cloud Logging access via workload identity (default off)
+- **[External MCP Tools](docs/MCP_CLIENT_TOOLS.md)** - Mounting third-party MCP servers into the agent, including per-request injection
 
 ### Architecture & Development
 - **[Architecture](docs/ARCHITECTURE.md)** - System design and components
