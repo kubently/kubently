@@ -6,26 +6,42 @@
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
-| `API_HOST` | `0.0.0.0` | No | Host IP to bind the API server |
-| `API_PORT` | `8080` | No | Port for the main API server |
-| `PORT` | `8080` | No | Alias for API_PORT (for compatibility) |
+| `API_HOST` | `0.0.0.0` | No | Host IP the API server binds (see the container note below) |
+| `API_PORT` | `8080` | No | Port the API server binds (see the container note below) |
 | `LOG_LEVEL` | `INFO` | No | Logging level (DEBUG, INFO, WARNING, ERROR) |
-| `DEBUG` | `false` | No | Enable debug mode with auto-reload |
+| `DEBUG` | `false` | No | Enables uvicorn auto-reload (see the container note below) |
+
+**Container note**: the published API image starts the server with a fixed
+command — `uvicorn kubently.main:app --host 0.0.0.0 --port 8080`
+(`deployment/docker/api/Dockerfile`). `API_HOST`, `API_PORT` and `DEBUG` are
+only consulted by the `if __name__ == "__main__"` block in `kubently/main.py`,
+so in a Kubernetes or Docker deployment they do **not** move the listening
+address. The Helm chart sets `PORT` and `API_PORT` under `api.env`; neither is
+read by application code today. To change what clients connect to in-cluster,
+change `api.service.port`.
 
 ### Redis Configuration
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
-| `REDIS_HOST` | `redis` | No | Redis server hostname |
-| `REDIS_PORT` | `6379` | No | Redis server port |
+| `REDIS_HOST` | `kubently-redis-master` | No | Redis server hostname |
+| `REDIS_PORT` | `6379` | No | Redis server port. A `tcp://host:port` value (as injected by Kubernetes service links) is accepted — the port is parsed out of it |
 | `REDIS_DB` | `0` | No | Redis database number |
-| `REDIS_URL` | - | No | Full Redis URL (overrides individual settings) |
+| `REDIS_PASSWORD` | - | No | Password for an authenticated Redis. Passed as a connection parameter (not embedded in the URL), so special characters need no escaping. The chart wires it from `redis.auth.existingSecret` |
+
+The API builds its connection as `redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}`
+with `REDIS_PASSWORD` supplied separately. The chart also sets a `REDIS_URL`
+variable on the API pod, but the only code that reads it is
+`kubently/modules/storage/__init__.py`, which nothing in the API server
+imports — changing it has no effect on the running API. `REDIS_HOST` is
+rendered by the chart as `{release-name}-redis-master`, which is why the
+in-code default is `kubently-redis-master`.
 
 ### Session Management
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
-| `SESSION_TTL` | `3600` | No | Session TTL in seconds (1 hour) |
+| `SESSION_TTL` | `3600` | No | Session TTL in seconds. Note the Helm chart overrides this to `300` under `api.env` |
 | `COMMAND_TIMEOUT` | `30` | No | Default command execution timeout in seconds |
 | `MAX_COMMANDS_PER_FETCH` | `10` | No | Maximum commands per fetch operation |
 
@@ -33,10 +49,32 @@
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
-| `API_KEYS` | - | Yes* | Comma-separated list of valid API keys |
-| `AGENT_TOKEN_<ID>` | - | Yes* | Agent authentication tokens (per cluster) |
+| `API_KEYS` | - | Yes | Valid API keys, comma- **or** newline-separated. Both `service:key` and bare `key` forms are accepted. Startup fails with a clear error if unset — there is no default |
+| `REQUIRE_AUTH` | `true` | No | Parsed into the auth config but not currently consulted by any request path; authentication is always enforced |
 
-*Required for production deployments
+**There is no `AGENT_TOKEN_<ID>` / `EXECUTOR_TOKEN_<ID>` environment variable.**
+Executor tokens live in Redis under `executor:token:{cluster_id}` and are
+created through the admin API (`POST /admin/agents/{cluster_id}/token`, which
+accepts an auto-generated or a caller-supplied 32–128 character token). The
+executor side of the same token is `KUBENTLY_TOKEN` (see Executor
+Configuration).
+
+### OIDC / OAuth (optional)
+
+Off by default. When enabled, the API exposes auth discovery and validates
+bearer tokens alongside API keys — see `docs/AUTH_DISCOVERY.md` and
+`docs/OAUTH_USAGE.md` for the full flow.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `OIDC_ENABLED` | `false` | No | Master switch for OIDC/OAuth support |
+| `OIDC_ISSUER` | - | If enabled | Issuer URL; the endpoints below default to `{issuer}/jwks`, `{issuer}/token`, `{issuer}/device/code` when unset |
+| `OIDC_CLIENT_ID` | `kubently-cli` | No | Client id presented by the CLI |
+| `OIDC_AUDIENCE` | value of `OIDC_CLIENT_ID` | No | Expected token audience |
+| `OIDC_JWKS_URI` | `{OIDC_ISSUER}/jwks` | No | JWKS endpoint override |
+| `OIDC_TOKEN_ENDPOINT` | `{OIDC_ISSUER}/token` | No | Token endpoint override |
+| `OIDC_DEVICE_AUTH_ENDPOINT` | `{OIDC_ISSUER}/device/code` | No | Device-authorization endpoint override |
+| `OIDC_SCOPES` | `openid email profile groups` | No | Space-separated scope list |
 
 ### A2A (Agent-to-Agent) Configuration
 
@@ -47,6 +85,8 @@
 | `A2A_EXTERNAL_URL` | - | No | External URL for A2A agent card (e.g., `https://api.example.com/a2a/`) |
 | `KUBENTLY_MAX_FLEET_CLUSTERS` | `10` | No | Max clusters per `execute_kubectl_multi` fan-out call (each cluster adds up to ~4KB to the agent context) |
 | `A2A_SERVER_DEBUG` | `false` | No | Enable A2A debug logging |
+| `KUBENTLY_MAX_OUTPUT_CHARS` | `20000` | No | Per-cluster output cap applied to kubectl results before they enter the agent's context |
+| `KUBENTLY_PROMPT_FILE` | - | No | Explicit path to a prompt YAML file, overriding the role-based lookup under `/etc/kubently/prompts/` |
 
 ### Operator Runbooks (optional)
 
@@ -127,6 +167,22 @@ In Helm deployments set these under `api.env`. Recording and retrieval
 failures are logged and skipped — incident history can never break an
 investigation or a response.
 
+### Cloud Telemetry Tools (optional)
+
+The agent's three cloud tools — `query_cloud_logs`, `query_cloud_metrics` and
+`get_recent_cloud_changes` — are registered whenever cloud tooling is not
+explicitly switched off, but each one checks, per target cluster and per call,
+that the cluster's executor actually reports a cloud identity. A fleet with no
+cloud-enabled executors therefore sees the tools refuse every call rather than
+silently return nothing. The API holds no cloud credential of its own: it
+forwards whitelisted operations to the executor, which uses its pod's workload
+identity (see `KUBENTLY_CLOUD_MODE` under Executor Configuration and
+`docs/CLOUD_TELEMETRY.md`).
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `KUBENTLY_CLOUD_TOOLS` | `auto` | No | Set to `off` to skip registering the cloud tools entirely. Any other value (including the default) registers them, subject to the per-call executor capability check |
+
 ### Prometheus Metrics Tool (optional)
 
 When `PROMETHEUS_URL` is set on the API server, the agent registers the read-only `query_prometheus` tool and injects metrics guidance into the system prompt. When unset (default), the tool does not exist and the prompt never mentions metrics.
@@ -202,29 +258,64 @@ diagnoses (`/webhooks/alertmanager`), the fleet health digest
 
 ### LLM Configuration (for A2A)
 
+`LLM_PROVIDER` has **no default and is required**: the agent raises
+`Unsupported LLM_PROVIDER ...` at construction time if it is unset or
+unrecognised. The Helm chart does not set it either — supply it under
+`api.env` (`deployment/helm/test-values.yaml` and the `kubently install` CLI
+both do). Matching is substring-based on the lowercased value:
+
+| Value contains | Provider used | Model variable |
+|----------------|---------------|----------------|
+| `anthropic` or `claude` | Anthropic (`ChatAnthropic`) | `ANTHROPIC_MODEL_NAME` |
+| `openai` or `azure` | OpenAI-compatible (`ChatOpenAI`) | `OPENAI_MODEL_NAME` |
+| `google` or `gemini` | Google Gemini (`ChatGoogleGenerativeAI`) | `GOOGLE_MODEL_NAME` |
+
+The conventional values are `anthropic-claude`, `openai` and `google-gemini`.
+Ollama is **not** supported — there is no Ollama code path.
+
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
-| `LLM_PROVIDER` | `openai` | No | LLM provider (openai, anthropic, ollama) |
-| `OPENAI_API_KEY` | - | If OpenAI | OpenAI API key |
-| `OPENAI_ENDPOINT` | `https://api.openai.com/v1` | No | OpenAI API endpoint |
+| `LLM_PROVIDER` | - | Yes | Provider selector (see table above). Unset or unrecognised = the agent fails to start |
+| `OPENAI_API_KEY` | - | If OpenAI | OpenAI API key. Read by the LangChain OpenAI client, not by Kubently code |
 | `OPENAI_MODEL_NAME` | `gpt-4o` | No | OpenAI model to use |
 | `OPENAI_MAX_TOKENS` | `4096` | No | Max completion tokens on the OpenAI path (parity with the Anthropic path). Note: previously unbounded — OpenAI-compatible brokers such as OpenRouter reserve `max_tokens` against the account balance per request, so an unbounded value can 402 on small balances. Raise it if long diagnoses are being truncated |
-| `ANTHROPIC_API_KEY` | - | If Anthropic | Anthropic API key |
-| `ANTHROPIC_MODEL_NAME` | `claude-3-5-sonnet-20241022` | No | Anthropic model to use |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | No | Ollama server URL |
-| `OLLAMA_MODEL` | `llama3` | No | Ollama model to use |
+| `ANTHROPIC_API_KEY` | - | If Anthropic | Anthropic API key. Read by the LangChain Anthropic client, not by Kubently code |
+| `ANTHROPIC_MODEL_NAME` | `claude-sonnet-4-6` | No | Anthropic model to use |
+| `ANTHROPIC_CONTEXT_CLEARING` | `true` | No | Anthropic path only. When `true`, the model is created with the `context-management-2025-06-27` beta and `clear_tool_uses_20250919` edits so long investigations do not overflow the context window. Set to `false` for a plain `ChatAnthropic` client |
+| `GOOGLE_API_KEY` | - | If Google | Google Gemini API key. Read by the LangChain Google client, not by Kubently code |
+| `GOOGLE_MODEL_NAME` | `gemini-2.0-flash` | No | Gemini model to use |
+
+The Helm chart wires `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`
+and `LANGSMITH_API_KEY` from a secret named `kubently-llm-secrets` (the name is
+fixed in `api-deployment.yaml`); every key is optional, so the secret only
+needs the provider you actually use.
 
 ### LangSmith Tracing (Production Observability)
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
+The `LANGSMITH_*` variables are consumed by the LangSmith/LangChain SDK, not by
+Kubently code — Kubently only passes them through the pod environment, so their
+exact semantics follow the SDK. The chart wires `LANGSMITH_API_KEY` from the
+`kubently-llm-secrets` secret; set the rest under `api.env`.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
 | `LANGSMITH_TRACING` | `false` | No | Enable LangSmith tracing for observability |
 | `LANGSMITH_API_KEY` | - | If tracing enabled | LangSmith API key (set via secret) |
-| `POSTHOG_API_KEY` | - | No | Enables PostHog LLM observability (model, tokens, cost, latency per generation). Unset = no telemetry is collected or sent |
-| `POSTHOG_HOST` | `https://us.i.posthog.com` | No | PostHog ingestion host (use `https://eu.i.posthog.com` for the EU region, or your own reverse proxy) |
 | `LANGSMITH_PROJECT` | `default` | No | Project name in LangSmith UI |
 | `LANGSMITH_ENDPOINT` | `https://api.smith.langchain.com` | No | LangSmith API endpoint |
-| `LANGSMITH_SAMPLE_RATE` | `1.0` | No | Sampling rate (0.0-1.0) for trace volume reduction |
+
+`POSTHOG_*` is a separate, independent integration implemented in
+`agent.py` (`_posthog_llm_callbacks`): when the key is set, a LangChain
+callback reports model, tokens, cost and latency per generation. A missing or
+too-old `posthog` SDK logs a warning and degrades to no telemetry rather than
+failing the agent.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `POSTHOG_API_KEY` | - | No | Enables PostHog LLM observability. Unset = no telemetry is collected or sent |
+| `POSTHOG_HOST` | `https://us.i.posthog.com` | No | PostHog ingestion host (use `https://eu.i.posthog.com` for the EU region, or your own reverse proxy) |
 
 **See**: `docs/LANGSMITH_TRACING.md` for detailed setup guide
 
@@ -234,18 +325,81 @@ diagnoses (`/webhooks/alertmanager`), the fleet health digest
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
-| `KUBENTLY_API_URL` | - | Yes | URL of the Kubently API server |
-| `CLUSTER_ID` | - | Yes | Unique identifier for the cluster |
-| `KUBENTLY_TOKEN` | - | Yes | Authentication token for the executor |
+| `KUBENTLY_API_URL` | - | Yes | URL of the Kubently API server. The executor exits at startup if this, `CLUSTER_ID` or `KUBENTLY_TOKEN` is missing |
+| `CLUSTER_ID` | - | Yes | Unique identifier for the cluster. Set via Helm `executor.clusterId`; the chart falls back to the release namespace when that is empty |
+| `KUBENTLY_TOKEN` | - | Yes | Authentication token for the executor. Must match the value stored in Redis at `executor:token:{CLUSTER_ID}` on the API side |
 | `LOG_LEVEL` | `INFO` | No | Logging level |
+| `EXECUTOR_VERSION` | `unknown` | No | Version string reported in capability/heartbeat payloads |
+
+### TLS
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `KUBENTLY_SSL_VERIFY` | `true` | No | Set to `false` to skip TLS verification when dialling the API (development only) |
+| `KUBENTLY_CA_CERT` | - | No | Path to a CA bundle for an API server using a private/self-signed certificate. Verification stays on |
+
+An `http://` API URL with verification still enabled logs a warning at startup;
+it is intended for local development only.
+
+### Capability Reporting
+
+Off by default. When on, the executor advertises its command whitelist (and,
+when cloud mode is enabled, its detected cloud identity) to the central API so
+the agent knows what each cluster can do before sending commands. Reporting
+failures are logged and ignored — the executor keeps serving commands.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `KUBENTLY_REPORT_CAPABILITIES` | `false` | No | Enable capability reporting. Set via Helm `executor.capabilities.enabled`. Forced on when cloud mode is enabled (see below) |
+| `KUBENTLY_HEARTBEAT_INTERVAL` | `300` | No | Seconds between heartbeats that refresh the reported capabilities' TTL. Set via Helm `executor.capabilities.heartbeatInterval` |
 
 ### Whitelist Configuration
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
-| `WHITELIST_PATH` | `/etc/kubently/whitelist.yaml` | No | Path to whitelist configuration |
-| `REFRESH_INTERVAL` | `30` | No | Whitelist refresh interval in seconds |
-| `TIMEOUT_SECONDS` | `30` | No | Command execution timeout |
+| `KUBENTLY_WHITELIST_CONFIG` | `/etc/kubently/whitelist.yaml` | No | Path to the whitelist YAML. The chart mounts the rendered ConfigMap at exactly this path |
+
+The whitelist's other knobs are fields **inside** that YAML file, not
+environment variables — `reloadIntervalSeconds` (default `30`), `timeoutSeconds`
+and `maxArguments`. Under Helm they come from
+`executor.security.commandWhitelist.reloadInterval`, `.timeoutSeconds` and
+`.maxArguments`. There are no `WHITELIST_PATH`, `REFRESH_INTERVAL` or
+`TIMEOUT_SECONDS` variables. (The chart also sets `KUBENTLY_WHITELIST_DB` on the
+executor pod; no code reads it today.)
+
+### Cloud Telemetry (optional, default off)
+
+The executor can answer read-only cloud telemetry queries — CloudWatch Logs
+Insights, CloudWatch metrics, EKS control-plane logs and CloudTrail on AWS;
+Cloud Logging, Cloud Monitoring and GKE audit logs on GCP — using the ambient
+identity its pod already holds (EKS Pod Identity, IRSA, or GKE Workload
+Identity). **No cloud credentials are configured here**: the variables below
+only say which identity to look for. The full onboarding guide, including the
+exact minimal IAM policy, is `docs/CLOUD_TELEMETRY.md`.
+
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `KUBENTLY_CLOUD_MODE` | `off` | No | `off` disables the feature; `auto` tries AWS then GCP; `aws` and `gcp` pin one provider. Set via Helm `executor.cloud.enabled` + `executor.cloud.provider` |
+| `KUBENTLY_CLOUD_AWS_REGION` | - (auto-detected) | No | Overrides the AWS region otherwise detected from the pod environment. Set via Helm `executor.cloud.awsRegion` |
+| `KUBENTLY_CLOUD_GCP_PROJECT` | - (auto-detected) | No | Overrides the GCP project otherwise detected from the pod environment. Set via Helm `executor.cloud.gcpProject` |
+| `KUBENTLY_CLOUD_REFRESH_INTERVAL` | `3600` | No | Seconds between re-detections of identity and usable permissions, so IAM grants and revocations are picked up without a pod restart. Set via Helm `executor.cloud.refreshInterval` |
+
+Behaviour worth knowing before you enable it:
+
+- **Cloud mode implies capability reporting.** The agent discovers cloud access
+  through the capability report, so when cloud mode is on the executor turns
+  `KUBENTLY_REPORT_CAPABILITIES` on itself and logs that it did.
+- **Missing SDKs degrade, they do not fail.** The cloud module needs the
+  `cloud` extra (`boto3`, `google-cloud-logging`, `google-cloud-monitoring`,
+  `google-auth`; already installed in the published executor image). If the
+  import fails, the executor logs
+  `KUBENTLY_CLOUD_MODE set but cloud module unavailable ...` and continues with
+  cloud operations disabled — kubectl work is unaffected.
+- **The allowlist is in code.** Only the operations enumerated in
+  `kubently/modules/executor/cloud/operations.py` can run, independently of how
+  broad the IAM role you grant happens to be.
+- **The API side has its own switch.** See `KUBENTLY_CLOUD_TOOLS` under API
+  Server Configuration.
 
 ### Log Search (search_pod_logs)
 
@@ -326,25 +480,24 @@ When deploying to Kubernetes, these variables are typically set automatically:
 
 | Variable | Set By | Description |
 |----------|--------|-------------|
-| `HOSTNAME` | Kubernetes | Pod hostname (used for routing) |
-| `NAMESPACE` | Kubernetes | Current namespace |
-| `POD_NAME` | Kubernetes | Current pod name |
-| `NODE_NAME` | Kubernetes | Node where pod is running |
+| `HOSTNAME` | Kubernetes / the chart | Pod name. The API deployment sets it explicitly from `metadata.name` and the code uses it to identify the serving instance |
 
 ### Docker Compose
 
 For local development with Docker Compose:
 
+`deployment/docker-compose.yaml` already sets the non-secret variables; the
+`.env` file next to it only needs the provider selection and its key (see
+`deployment/.env.example`):
+
 ```env
 # .env file example
-REDIS_HOST=redis
-REDIS_PORT=6379
-API_PORT=8080
-A2A_EXTERNAL_URL=http://localhost:8080/a2a/
-LOG_LEVEL=DEBUG
-API_KEYS=dev-key-1,dev-key-2
-AGENT_TOKEN_LOCAL=local-dev-token
+LLM_PROVIDER=anthropic-claude
+ANTHROPIC_API_KEY=sk-ant-...
 ```
+
+Executor tokens are not environment variables on the API side — create them
+through `POST /admin/agents/{cluster_id}/token` once the API is up.
 
 ## Configuration Precedence
 
@@ -359,27 +512,35 @@ AGENT_TOKEN_LOCAL=local-dev-token
 The following variables contain sensitive data and should be stored in Kubernetes Secrets or secure vaults:
 
 - `API_KEYS`
-- `AGENT_TOKEN_*`
-- `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
-- `KUBENTLY_TOKEN`
+- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`
+- `KUBENTLY_TOKEN` (the executor's copy of its cluster token)
+- `REDIS_PASSWORD`
+- `ARGOCD_TOKEN`
+- `SLACK_WEBHOOK_URL` (anyone holding it can post to your channel)
+- `LANGSMITH_API_KEY`, `POSTHOG_API_KEY`
+- MCP bearer tokens referenced by `bearer_token_env` / `headers_env`
 - `KUBENTLY_GITOPS_TOKEN` (scope it to the manifests repo only — see the GitOps PR Remediation section)
 
 ### Example Kubernetes Secret
 
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: kubently-secrets
-type: Opaque
-stringData:
-  API_KEYS: "key1,key2,key3"
-  AGENT_TOKEN_PROD: "secure-token-here"
-  OPENAI_API_KEY: "sk-..."
+The chart expects two separately named secrets rather than one combined one:
+`kubently-api-keys` (key: `keys`) for client API keys, and
+`kubently-llm-secrets` (keys: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+`GOOGLE_API_KEY`, `LANGSMITH_API_KEY`) for provider credentials.
+
+```bash
+kubectl create secret generic kubently-api-keys -n kubently \
+  --from-literal=keys="admin:$(openssl rand -hex 32)"
+
+kubectl create secret generic kubently-llm-secrets -n kubently \
+  --from-literal=ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
 ## Environment-Specific Configurations
+
+These examples assume running the API directly (`python -m kubently.main`),
+where `API_HOST`/`API_PORT`/`DEBUG` are honoured. In containers the port is
+fixed by the image command — see the container note under Core Settings.
 
 ### Development
 
@@ -388,6 +549,7 @@ export API_PORT=8080
 export LOG_LEVEL=DEBUG
 export DEBUG=true
 export REDIS_HOST=localhost
+export LLM_PROVIDER=anthropic-claude
 ```
 
 ### Staging
@@ -415,8 +577,9 @@ export SESSION_TTL=7200  # 2 hours
 
 1. **Redis connection errors**: Check `REDIS_HOST` and `REDIS_PORT`
 2. **A2A not accessible**: A2A is always enabled. Ensure you're accessing it at the `/a2a` path on the main API port
-3. **Authentication failures**: Verify `API_KEYS` and `AGENT_TOKEN_*` are set
+3. **Authentication failures**: Verify `API_KEYS` is set on the API, and that the executor's `KUBENTLY_TOKEN` matches `executor:token:{CLUSTER_ID}` in Redis
 4. **Wrong A2A URL in agent card**: Set `A2A_EXTERNAL_URL` correctly
+5. **Agent fails with `Unsupported LLM_PROVIDER`**: `LLM_PROVIDER` is required and has no default — set it under `api.env`
 
 ### Debug Commands
 
