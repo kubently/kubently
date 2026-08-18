@@ -276,6 +276,35 @@ total injected size is capped (`KUBENTLY_RUNBOOKS_MAX_CHARS`, default 8000
 characters) — one complete, best-matching runbook beats fragments of many.
 Outside Helm, point `KUBENTLY_RUNBOOKS_DIR` at any directory of `.md` files.
 
+### Incident History
+
+Past diagnoses become searchable institutional memory. Whenever an
+investigation concludes with a root cause, Kubently stores a compact record —
+date, cluster, resources involved, symptom keywords, the root-cause
+one-liner, and the resolution when one was stated — in Redis, isolated per
+authenticated caller (the same namespace boundary as conversation memory, so
+in multi-tenant deployments one tenant's incidents are never visible to
+another).
+
+The history is used two ways:
+
+- The agent's **`search_past_incidents`** tool answers "have we seen this
+  before?" — keyword search over resources, clusters, symptoms and
+  root-cause text, newest first.
+- **Auto-surface**: when a new investigation strongly matches a past incident
+  (same resources/symptoms/cluster), a one-line
+  `SIMILAR PAST INCIDENT (date): <root cause>` note is injected into
+  context — framed as something to *verify against fresh evidence*, never to
+  assume. When a past incident materially informs the diagnosis, the RCA
+  cites it ("same root cause as the 2026-07-03 incident").
+
+This is retrieval over stored summaries, not a learning system: records are
+plain data with a TTL (default 90 days, `KUBENTLY_INCIDENT_TTL_SECONDS`) and
+a per-tenant cap (default 200, `KUBENTLY_INCIDENT_MAX_PER_NAMESPACE`,
+oldest evicted). The feature is on by default; set
+`KUBENTLY_INCIDENT_HISTORY=false` (Helm: under `api.env`) to disable both
+recording and retrieval.
+
 ## Architecture
 
 - **API Server**: FastAPI-based REST API for cluster management and authentication
@@ -295,6 +324,7 @@ The diagnostic agent investigates with a small set of read-only tools:
 - **`search_pod_logs`** — structured log search across every pod/container matching a label selector (substring or regex, time bounds, previous-container support). Logs are filtered on the cluster's executor so only matching lines — capped, with explicit truncation notes — come back
 - **`query_loki`** *(optional)* — LogQL range queries against a cluster's Loki for aggregated/historical log search, including logs from pods that have restarted or been deleted. Enabled by setting `loki.url` in Helm values (unset by default); queries execute on each cluster's executor through the same outbound channel as kubectl commands
 - **`query_prometheus`** *(optional)* — instant and range PromQL queries for latency, saturation, OOM-trend and restarts-over-time evidence. Enabled by setting `prometheus.url` in Helm values (unset by default); queries execute on each cluster's executor through the same outbound channel as kubectl commands
+- **`search_past_incidents`** — keyword search over this deployment's incident history (see below). On by default when Redis is available; disable with `KUBENTLY_INCIDENT_HISTORY=false`
 - **`get_manifest_file`** *(optional)* — read-only fetch of a file from the configured GitOps manifests repo, so proposed fixes are diffed against the real manifest instead of a hallucinated one. Enabled with `gitRemediation` in Helm values (off by default)
 - **`propose_fix_pr`** *(optional)* — proposes a high-confidence manifest fix as a **pull request** against the configured GitOps manifests repo (GitHub or GitLab): branch → commit → PR with the investigation evidence in a body clearly marked machine-proposed. The agent **never merges** — a human reviews and merges, and your GitOps controller applies. Size-capped (files/changed lines), token never enters model context, cluster access stays read-only. See [GitOps PR Remediation](docs/GITOPS_REMEDIATION.md)
 - **`mcp_<server>_*`** *(optional)* — tools from external MCP servers (streamable HTTP, e.g. Grafana Cloud's or Datadog's remote MCP) configured via `mcpServers` in Helm values (unset by default). Tool names are prefixed with the server name to avoid collisions; results are treated as untrusted input (framed and size-capped) and credentials stay in Kubernetes secrets. **Connect read-scoped servers/credentials only** — Kubently cannot enforce read-only semantics on a remote server's tools. See `docs/MCP_CLIENT_TOOLS.md`
