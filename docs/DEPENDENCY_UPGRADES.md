@@ -7,7 +7,7 @@ the next person (or the next Dependabot PR) does not have to rediscover why.
 
 Dependabot proposes `a2a-sdk==0.2.16 -> 1.1.2` (PR #35). **Do not merge that
 bump on its own.** It is not a version change; a2a-sdk 1.x is a rewrite of the
-package, and `kubently/modules/a2a/` needs migrating first.
+package, and `kubently/modules/a2a/` needs migrating first. Tracked in #76.
 
 ### Why it cannot just be bumped
 
@@ -73,7 +73,7 @@ even on the **current** pin. It has two independent bugs:
 
 Nothing imports it; the live server is built by `A2AModule.get_app()` in
 `kubently/modules/a2a/__init__.py`. It should be deleted or repaired before the
-migration, so it does not read as a second entry point.
+migration, so it does not read as a second entry point. Tracked in #77.
 
 ## typescript: held at ^6
 
@@ -86,7 +86,7 @@ because the toolchain does not support 7 yet:
 - `@typescript-eslint@8.67` peers on `typescript >=4.8.4 <6.1.0`.
 
 `6.0.3` is the highest version both accept. Revisit once ts-jest ships TS 7
-support.
+support. Tracked in #78.
 
 Note that TS 6 already removes `moduleResolution: node10`, which is why
 `kubently-cli/nodejs/tsconfig.json` moved to `module`/`moduleResolution:
@@ -95,12 +95,12 @@ imports already carry `.js` extensions.
 
 ## Cleanups worth doing separately
 
-- `test-automation/requirements.txt` pins `a2a>=0.44`, but nothing under
-  `test-automation/` imports `a2a`. It looks removable.
-- `google-generativeai` is end-of-life upstream ("All support for the
+- **#81** — `test-automation/requirements.txt` pins `a2a>=0.44`, but nothing
+  under `test-automation/` imports it; `kubently-cli/nodejs` declares `ws` and
+  `readline-sync`, but neither is imported under `src/`.
+- **#80** — `google-generativeai` is end-of-life upstream ("All support for the
   `google.generativeai` package has ended"). `test-automation/analyzer.py`
   should migrate to `google-genai`.
-- `kubently-cli/nodejs` declares `ws` and `readline-sync` as dependencies, but
-  neither is imported under `src/`.
-- `ruff check kubently/` reports ~971 violations, which is why the CI lint job
-  is `continue-on-error`. Clearing that backlog would let lint gate too.
+- **#79** — `ruff check kubently/` reports ~971 violations, which is why the CI
+  lint job is `continue-on-error`. Clearing that backlog would let lint gate
+  too.
