@@ -342,6 +342,7 @@ class KubentlyAgent:
         # tool the model cannot call.
         from kubently.modules.config import get_prompt
 
+        from .gitops import gitops_guidance
         from .logsearch import loki_guidance
         from .mcp_client import mcp_guidance
         from .prometheus import metrics_guidance
@@ -351,6 +352,7 @@ class KubentlyAgent:
             variables={
                 "loki_guidance": loki_guidance(),
                 "metrics_guidance": metrics_guidance(),
+                "gitops_guidance": gitops_guidance(),
                 "mcp_guidance": mcp_guidance(),
             },
         )
@@ -1365,6 +1367,21 @@ class KubentlyAgent:
 
             self.tools.append(query_prometheus)
             logger.info("Prometheus metrics tool registered (PROMETHEUS_URL is set)")
+
+        # GitOps PR remediation tools (get_manifest_file, propose_fix_pr).
+        # Registered only when a Git remediation target is fully configured
+        # (provider + repo + token) — default OFF. The matching prompt
+        # guidance flips on the same switch via {{gitops_guidance}} above.
+        from kubently.modules.a2a.protocol_bindings.a2a_server.gitops_tools import (
+            build_gitops_tools,
+        )
+
+        self.tools.extend(
+            build_gitops_tools(
+                interceptor,
+                lambda: getattr(self, "_current_thread_id", None),
+            )
+        )
 
         # External MCP servers (operator-configured): tools register with an
         # mcp_<server>_ prefix; an unreachable server contributes nothing and
