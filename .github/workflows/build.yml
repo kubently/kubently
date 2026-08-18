@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     
     - name: Set up Node.js
       uses: actions/setup-node@v4
@@ -32,7 +32,7 @@ jobs:
     - name: Run tests
       run: |
         cd kubently-cli/nodejs
-        npm test || true
+        npm test
     
     - name: Package executable
       run: |
@@ -40,7 +40,7 @@ jobs:
         npm pack
     
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: nodejs-dist
         path: |
@@ -53,10 +53,10 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     
     - name: Download all artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
     
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/')
