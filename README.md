@@ -325,6 +325,8 @@ The diagnostic agent investigates with a small set of read-only tools:
 - **`query_loki`** *(optional)* — LogQL range queries against a cluster's Loki for aggregated/historical log search, including logs from pods that have restarted or been deleted. Enabled by setting `loki.url` in Helm values (unset by default); queries execute on each cluster's executor through the same outbound channel as kubectl commands
 - **`query_prometheus`** *(optional)* — instant and range PromQL queries for latency, saturation, OOM-trend and restarts-over-time evidence. Enabled by setting `prometheus.url` in Helm values (unset by default); queries execute on each cluster's executor through the same outbound channel as kubectl commands
 - **`search_past_incidents`** — keyword search over this deployment's incident history (see below). On by default when Redis is available; disable with `KUBENTLY_INCIDENT_HISTORY=false`
+- **`get_manifest_file`** *(optional)* — read-only fetch of a file from the configured GitOps manifests repo, so proposed fixes are diffed against the real manifest instead of a hallucinated one. Enabled with `gitRemediation` in Helm values (off by default)
+- **`propose_fix_pr`** *(optional)* — proposes a high-confidence manifest fix as a **pull request** against the configured GitOps manifests repo (GitHub or GitLab): branch → commit → PR with the investigation evidence in a body clearly marked machine-proposed. The agent **never merges** — a human reviews and merges, and your GitOps controller applies. Size-capped (files/changed lines), token never enters model context, cluster access stays read-only. See [GitOps PR Remediation](docs/GITOPS_REMEDIATION.md)
 - **`mcp_<server>_*`** *(optional)* — tools from external MCP servers (streamable HTTP, e.g. Grafana Cloud's or Datadog's remote MCP) configured via `mcpServers` in Helm values (unset by default). Tool names are prefixed with the server name to avoid collisions; results are treated as untrusted input (framed and size-capped) and credentials stay in Kubernetes secrets. **Connect read-scoped servers/credentials only** — Kubently cannot enforce read-only semantics on a remote server's tools. See `docs/MCP_CLIENT_TOOLS.md`
 
 ## Documentation
@@ -339,6 +341,7 @@ The diagnostic agent investigates with a small set of read-only tools:
 - **[Test Queries](docs/TEST_QUERIES.md)** - Example API requests and A2A protocol usage
 - **[MCP Connect Guide](docs/MCP.md)** - Connect MCP clients (Claude Desktop, Cursor, custom agents)
 - **[Environment Variables](docs/ENVIRONMENT_VARIABLES.md)** - Configuration reference
+- **[GitOps PR Remediation](docs/GITOPS_REMEDIATION.md)** - Agent-proposed fix PRs (human-merged, default off)
 
 ### Architecture & Development
 - **[Architecture](docs/ARCHITECTURE.md)** - System design and components

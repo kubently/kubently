@@ -17,6 +17,12 @@ variables:
   - name: metrics_guidance
     required: false
     default: ""
+  # Injected by the agent ONLY when the GitOps remediation tools are
+  # registered (provider + repo + token configured); defaults to empty so
+  # unconfigured deployments never reference tools the model cannot call.
+  - name: gitops_guidance
+    required: false
+    default: ""
   # Injected by the agent ONLY when external MCP servers are configured
   # (KUBENTLY_MCP_SERVERS / KUBENTLY_MCP_SERVERS_FILE set); defaults to empty
   # so unconfigured deployments never reference external tools.
@@ -441,6 +447,8 @@ content: |-
   {{loki_guidance}}
 
   {{metrics_guidance}}
+
+  {{gitops_guidance}}
 
   {{mcp_guidance}}
 
