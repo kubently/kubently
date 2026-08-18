@@ -9,6 +9,10 @@ Get Kubently running locally in 5 minutes. For production deployment with extern
 - Node.js 18+ (for CLI)
 - LLM API key (Anthropic, OpenAI, or Google)
 
+The fastest path is `kubently install`, which does everything below for you
+(see the README). The steps here are the manual equivalent, for when you want
+to see or customise each piece.
+
 ## Install & Deploy
 
 ```bash
@@ -39,8 +43,11 @@ kubectl create secret generic kubently-api-keys -n kubently \
   --from-literal=keys="admin:${ADMIN_KEY}"
 echo $ADMIN_KEY > ~/kubently-admin-key.txt
 
-# Deploy (API + executor in same cluster)
+# Deploy (API + executor in same cluster — one chart, all components on)
+# LLM_PROVIDER is required: the agent has no default provider.
 helm install kubently ./deployment/helm/kubently -n kubently \
+  --set api.existingSecret=kubently-api-keys \
+  --set api.env.LLM_PROVIDER=anthropic-claude \
   --set executor.enabled=true \
   --set executor.clusterId=local \
   --set executor.apiUrl=http://kubently-api:8080 \
@@ -50,10 +57,33 @@ helm install kubently ./deployment/helm/kubently -n kubently \
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kubently -n kubently --timeout=120s
 ```
 
+## Register the Executor Token
+
+Helm puts the token in a Secret for the executor to *present*, but nothing in
+the chart tells the API to *accept* it — the API validates against Redis key
+`executor:token:{cluster_id}`, which only the admin API writes. Register it
+once, and the executor's next reconnect attempt succeeds:
+
+```bash
+# Port-forward the API
+kubectl port-forward -n kubently svc/kubently-api 8080:8080 &
+
+# Teach the API about this executor's token
+curl -X POST http://localhost:8080/admin/agents/local/token \
+  -H "X-API-Key: $(cat ~/kubently-admin-key.txt)" \
+  -H 'Content-Type: application/json' \
+  -d "{\"token\": \"${EXECUTOR_TOKEN}\"}"
+```
+
+The endpoint returns 409 if a token already exists for that cluster id; delete
+it first (`DELETE /admin/agents/local/token`) to replace it. Custom tokens must
+be 32–128 characters of letters, digits, hyphens or underscores — the
+`openssl rand -hex 32` value above qualifies.
+
 ## Configure CLI
 
 ```bash
-# Port-forward API
+# Port-forward API (skip if you already started one above)
 kubectl port-forward -n kubently svc/kubently-api 8080:8080 &
 
 # Set environment variables
