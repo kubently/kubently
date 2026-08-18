@@ -2,7 +2,51 @@
 
 ## [Unreleased] - 2026-08-17
 
+### Changed
+- **Dependency bumps + the test coverage needed to land them safely** — the
+  seven open Dependabot PRs could not be reviewed because nothing in CI
+  validated them: `ci.yml` ran `ruff ... || true` and `pytest ... || true`,
+  pointed at the 2-file legacy suite in `kubently/tests/` rather than the
+  42-file suite at the repo root, installed no extras, and never built or
+  tested the Node CLI. Tests are now blocking, run the real suites with the
+  `a2a`/`test`/`cloud` extras, and a new job covers the CLI (`npm ci`,
+  `tsc --noEmit`, `npm test`). Lint stays advisory via `continue-on-error`
+  pending a ~971-violation ruff backlog, but no longer fakes a pass.
+  - **GitHub Actions (#29–#33)** applied: `checkout` v4→v7,
+    `upload-artifact` v4→v7, `download-artifact` v4→v8,
+    `build-push-action` v5→v7, `metadata-action` v5→v6. All Node 24 runtime
+    and ESM changes; checked against each call site's inputs.
+  - **Node CLI group (#52)** applied, with three corrections the grouped PR
+    would have shipped broken: TypeScript held at `^6.0.3` (ts-jest peers
+    `<7`, @typescript-eslint peers `<6.1.0`), `@typescript-eslint` bumped to
+    `^8.67` (eslint 10 is an unresolvable peer conflict below that), and
+    inquirer 14's removal of the `list` prompt migrated to `select` across
+    five call sites — only one of which was a type error.
+  - **a2a-sdk held at 0.2.16.** The proposed 1.1.2 is a package rewrite, not
+    a bump: `a2a.server.apps` is gone, the `new_*` helpers moved to
+    `a2a.helpers`, and `a2a.types` is now protobuf-generated. See
+    `docs/DEPENDENCY_UPGRADES.md`.
+
 ### Added
+- **A2A SDK contract tests** (`tests/test_a2a_sdk_contract.py`, 35 tests) —
+  the a2a-sdk bindings previously had no real coverage; the only test
+  touching `agent_executor.py` reads it as text and regexes it, so it passes
+  even when the module cannot be imported. `kubently/modules/a2a/__init__.py`
+  also swallows SDK `ImportError`s into `A2A_AVAILABLE = False`, so an
+  incompatible SDK silently removes the entire A2A protocol surface instead
+  of failing. These tests pin the import surface, assert A2A is not silently
+  disabled, exercise the helpers against real SDK types, and drive
+  `KubentlyAgentExecutor.execute()` to assert the emitted event sequence.
+- **Node CLI tests** — 12 → 34. Covers the A2A request envelope built by
+  `a2aClient` (uuid v4 ids, one contextId per session, clusterId metadata),
+  js-yaml round-trip tests for the Secret manifest piped into
+  `kubectl apply`, and commander wiring for every command factory.
+  `jest.config.cjs` now transpiles ESM-only dependencies, which is most of
+  why the CLI had 2 test files for 21 source files.
+- **`eslint.config.js`** for the Node CLI — the `lint` script and its
+  dependencies existed but no config did, so eslint had never actually run.
+- **`docs/DEPENDENCY_UPGRADES.md`** — why a2a-sdk and TypeScript are held,
+  what an a2a-sdk 1.x migration involves, and related cleanups.
 - **Incident history (Track P6c)** — past diagnoses become searchable
   institutional memory ("have we seen this before?"). When an investigation
   concludes with a root cause, a compact record (timestamp, cluster,
