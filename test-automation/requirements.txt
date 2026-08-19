@@ -4,4 +4,4 @@ pyyaml>=6.0
 click>=8.1.0
 python-dotenv>=1.0.0
 google-generativeai>=0.8.6  # For Gemini AI analysis (upstream EOL; migrate to google-genai)
-a2a>=0.44  # Official A2A Protocol SDK (note: not imported anywhere under test-automation/)
+a2a-sdk>=0.2.16  # provides the `a2a` namespace imported by test_runner.py

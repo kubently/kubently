@@ -67,16 +67,12 @@
     "open": "^11.0.1",
     "ora": "^9.4.1",
     "prompts": "^2.4.2",
-    "readline-sync": "^1.4.10",
-    "uuid": "^14.0.1",
-    "ws": "^8.18.0"
+    "uuid": "^14.0.1"
   },
   "devDependencies": {
     "@types/figlet": "^1.7.0",
     "@types/node": "^26.2.0",
     "@types/prompts": "^2.4.9",
-    "@types/readline-sync": "^1.4.8",
-    "@types/ws": "^8.5.0",
     "@typescript-eslint/eslint-plugin": "^8.67.0",
     "@typescript-eslint/parser": "^8.67.0",
     "eslint": "^10.8.1",
