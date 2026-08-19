@@ -16,11 +16,9 @@ This module contains all deployment configurations for the Kubently system, incl
 kubently/deployment/
 ├── docker/
 │   ├── api/
-│   │   ├── Dockerfile
-│   │   └── requirements.txt
+│   │   └── Dockerfile
 │   ├── agent/
-│   │   ├── Dockerfile
-│   │   └── requirements.txt
+│   │   └── Dockerfile
 ├── kubernetes/
 │   ├── namespace.yaml
 │   ├── redis/
@@ -45,6 +43,10 @@ kubently/deployment/
 
 ## Docker Configurations
 
+Both images install their Python dependencies from the repository's
+`pyproject.toml` (`uv pip install .` and the `[a2a]` / `[cloud]` extras). There is
+no separate `requirements.txt` under `deployment/docker/`.
+
 ### API Dockerfile
 
 ```dockerfile
@@ -53,8 +55,8 @@ FROM python:3.13-slim
 
 # Install dependencies
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml README.md ./
+RUN uv pip install --no-cache .
 
 # Copy application
 COPY kubently/ ./kubently/
@@ -73,18 +75,6 @@ EXPOSE 8080
 CMD ["uvicorn", "kubently.main:app", "--host", "0.0.0.0", "--port", "8080"]
 ```
 
-### API Requirements
-
-```text
-# deployment/docker/api/requirements.txt
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-redis[hiredis]==5.0.1
-pydantic==2.5.0
-pydantic-settings==2.1.0
-python-multipart==0.0.6
-```
-
 ### Agent Dockerfile
 
 ```dockerfile
@@ -101,8 +91,8 @@ RUN apk add --no-cache curl && \
 
 # Install Python dependencies
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml README.md ./
+RUN uv pip install --no-cache .
 
 # Copy agent
 COPY agent.py .
@@ -113,14 +103,6 @@ USER kubently
 
 # Run agent
 CMD ["python", "-u", "agent.py"]
-```
-
-### Agent Requirements
-
-```text
-# deployment/docker/agent/requirements.txt
-requests==2.31.0
-urllib3==2.1.0
 ```
 
 ## Kubernetes Manifests

@@ -7,8 +7,8 @@ This directory contains all deployment configurations for the Kubently system, i
 ```
 deployment/
 ├── docker/              # Docker configurations
-│   ├── api/            # API Dockerfile and requirements
-│   └── agent/          # Agent Dockerfile and requirements
+│   ├── api/            # API Dockerfile (deps come from pyproject.toml)
+│   └── agent/          # Agent Dockerfile (deps come from pyproject.toml)
 ├── kubernetes/         # Raw Kubernetes manifests
 │   ├── namespace.yaml
 │   ├── redis/         # Redis deployment and service
