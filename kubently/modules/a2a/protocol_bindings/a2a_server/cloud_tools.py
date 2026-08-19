@@ -13,6 +13,7 @@ Kept out of agent.py so the agent-toolset area stays minimal and additive
 
 import json
 import logging
+import os
 from typing import Any, Callable, Optional
 
 import httpx
@@ -26,6 +27,11 @@ CLOUD_UNAVAILABLE_MSG = (
     "Identity) and cloud mode is enabled — see docs/CLOUD_TELEMETRY.md. "
     "Continue the investigation with kubectl-based tools."
 )
+
+
+def cloud_tools_enabled() -> bool:
+    """Whether the cloud telemetry tools should be registered (default ON)."""
+    return os.getenv("KUBENTLY_CLOUD_TOOLS", "auto").lower() != "off"
 
 
 async def get_cloud_capability(
@@ -171,9 +177,7 @@ def build_cloud_tools(
     call — that the executor actually reports a cloud identity, because
     executors join/leave and identities get granted/revoked at runtime.
     """
-    import os
-
-    if os.getenv("KUBENTLY_CLOUD_TOOLS", "auto").lower() == "off":
+    if not cloud_tools_enabled():
         logger.info("Cloud tools disabled via KUBENTLY_CLOUD_TOOLS=off")
         return []
 

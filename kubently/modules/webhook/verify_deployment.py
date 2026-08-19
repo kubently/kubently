@@ -22,10 +22,12 @@ Two response contracts, chosen by the caller (same split as fleet_report):
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -249,11 +251,167 @@ async def wait_for_settle(req: VerifyRequest, poll_seconds: int = POLL_SECONDS) 
         await asyncio.sleep(poll_seconds)
 
 
+# --- warning scoping --------------------------------------------------------
+#
+# "Are there Warning events?" is not the same question as "did this rollout
+# break anything?". A cluster carrying a chronic warning (an HPA that cannot
+# scrape a missing metrics-server, a flapping unrelated workload) would
+# otherwise fail every verification forever. So the events are classified here,
+# deterministically, before the agent ever sees them: a warning counts toward
+# the verdict only when it is on the workload under test or its children AND it
+# was first seen at/after this rollout began. Everything else is context.
+
+# The ownership chain of a workload: a Deployment owns ReplicaSets which own
+# Pods. Same-named objects of other kinds (the HPA named after the deployment,
+# a Service, a PDB) are not part of the rollout.
+WORKLOAD_EVENT_KINDS = ("deployment", "statefulset", "daemonset", "replicaset", "pod")
+
+MAX_EVENT_MESSAGE_CHARS = 160
+
+
+def _event_time(value) -> datetime | None:
+    """Parse a Kubernetes RFC3339 timestamp; None when absent/unparseable."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _first_seen(event: dict) -> datetime | None:
+    """When this event FIRST fired — not when it last repeated.
+
+    A warning repeating every 15s has a fresh lastTimestamp forever, which is
+    exactly how a pre-existing condition passes itself off as new.
+    """
+    for value in (
+        event.get("firstTimestamp"),
+        event.get("eventTime"),
+        (event.get("metadata") or {}).get("creationTimestamp"),
+    ):
+        stamp = _event_time(value)
+        if stamp:
+            return stamp
+    return None
+
+
+def _belongs_to_rollout(event: dict, req: VerifyRequest) -> bool:
+    involved = event.get("involvedObject") or {}
+    name = involved.get("name") or ""
+    namespace = involved.get("namespace") or req.namespace
+    if namespace != req.namespace:
+        return False
+    if (involved.get("kind") or "").lower() not in WORKLOAD_EVENT_KINDS:
+        return False
+    return name == req.workload or name.startswith(f"{req.workload}-")
+
+
+def _summarise(event: dict, first_seen: datetime | None) -> str:
+    involved = event.get("involvedObject") or {}
+    message = (event.get("message") or "").replace("\n", " ")[:MAX_EVENT_MESSAGE_CHARS]
+    count = event.get("count") or (event.get("series") or {}).get("count") or 1
+    detail = f"x{count}" if count and int(count) > 1 else "x1"
+    if first_seen:
+        detail += f", first seen {first_seen.strftime('%Y-%m-%d %H:%M:%S')} UTC"
+    return (
+        f"[{event.get('reason', '?')}] {involved.get('kind', '?')}/"
+        f"{involved.get('name', '?')}: {message} ({detail})"
+    )
+
+
+def scope_warnings(
+    events_json: str, req: VerifyRequest, started_at: datetime
+) -> tuple[list[str], list[str]]:
+    """Split Warning events into (caused by this rollout, pre-existing/unrelated).
+
+    Scoped three ways: namespace, the workload's own ownership chain, and the
+    first-seen timestamp against the moment this verification started.
+    """
+    try:
+        items = (json.loads(events_json) or {}).get("items") or []
+    except (ValueError, TypeError, AttributeError):
+        return [], []
+
+    caused, pre_existing = [], []
+    for event in items:
+        if not isinstance(event, dict) or (event.get("type") or "") != "Warning":
+            continue
+        first_seen = _first_seen(event)
+        summary = _summarise(event, first_seen)
+        if _belongs_to_rollout(event, req) and first_seen and first_seen >= started_at:
+            caused.append(summary)
+        else:
+            pre_existing.append(summary)
+    return caused, pre_existing
+
+
+async def fetch_warnings(req: VerifyRequest, started_at: datetime) -> tuple[list[str], list[str]]:
+    """Namespace events -> (rollout warnings, pre-existing warnings). ([], []) on failure."""
+    from kubently.modules.auth import AuthModule
+
+    api_url = os.getenv("KUBENTLY_API_URL", "http://localhost:8080")
+    payload = {
+        "cluster_id": req.cluster,
+        "command_type": "get",
+        "args": ["events", "-o", "json"],
+        "namespace": req.namespace,
+        "timeout_seconds": 30,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=40.0) as client:
+            resp = await client.post(
+                f"{api_url}/debug/execute",
+                headers={"X-Api-Key": AuthModule.extract_first_api_key()},
+                json=payload,
+            )
+        if resp.status_code != 200:
+            return [], []
+        result = resp.json()
+        if result.get("error"):
+            return [], []
+        return scope_warnings(result.get("output") or "", req, started_at)
+    except Exception:
+        logger.warning("Could not scope events for %s/%s", req.cluster, req.workload)
+        return [], []
+
+
 # --- investigation ----------------------------------------------------------
 
 
-def build_query(req: VerifyRequest, settle_outcome: str, settle_detail: str) -> str:
+def _warning_brief(warnings: tuple[list[str], list[str]] | None, started: str) -> list[str]:
+    """The events step, with the verdict scoped to this rollout's own warnings."""
+    scope_rule = (
+        "Only Warning events on the workload under verification or its "
+        "ReplicaSets/Pods, first seen at or after the rollout began "
+        f"({started} UTC), are grounds for FAIL. A warning on any other object, "
+        "or one that was already firing before the rollout, is pre-existing "
+        "cluster noise: report it as context and do NOT let it change the verdict."
+    )
+    if warnings is None:
+        return [
+            "2. Any Warning events caused by this rollout? " + scope_rule,
+        ]
+    caused, pre_existing = warnings
+    return [
+        "2. Warning events, already scoped to this rollout for you:\n"
+        f"   - Caused by this rollout: {'; '.join(caused) if caused else 'none'}\n"
+        f"   - Pre-existing before this rollout (context only, NOT a deploy failure): "
+        f"{'; '.join(pre_existing) if pre_existing else 'none'}\n"
+        f"   {scope_rule}",
+    ]
+
+
+def build_query(
+    req: VerifyRequest,
+    settle_outcome: str,
+    settle_detail: str,
+    started_at: datetime | None = None,
+    warnings: tuple[list[str], list[str]] | None = None,
+) -> str:
     """The post-deploy investigation the agent actually runs."""
+    started = (started_at or datetime.now(timezone.utc)).strftime("%Y-%m-%d %H:%M:%S")
     target = f"{req.kind}/{req.workload} in namespace {req.namespace} on cluster {req.cluster}"
     if settle_outcome == SETTLE_COMPLETE:
         lead = f"The rollout of {target} just completed ({settle_detail})."
@@ -273,7 +431,7 @@ def build_query(req: VerifyRequest, settle_outcome: str, settle_detail: str) -> 
         "status at face value:",
         "1. Are all its pods Ready, with no restarts or waiting states "
         "(CrashLoopBackOff, ImagePullBackOff, CreateContainerConfigError)?",
-        "2. Any Warning events for the workload or its pods since the rollout?",
+        *_warning_brief(warnings, started),
         "3. Any errors, panics or stack traces in the new pods' logs? Use the "
         "log search tools if available.",
         "4. If a Prometheus tool is available, compare the workload's error "
@@ -309,8 +467,10 @@ async def _run_verification(agent_factory, req: VerifyRequest) -> tuple[str, str
     """Settle-watch + agent investigation. Returns (verdict, body)."""
     from kubently.modules.mcp import tools
 
+    started_at = datetime.now(timezone.utc)
     settle_outcome, settle_detail = await wait_for_settle(req)
-    query = build_query(req, settle_outcome, settle_detail)
+    warnings = await fetch_warnings(req, started_at)
+    query = build_query(req, settle_outcome, settle_detail, started_at, warnings)
     result = await tools.ask_kubently(agent_factory(), query, req.cluster, None)
     verdict, body = parse_verdict(result["answer"])
     # The agent's verdict cannot overrule an unsettled rollout: a PASS from

@@ -140,8 +140,11 @@ async def lifespan(app: FastAPI):
 
     # Mount A2A server (core functionality)
     # Get external URL for A2A (for agent card)
-    a2a_external_url = config.get(
-        "a2a_external_url", f"http://localhost:{config.get('port', 8080)}/a2a/"
+    # `or`, not a get() default: the key is always present (set to None when
+    # A2A_EXTERNAL_URL is unset), so a get() default never applied and the card
+    # fell through to advertising the bind address.
+    a2a_external_url = (
+        config.get("a2a_external_url") or f"http://localhost:{config.get('port', 8080)}/a2a/"
     )
     a2a_server = create_a2a_server(
         host="0.0.0.0",
