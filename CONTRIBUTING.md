@@ -41,7 +41,14 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 3. If you've changed APIs, update the documentation
 4. Ensure the test suite passes
 5. Make sure your code follows the existing code style
-6. Issue that pull request!
+6. If you change anything under `deployment/helm/kubently/`, bump `version:` in
+   `deployment/helm/kubently/Chart.yaml`. The chart is published by
+   chart-releaser on every merge to `main`, and it releases a tag named after
+   that version — reuse one and the release fails and nothing is published. CI
+   checks this on the PR (`scripts/check-chart-version.sh`, runnable locally).
+   `appVersion` tracks the application, not the chart; leave it alone unless the
+   application version actually changed.
+7. Issue that pull request!
 
 ## Development Setup
 

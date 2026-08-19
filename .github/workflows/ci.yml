@@ -128,3 +128,27 @@ jobs:
       # or a broken guard fails here.
       - name: Render Helm chart
         run: make helm-template
+
+  chart-version:
+    name: Helm chart version bumped
+    runs-on: ubuntu-latest
+    # PR-only: on main the chart is already merged and the release job is the
+    # one that has to succeed.
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # Full history + tags: the check diffs against the base branch and
+          # asks whether the new version was already released.
+          fetch-depth: 0
+
+      # A chart change without a version bump makes chart-releaser fail on main
+      # with `tag_name already_exists`, which blocks nothing and publishes
+      # nothing -- three days of chart fixes went unshipped that way (#100).
+      # Catch it here, on the PR, where it is one line to fix.
+      - name: Chart version bumped
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: scripts/check-chart-version.sh "origin/$BASE_REF"
