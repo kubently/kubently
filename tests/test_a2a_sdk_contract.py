@@ -9,15 +9,18 @@ existing check (``test_tool_trace_thread_match.py``) reads ``agent_executor.py``
 as *text* and regexes it, so it passes even when the module cannot be imported.
 That made an a2a-sdk version bump completely unguarded.
 
-Worse, ``kubently/modules/a2a/__init__.py`` wraps its SDK imports in a bare
-``except Exception`` that sets ``A2A_AVAILABLE = False``. An SDK release that
-moves or renames a symbol therefore does not crash the API — it silently starts
-Kubently with the entire A2A protocol surface missing. A dependency bump could
-ship that regression with every test still green.
+``kubently/modules/a2a/__init__.py`` used to wrap its SDK imports in a bare
+``except Exception`` that set ``A2A_AVAILABLE = False``: an SDK release that
+moved or renamed a symbol did not crash the API, it silently started Kubently
+with the entire A2A protocol surface missing (issue #97). A2A is now gated on
+``KUBENTLY_A2A`` and an unimportable SDK raises ``A2AUnavailableError``; the
+tests at the bottom of this file are what keep that from regressing.
 
 Contracts under guard:
 - Every module path and symbol the codebase imports from ``a2a`` still resolves.
 - ``A2A_AVAILABLE`` is True, i.e. the SDK did not silently disable A2A.
+- An unimportable SDK is fatal when A2A is enabled, and returns None *only* when
+  it was explicitly switched off.
 - The helper functions produce real SDK event objects with the fields the
   protocol requires.
 - ``KubentlyAgentExecutor.execute()`` emits the documented event sequence.
@@ -500,3 +503,125 @@ class TestAgentExecutorEventSequence:
         assert isinstance(events[-1], TaskStatusUpdateEvent)
         assert events[-1].status.state == TaskState.completed
         assert events[-1].final is True
+
+
+# =============================================================================
+# Availability gating (issue #97)
+# =============================================================================
+
+
+class _RejectA2AImports:
+    """Meta-path finder that makes every ``a2a`` import fail.
+
+    Stands in for an incompatible SDK — a2a-sdk 1.x deletes ``a2a.server.apps``
+    outright — without needing to install one.
+    """
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "a2a" or fullname.startswith("a2a."):
+            raise ImportError(f"simulated incompatible a2a-sdk: cannot import {fullname}")
+        return None
+
+
+class TestA2AAvailabilityIsFatal:
+    """A missing or incompatible SDK must not be allowed to start the app quietly.
+
+    Before #97 the only consequence of an SDK that would not import was
+    ``A2A_AVAILABLE = False`` plus an INFO line, and ``create_a2a_server()``
+    returning None. Whether A2A exists is now an explicit setting
+    (``KUBENTLY_A2A``), and "expected but unavailable" raises.
+    """
+
+    def test_incompatible_sdk_raises_instead_of_degrading(self, monkeypatch):
+        """Reload the module against an unimportable SDK: it must refuse to build."""
+        import kubently.modules.a2a as a2a_module
+
+        monkeypatch.delenv("KUBENTLY_A2A", raising=False)
+        finder = _RejectA2AImports()
+        cached = {
+            name: mod
+            for name, mod in sys.modules.items()
+            if name == "a2a" or name.startswith("a2a.")
+        }
+        try:
+            for name in cached:
+                del sys.modules[name]
+            sys.meta_path.insert(0, finder)
+            broken = importlib.reload(a2a_module)
+
+            assert broken.A2A_AVAILABLE is False, "the simulated SDK should not have imported"
+            assert broken.A2A_IMPORT_ERROR is not None, (
+                "the ImportError must be kept, not discarded: it is the only "
+                "description of why A2A is unavailable"
+            )
+
+            error = None
+            try:
+                broken.create_a2a_server(external_url="https://example.test/a2a/")
+            except Exception as exc:  # the type is asserted below
+                error = exc
+
+            assert error is not None, (
+                "an unimportable a2a-sdk did not raise: create_a2a_server() handed back "
+                "a value, so the API would start with the whole A2A surface missing"
+            )
+            assert type(error).__name__ == "A2AUnavailableError", type(error).__name__
+            # The operator has to be able to see the cause, and the fix.
+            assert "simulated incompatible a2a-sdk" in str(error)
+            assert "KUBENTLY_A2A" in str(error)
+            assert error.__cause__ is broken.A2A_IMPORT_ERROR
+        finally:
+            sys.meta_path.remove(finder)
+            sys.modules.update(cached)
+            importlib.reload(a2a_module)
+
+    def test_explicitly_disabled_returns_none_without_raising(self, monkeypatch):
+        """``KUBENTLY_A2A=off`` is the only way to get a None server back."""
+        import kubently.modules.a2a as a2a_module
+
+        monkeypatch.setenv("KUBENTLY_A2A", "off")
+        assert a2a_module.a2a_enabled() is False
+        assert a2a_module.create_a2a_server(external_url="https://example.test/a2a/") is None
+
+    def test_enabled_by_default(self, monkeypatch):
+        """No setting means A2A is expected: main.py mounts it and cannot skip it."""
+        import kubently.modules.a2a as a2a_module
+
+        monkeypatch.delenv("KUBENTLY_A2A", raising=False)
+        assert a2a_module.a2a_enabled() is True
+        assert a2a_module.create_a2a_server(external_url="https://example.test/a2a/") is not None
+
+    def test_unavailable_sdk_is_tolerated_only_when_switched_off(self, monkeypatch):
+        """Disabled + missing SDK is a deliberate configuration, not a failure."""
+        import kubently.modules.a2a as a2a_module
+
+        monkeypatch.setattr(a2a_module, "A2A_AVAILABLE", False)
+        monkeypatch.setattr(
+            a2a_module, "A2A_IMPORT_ERROR", ImportError("no module named 'a2a.server.apps'")
+        )
+
+        monkeypatch.setenv("KUBENTLY_A2A", "off")
+        assert a2a_module.create_a2a_server(external_url="https://example.test/a2a/") is None
+
+        monkeypatch.setenv("KUBENTLY_A2A", "on")
+        with pytest.raises(a2a_module.A2AUnavailableError):
+            a2a_module.create_a2a_server(external_url="https://example.test/a2a/")
+
+    def test_main_startup_cannot_continue_without_a2a_when_enabled(self):
+        """main.py must not treat a missing A2A server as recoverable.
+
+        The mount block is the last place the failure could be swallowed, so
+        assert on the compiled source of ``lifespan``: with A2A enabled there is
+        no path from "no server" to a running app.
+        """
+        import inspect
+
+        import kubently.main as main
+
+        source = inspect.getsource(main.lifespan)
+        mount_block = source.split("a2a_server = create_a2a_server")[1]
+        assert "elif a2a_enabled():" in mount_block, (
+            "main.py must distinguish 'A2A explicitly off' from 'A2A missing'; "
+            "without that check a None server silently starts an API with no /a2a/"
+        )
+        assert "raise RuntimeError" in mount_block.split("else:")[0]

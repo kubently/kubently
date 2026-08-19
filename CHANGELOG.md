@@ -34,6 +34,37 @@
   `{{cloud_guidance}}` variable only when the cloud tools register (#90). A
   chart-content change, so it takes the patch bump the new `chart-version` job
   requires.
+- **A2A no longer degrades silently when its SDK cannot be imported** (#97).
+  `kubently/modules/a2a/__init__.py` decided whether A2A existed by whether the
+  `a2a-sdk` import happened to succeed, flattening any failure into
+  `A2A_AVAILABLE = False` and one INFO line, and `create_a2a_server()` returned
+  `None` for every cause — missing SDK, moved symbol, broken constructor — so an
+  incompatible SDK (a2a-sdk 1.x deletes `a2a.server.apps`) could take the entire
+  A2A protocol surface away with nothing louder than a log line. Availability is
+  now an explicit setting, `KUBENTLY_A2A` (default `on`), following the same
+  shape as the other optional toolsets (`KUBENTLY_CLOUD_TOOLS=off`): when A2A is
+  enabled and the SDK will not import, module import logs at ERROR *with the
+  traceback* and `create_a2a_server()` raises `A2AUnavailableError` chained onto
+  the original `ImportError`, so `kubently/main.py` fails startup with the real
+  cause instead of a generic "A2A server initialization failed". `None` now means
+  exactly one thing — `KUBENTLY_A2A=off` — and `main.py` treats a `None` server
+  as fatal in any other case. New tests in `tests/test_a2a_sdk_contract.py`
+  reload the module against a meta-path finder that rejects every `a2a` import
+  and assert it raises rather than degrades, so a future SDK bump cannot restore
+  the swallow.
+- **`build.yml`'s release job could never publish a release** (#98). The job was
+  gated on `github.ref == 'refs/heads/main'` while its only real step was gated
+  on `startsWith(github.ref, 'refs/tags/')` — mutually exclusive, so
+  `softprops/action-gh-release` never executed on any event, and the job still
+  reported success because a job whose steps all skip succeeds (`Create Release`
+  is `skipped` in every run of the job in the repo's history). Releases are
+  tag-driven and already have owners: `publish-npm.yml` creates every
+  `CLI cli-v*` release on a `cli-v*.*.*` tag, `release-chart.yml` (chart-releaser)
+  creates the `kubently-<version>` chart releases, `publish-docker.yml` handles
+  `v*.*.*` image tags. A second workflow creating a release for the same tag
+  would race `publish-npm.yml`'s `gh release create`, so the dead job is removed
+  rather than rewired, with a comment recording where releases actually come from
+  and where to attach the CLI tarball if it is ever wanted as a release asset.
 
 ### Changed
 - **The CI lint job can now fail the build** (#79). Both ruff steps were

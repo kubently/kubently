@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from threading import Thread
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,37 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
 logger = logging.getLogger(__name__)
+
+# Environment switch that decides whether this deployment expects A2A. Whether a
+# module imported is NOT that decision (issue #97).
+A2A_ENABLED_ENV = "KUBENTLY_A2A"
+
+_OFF_VALUES = {"off", "false", "0", "no"}
+
+
+class A2AUnavailableError(RuntimeError):
+    """A2A is expected but its SDK cannot be imported.
+
+    Raised instead of degrading, so an incompatible ``a2a-sdk`` cannot start the
+    API with the whole A2A protocol surface missing behind one log line.
+    """
+
+
+def a2a_enabled() -> bool:
+    """Whether this deployment expects the A2A protocol surface.
+
+    Gated on an explicit setting, the same shape as the other optional toolsets
+    (``KUBENTLY_CLOUD_TOOLS=off``), not on whether an import happened to
+    succeed. Defaults to on: ``kubently/main.py`` mounts A2A at ``/a2a/`` and
+    treats its absence as a startup failure, so "enabled" is the normal state
+    and opting out has to be deliberate.
+    """
+    return os.getenv(A2A_ENABLED_ENV, "on").strip().lower() not in _OFF_VALUES
+
+
+# The ImportError itself, kept rather than discarded: it is the only description
+# of *why* A2A is unavailable, and it is chained onto A2AUnavailableError below.
+A2A_IMPORT_ERROR: BaseException | None = None
 
 # Try to import only the lightweight A2A server primitives at module import time.
 # Heavy dependencies (LangChain, LLMs, etc.) will be imported lazily inside get_app().
@@ -31,9 +63,20 @@ try:
     from a2a.types import AgentCapabilities, AgentCard, AgentSkill, Task
 
     A2A_AVAILABLE = True
-except Exception as e:  # Broad catch to avoid breaking the main API on optional features
+except Exception as e:  # Broad catch: the log level and fatality are decided below.
     A2A_AVAILABLE = False
-    logger.info(f"A2A support disabled at import time: {e}")
+    A2A_IMPORT_ERROR = e
+    if a2a_enabled():
+        # Expected but broken: ERROR with the traceback, and create_a2a_server()
+        # will refuse to hand back a half-built API.
+        logger.error(
+            "A2A is enabled (%s is not 'off') but the a2a-sdk could not be imported: %s",
+            A2A_ENABLED_ENV,
+            e,
+            exc_info=True,
+        )
+    else:
+        logger.info("A2A is disabled via %s=off; SDK import skipped: %s", A2A_ENABLED_ENV, e)
 
 
 if A2A_AVAILABLE:
@@ -58,7 +101,9 @@ class A2AModule:
     ):
         """Initialize the A2A server."""
         if not A2A_AVAILABLE:
-            raise ImportError("A2A dependencies not installed")
+            raise A2AUnavailableError(
+                f"a2a-sdk is not importable: {A2A_IMPORT_ERROR!r}"
+            ) from A2A_IMPORT_ERROR
 
         self.host = host
         self.port = port
@@ -218,13 +263,31 @@ class A2AModule:
 def create_a2a_server(
     host: str = "0.0.0.0", port: int = 8000, external_url: str | None = None, redis_client=None
 ) -> A2AModule | None:
-    """Create A2A server if dependencies are available."""
-    if not A2A_AVAILABLE:
-        logger.warning("A2A dependencies not installed")
+    """Create the A2A server, or return None only when A2A is explicitly disabled.
+
+    Returning None used to mean "something went wrong somewhere" — a missing SDK,
+    a bad card, a broken constructor — all flattened into one log line, which is
+    how an incompatible ``a2a-sdk`` could bring the API up with no A2A at all
+    (issue #97). Now None means exactly one thing: ``KUBENTLY_A2A=off``.
+
+    Raises:
+        A2AUnavailableError: A2A is expected but the SDK is missing/incompatible.
+        Exception: anything the A2A module raises while building — propagated
+            with its traceback rather than swallowed.
+    """
+    if not a2a_enabled():
+        logger.warning(
+            "A2A is disabled via %s=off; the /a2a/ protocol surface will not be served",
+            A2A_ENABLED_ENV,
+        )
         return None
 
-    try:
-        return A2AModule(host, port, external_url, redis_client)
-    except Exception as e:
-        logger.error(f"Failed to create A2A server: {e}")
-        return None
+    if not A2A_AVAILABLE:
+        raise A2AUnavailableError(
+            f"A2A is enabled ({A2A_ENABLED_ENV} is not 'off') but the a2a-sdk could not be "
+            f"imported: {A2A_IMPORT_ERROR!r}. Install the 'a2a' extra "
+            f'(pip install -e ".[a2a]"), or set {A2A_ENABLED_ENV}=off to run deliberately '
+            f"without the A2A protocol surface."
+        ) from A2A_IMPORT_ERROR
+
+    return A2AModule(host, port, external_url, redis_client)

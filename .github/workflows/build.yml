@@ -47,22 +47,24 @@ jobs:
           kubently-cli/nodejs/*.tgz
           kubently-cli/nodejs/dist/
 
-  release:
-    needs: build-cli
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
-    steps:
-    - uses: actions/checkout@v7
-    
-    - name: Download all artifacts
-      uses: actions/download-artifact@v8
-    
-    - name: Create Release
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          nodejs-dist/*
-        draft: false
-        prerelease: false
+# There is deliberately no `release` job here (issue #98).
+#
+# The one this workflow used to carry could not fire: the job was gated on
+# `github.ref == 'refs/heads/main'` while its only real step (Create Release)
+# was gated on `startsWith(github.ref, 'refs/tags/')`. A ref cannot be both, so
+# `softprops/action-gh-release` never ran once, on any event -- and the job
+# still reported green, because a job whose steps all skip succeeds.
+#
+# Releases are tag-driven and already have owners, which is what the release
+# history shows:
+#   - CLI (`cli-v*.*.*` tags) -> .github/workflows/publish-npm.yml publishes to
+#     npm and creates the GitHub release. Every `CLI cli-v*` release came from it.
+#   - Helm chart -> .github/workflows/release-chart.yml (chart-releaser), which
+#     creates the `kubently-<version>` releases and attaches the packaged chart.
+#   - Images (`v*.*.*` tags) -> .github/workflows/publish-docker.yml
+#
+# A second workflow creating a release for the same `cli-v*` tag would race
+# publish-npm.yml's `gh release create`, so this workflow stays a build: the
+# `npm pack` output is published as a workflow artifact above. If the CLI
+# tarball should also be a release asset, attach it in publish-npm.yml where the
+# release is actually created -- do not reintroduce a second release owner here.

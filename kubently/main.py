@@ -29,7 +29,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from kubently.config.provider import ConfigProvider, EnvConfigProvider
 from kubently.logging_config import get_logging_config
-from kubently.modules.a2a import create_a2a_server
+from kubently.modules.a2a import a2a_enabled, create_a2a_server
 from kubently.modules.api import (
     ArgoCDQueryRequest,
     CommandResponse,
@@ -166,9 +166,18 @@ async def lifespan(app: FastAPI):
         authed_a2a = add_api_key_auth(a2a_app, AuthModule(redis_client), public_well_known=True)
         app.mount(mount_path, authed_a2a)
         logger.info(f"A2A server mounted at {mount_path} (API-key auth enforced at mount)")
+    elif a2a_enabled():
+        # Defensive: create_a2a_server() raises rather than returning None when
+        # A2A is expected, so reaching here means that contract was broken.
+        # Never continue — a running API with no /a2a/ is the failure mode #97
+        # is about.
+        logger.error("A2A is enabled but no server was created - this is a critical failure")
+        raise RuntimeError("A2A server initialization failed while A2A is enabled")
     else:
-        logger.error("Failed to initialize A2A server - this is a critical failure")
-        raise RuntimeError("A2A server initialization failed")
+        logger.warning(
+            "A2A is disabled via KUBENTLY_A2A=off - /a2a/ is not mounted and the agent "
+            "protocol surface is unavailable"
+        )
 
     # Mount MCP server (optional - only if the `mcp` SDK is installed).
     # Exposes Kubently's troubleshooting agent as a single natural-language MCP tool.

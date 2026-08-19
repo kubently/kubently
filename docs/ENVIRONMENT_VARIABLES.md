@@ -78,10 +78,15 @@ bearer tokens alongside API keys — see `docs/AUTH_DISCOVERY.md` and
 
 ### A2A (Agent-to-Agent) Configuration
 
-**Note**: A2A is core functionality and is always enabled. It is mounted at `/a2a` on the main API port.
+**Note**: A2A is core functionality and is enabled by default. It is mounted at
+`/a2a` on the main API port. Availability is decided by `KUBENTLY_A2A`, never by
+whether the SDK happened to import: when A2A is enabled and `a2a-sdk` is missing
+or incompatible, the API refuses to start with the underlying `ImportError`
+rather than coming up with the protocol surface silently absent.
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
+| `KUBENTLY_A2A` | `on` | No | Set to `off` to run deliberately without the A2A protocol surface (`/a2a` is not mounted). Any other value keeps A2A enabled, and a failed SDK import is then a fatal startup error |
 | `A2A_EXTERNAL_URL` | - | No | External URL for A2A agent card (e.g., `https://api.example.com/a2a/`) |
 | `KUBENTLY_MAX_FLEET_CLUSTERS` | `10` | No | Max clusters per `execute_kubectl_multi` fan-out call (each cluster adds up to ~4KB to the agent context) |
 | `A2A_SERVER_DEBUG` | `false` | No | Enable A2A debug logging |
@@ -576,7 +581,7 @@ export SESSION_TTL=7200  # 2 hours
 ### Common Issues
 
 1. **Redis connection errors**: Check `REDIS_HOST` and `REDIS_PORT`
-2. **A2A not accessible**: A2A is always enabled. Ensure you're accessing it at the `/a2a` path on the main API port
+2. **A2A not accessible**: A2A is enabled unless `KUBENTLY_A2A=off`. Ensure you're accessing it at the `/a2a` path on the main API port. If the API refuses to start with `A2AUnavailableError`, the installed `a2a-sdk` is incompatible with the bindings — the chained `ImportError` names the symbol that moved
 3. **Authentication failures**: Verify `API_KEYS` is set on the API, and that the executor's `KUBENTLY_TOKEN` matches `executor:token:{CLUSTER_ID}` in Redis
 4. **Wrong A2A URL in agent card**: Set `A2A_EXTERNAL_URL` correctly
 5. **Agent fails with `Unsupported LLM_PROVIDER`**: `LLM_PROVIDER` is required and has no default — set it under `api.env`
