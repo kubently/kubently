@@ -66,6 +66,31 @@
   rather than rewired, with a comment recording where releases actually come from
   and where to attach the CLI tarball if it is ever wanted as a release asset.
 
+### Removed
+- **Three dead `requirements.txt` files under `deployment/` and
+  `kubently/modules/executor/` (#99).** `deployment/docker/api/requirements.txt`
+  pinned `a2a>=0.1.0` — the unrelated PyPI package of that name, not the
+  `a2a-sdk` distribution whose `a2a.client` / `a2a.types` namespace the code
+  actually imports, the same wrong-package-name bug #104 fixed in
+  `test-automation/requirements.txt`. Nothing read it: both Dockerfiles
+  (`deployment/docker/api/Dockerfile`, `deployment/docker/executor/Dockerfile`)
+  `COPY pyproject.toml` and install with `uv pip install .` plus the `[a2a]` /
+  `[cloud]` extras, and no workflow, `Makefile` target, `scripts/`, or Helm
+  template referenced the path — only the Dockerfiles are named, always by
+  `-f`/`file:`. So it was a dependency list that was both wrong and unreachable,
+  which is the worst combination: it looked authoritative while installing
+  nothing. Deleted rather than corrected, because a second dependency list beside
+  `pyproject.toml` is drift waiting to happen and this one had already drifted:
+  it pinned `fastapi==0.115.6`, while the image built from `pyproject.toml`
+  ships FastAPI 0.141.1. The two sibling
+  files went the same way for the same reason:
+  `deployment/docker/executor/requirements.txt` (`requests==2.32.3`,
+  `urllib3==2.3.0`) and `kubently/modules/executor/requirements.txt`
+  (`requests==2.31.0`) were likewise unreferenced, and disagreed with each other
+  and with `pyproject.toml`'s `requests>=2.32.0` — the built executor image ships
+  requests 2.34.2 / urllib3 2.7.0, so neither pin ever applied. `docs/modules/07-deployment.md`
+  and `deployment/README.md` no longer point at files that do not exist.
+
 ### Changed
 - **The CI lint job can now fail the build** (#79). Both ruff steps were
   `continue-on-error: true`, which made them a third check that could not fire:
