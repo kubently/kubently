@@ -14,8 +14,7 @@ help:
 	@echo "  make install-all     - Install all dependencies"
 	@echo "  make test           - Run tests"
 	@echo "  make lint           - Run linters"
-	@echo "  make run-local      - Run API server locally"
-	@echo "  make run-a2a        - Run A2A server locally"
+	@echo "  make run-local      - Run API server locally (A2A is mounted at /a2a/)"
 	@echo ""
 	@echo "Docker:"
 	@echo "  make docker-build   - Build Docker image"
@@ -54,9 +53,23 @@ install-a2a:
 install-all:
 	uv pip install -e ".[dev,test,docs,a2a]"
 
+# Unit tests only. Excludes integration/e2e (they need a cluster).
+#
+# The extras are load-bearing, not decoration:
+#   test  - pytest itself, plus pytest-asyncio/faker/fakeredis
+#   a2a   - langgraph/langchain, imported by the agent and tool tests
+#   cloud - boto3/google-cloud, without which tests/test_cloud_ops.py errors
+# Without them `uv run` resolves an environment with no pytest at all and the
+# target dies with "No module named pytest", which reads like a broken laptop
+# rather than a broken target.
+#
+# Do not append `|| true` here, do not prefix the recipe with `-`, and do not
+# add either in CI. A test target that cannot report failure is worse than no
+# test target. This also covers the empty-suite case for free: pytest exits 5
+# ("no tests collected"), which is non-zero, so make fails loudly.
 test:
-	# Unit tests only. Excludes integration/e2e (need a cluster).
-	uv run python -m pytest tests kubently/tests kubently/modules/middleware \
+	uv run --extra test --extra a2a --extra cloud \
+		python -m pytest tests kubently/tests kubently/modules/middleware \
 		--ignore=tests/integration --ignore=tests/e2e
 
 lint:
@@ -65,9 +78,6 @@ lint:
 
 run-local:
 	cd kubently && python -m api.main
-
-run-a2a:
-	cd kubently/modules/a2a/protocol_bindings/a2a_server && python -m a2a server
 
 # Docker targets
 docker-build:
@@ -128,13 +138,26 @@ kind-logs:
 	kubectl logs -n kubently -l app=kubently-api --tail=100 -f
 
 # Generate raw Kubernetes manifests from Helm chart
+# Renders the chart with the values its own guards require. executor.token and
+# executor.apiUrl are deliberately un-defaulted in test-values.yaml (the chart
+# `fail`s without them), so the target has to supply them -- these are throwaway
+# render-time values, not deployment config.
+#
+# Rendered to a temp file and moved on success, so a failed render can never
+# leave a truncated manifest behind that looks like a good one.
 helm-template:
 	@echo "Generating Kubernetes manifests from Helm chart..."
-	@mkdir -p generated-manifests
+	@set -e; \
+	mkdir -p generated-manifests; \
 	helm template kubently ./deployment/helm/kubently \
 		-f deployment/helm/test-values.yaml \
+		--set executor.clusterId=local \
+		--set executor.apiUrl=http://kubently-api:8080 \
+		--set executor.token=render-only-placeholder \
 		--namespace kubently \
-		> generated-manifests/kubently-manifests.yaml
+		> generated-manifests/.kubently-manifests.yaml.tmp; \
+	mv generated-manifests/.kubently-manifests.yaml.tmp \
+		generated-manifests/kubently-manifests.yaml
 	@echo "Manifests generated at: generated-manifests/kubently-manifests.yaml"
 
 # Kubernetes production targets (deprecated - use helm or helm-template)

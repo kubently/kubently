@@ -91,11 +91,9 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
    # Start Redis
    docker-compose up -d redis
 
-   # Start API server
+   # Start API server. The A2A server is mounted by the API at /a2a/ --
+   # there is no separate process to start.
    make run-local
-
-   # In another terminal, start A2A server
-   make run-a2a
    ```
 
 ## Testing

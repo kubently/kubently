@@ -21,6 +21,15 @@ except ImportError:
     print("Warning: google-generativeai not installed. Run: pip install google-generativeai")
 
 
+# Model ids are configuration, not constants. They were hardcoded, and
+# gemini-1.5-flash has since been retired -- which made every RCA call fail on a
+# grader that otherwise looked fine. Override without editing this file:
+#   export KUBENTLY_ANALYZER_MODEL=...      # deep/full analysis
+#   export KUBENTLY_ANALYZER_RCA_MODEL=...  # fast RCA-only pass
+ANALYZER_MODEL = os.getenv("KUBENTLY_ANALYZER_MODEL", "gemini-2.5-pro")
+ANALYZER_RCA_MODEL = os.getenv("KUBENTLY_ANALYZER_RCA_MODEL", "gemini-2.5-flash")
+
+
 def generate_markdown_report(analysis: Dict) -> str:
     """Generate a markdown report from analysis results."""
     md_lines = []
@@ -179,11 +188,25 @@ class GeminiAnalyzer:
         """Initialize Gemini analyzer."""
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         self.initialized = False
-        
+
+        # The repo's secrets/.env ships a placeholder, and a placeholder key
+        # fails as an opaque 400 from the API several minutes into a run.
+        # Reject it up front instead.
+        if self.api_key and ("your-" in self.api_key or "-here" in self.api_key):
+            print(
+                "Error: GOOGLE_API_KEY is a placeholder value "
+                f"({self.api_key[:12]}...). Set a real key: export GOOGLE_API_KEY=..."
+            )
+            self.api_key = None
+
         if not self.api_key:
-            print("Warning: GOOGLE_API_KEY not set. Gemini analysis unavailable.")
+            print(
+                "Error: GOOGLE_API_KEY not set. The scenario analyzer grades runs with "
+                "Gemini and needs its own key (separate from the agent's LLM key). "
+                "Set it, or run with `test-only` to skip analysis entirely."
+            )
             return
-            
+
         if not HAS_GEMINI:
             print("Error: google-generativeai package not installed")
             return
@@ -191,11 +214,11 @@ class GeminiAnalyzer:
         try:
             genai.configure(api_key=self.api_key)
             # Use Gemini 2.5 Pro for deeper analysis with better reasoning
-            self.model = genai.GenerativeModel('gemini-2.5-pro')
+            self.model = genai.GenerativeModel(ANALYZER_MODEL)
             # Use Flash for faster RCA-only analysis
-            self.rca_model = genai.GenerativeModel('gemini-1.5-flash')
+            self.rca_model = genai.GenerativeModel(ANALYZER_RCA_MODEL)
             self.initialized = True
-            print("✓ Gemini analyzer initialized")
+            print(f"✓ Gemini analyzer initialized ({ANALYZER_MODEL} / {ANALYZER_RCA_MODEL})")
         except Exception as e:
             print(f"Error initializing Gemini: {e}")
     
@@ -262,7 +285,7 @@ Respond with ONLY a JSON object in this exact format:
             # Parse JSON response
             try:
                 analysis = json.loads(response_text)
-                analysis["model"] = "gemini-1.5-flash"
+                analysis["model"] = ANALYZER_RCA_MODEL
                 analysis["analysis_type"] = "rca_only"
                 analysis["timestamp"] = datetime.now().isoformat()
                 return analysis
@@ -273,14 +296,14 @@ Respond with ONLY a JSON object in this exact format:
                 json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
                 if json_match:
                     analysis = json.loads(json_match.group())
-                    analysis["model"] = "gemini-1.5-flash"
+                    analysis["model"] = ANALYZER_RCA_MODEL
                     analysis["analysis_type"] = "rca_only"
                     analysis["timestamp"] = datetime.now().isoformat()
                     return analysis
                 else:
                     # Return error structure
                     return {
-                        "model": "gemini-1.5-flash",
+                        "model": ANALYZER_RCA_MODEL,
                         "analysis_type": "rca_only",
                         "timestamp": datetime.now().isoformat(),
                         "error": "Failed to parse response",
@@ -295,7 +318,7 @@ Respond with ONLY a JSON object in this exact format:
         except Exception as e:
             print(f"Error in RCA analysis: {e}")
             return {
-                "model": "gemini-1.5-flash",
+                "model": ANALYZER_RCA_MODEL,
                 "analysis_type": "rca_only",
                 "timestamp": datetime.now().isoformat(),
                 "error": str(e),
@@ -496,7 +519,7 @@ Respond with ONLY a JSON object in this exact format:
                     json_text = response_text[json_start:json_end].strip()
 
             analysis = json.loads(json_text)
-            analysis["model"] = "gemini-2.5-pro"
+            analysis["model"] = ANALYZER_MODEL
             analysis["timestamp"] = datetime.now().isoformat()
             
             # Ensure required fields are present with defaults if missing
@@ -562,7 +585,7 @@ Respond with ONLY a JSON object in this exact format:
                     for match in sorted(matches, key=len, reverse=True):
                         try:
                             analysis = json.loads(match)
-                            analysis["model"] = "gemini-2.5-pro"
+                            analysis["model"] = ANALYZER_MODEL
                             analysis["timestamp"] = datetime.now().isoformat()
                             
                             # Ensure required fields are present in fallback case too
@@ -624,7 +647,7 @@ Respond with ONLY a JSON object in this exact format:
 
             # Return the raw response if JSON parsing fails with required fields
             return {
-                "model": "gemini-2.5-pro",
+                "model": ANALYZER_MODEL,
                 "timestamp": datetime.now().isoformat(),
                 "raw_response": response_text,
                 "error": f"Failed to parse structured response: {str(e)}",
@@ -654,7 +677,7 @@ Respond with ONLY a JSON object in this exact format:
             print(f"Error calling Gemini: {e}")
             return {
                 "error": str(e),
-                "model": "gemini-2.5-pro",
+                "model": ANALYZER_MODEL,
                 "timestamp": datetime.now().isoformat(),
                 "root_cause_analysis": {
                     "identified_correctly": False,
@@ -783,7 +806,7 @@ Respond with ONLY a JSON object in this exact format:
         
         # Build final result
         final_result = {
-            "model": "gemini-2.0-flash",
+            "model": ANALYZER_MODEL,
             "timestamp": datetime.now().isoformat(),
             "total_scenarios": total_scenarios,
             "successful_scenarios": successful_analyses,
@@ -896,7 +919,7 @@ def aggregate_existing_results(result_files: List[Path]) -> Dict:
     top_recommendations = sorted(common_recommendations.items(), key=lambda x: x[1], reverse=True)[:5]
     
     return {
-        "model": "gemini-2.5-pro (aggregated)",
+        "model": f"{ANALYZER_MODEL} (aggregated)",
         "timestamp": datetime.now().isoformat(),
         "total_scenarios": total,
         "successful_scenarios": successful,
