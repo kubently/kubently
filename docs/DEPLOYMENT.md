@@ -14,15 +14,22 @@
 
 ### Required Components
 - Kubernetes cluster v1.24+ with RBAC enabled
-- Redis 7.0+ (can be deployed in-cluster or external)
+- Redis — the chart deploys `redis/redis-stack-server` as a StatefulSet
+  (`redis.enabled: true`). Redis Stack is used because the default
+  conversation-memory backend needs the RediSearch module; on a managed Redis
+  without it, set `KUBENTLY_CHECKPOINTER_BACKEND=plain-redis`
 - kubectl configured with cluster access
-- Docker registry for container images
+- An LLM API key (Anthropic, OpenAI, or Google)
+
+Images are published to `ghcr.io/kubently/kubently` (API + A2A) and
+`ghcr.io/kubently/kubently-executor`; you only need your own registry if you
+build them yourself.
 
 ### Required Tools
 - `kubectl` v1.24+
-- `helm` v3.0+ (optional, for Helm deployment)
-- `docker` or `podman` for building images
-- `openssl` for generating tokens
+- `helm` v3.0+
+- `openssl` for generating API keys and tokens
+- `docker`/`podman` only if you build images from source
 
 ### Network Requirements
 - API service requires external ingress (LoadBalancer or Ingress)
@@ -32,434 +39,262 @@
 
 ## Deployment Options
 
-### Option 1: Quick Start (Development)
+Kubently ships **one Helm chart** (`deployment/helm/kubently`, published as
+`kubently/kubently`). What it deploys is decided by three switches:
+
+| Switch | Default | Deploys |
+|--------|---------|---------|
+| `api.enabled` | `true` | API server + A2A + MCP endpoint, ingress, prompt/runbook ConfigMaps, proactive CronJobs |
+| `redis.enabled` | `true` | The Redis Stack StatefulSet the API stores sessions, tokens and incident history in |
+| `executor.enabled` | `true` | The in-cluster executor, its ServiceAccount, read-only ClusterRole and command whitelist |
+
+A **central install** is the chart with `executor.enabled=false`. An
+**executor-only install** on a monitored cluster is the *same chart* with
+`api.enabled=false` and `redis.enabled=false`. There is no separate executor
+chart.
+
+### Option 1: `kubently install` (fastest)
 
 ```bash
-# Deploy everything with default settings
-kubectl apply -f https://raw.githubusercontent.com/kubently/kubently/main/deploy/quickstart.yaml
-
-# This includes:
-# - Namespace creation
-# - Redis deployment
-# - API deployment
-# - Basic executor deployment
+npm install -g @kubently/cli
+kubently install
 ```
 
-### Option 2: Helm Chart (Recommended)
+The CLI runs Helm for you, creates the secrets, registers the executor token
+and port-forwards the API. `kubently install --help` lists the flags
+(`--provider`, `--chart ./deployment/helm/kubently` to install from a
+checkout, and so on).
+
+### Option 2: Helm (recommended for production)
 
 ```bash
-# Add Helm repository
+# From the published chart repository
 helm repo add kubently https://kubently.github.io/kubently
 helm repo update
 
-# Install with custom values
 helm install kubently kubently/kubently \
   --namespace kubently \
   --create-namespace \
   --values custom-values.yaml
+
+# ...or from a checkout
+helm install kubently ./deployment/helm/kubently \
+  --namespace kubently --create-namespace --values custom-values.yaml
 ```
 
-### Option 3: Manual Deployment (Production)
+See [GETTING_STARTED.md](GETTING_STARTED.md) for the full walkthrough with
+secrets, ingress and remote executors.
 
-Follow the detailed steps in the [Production Deployment](#production-deployment) section.
+### Option 3: Raw manifests
+
+There is no committed all-in-one manifest. Generate manifests from the chart
+instead — this keeps them in step with the chart rather than drifting from it:
+
+```bash
+make helm-template   # writes generated-manifests/kubently-manifests.yaml
+# or directly:
+helm template kubently ./deployment/helm/kubently \
+  --namespace kubently --values custom-values.yaml > kubently.yaml
+```
 
 ## Production Deployment
 
-### Step 1: Create Namespace and Secrets
+### Step 1: Create Secrets
+
+All secrets are created manually — the chart never generates credentials.
 
 ```bash
-# Create namespace
 kubectl create namespace kubently
 
-# Generate API keys for clients
-export API_KEY_1=$(openssl rand -hex 32)
-export API_KEY_2=$(openssl rand -hex 32)
+# Redis password (required; redis.auth.existingSecret defaults to this name)
+kubectl create secret generic kubently-redis-password -n kubently \
+  --from-literal=password="$(openssl rand -base64 32)"
 
-# Create API keys secret
-kubectl create secret generic kubently-api-keys \
-  --from-literal=keys="${API_KEY_1},${API_KEY_2}" \
-  -n kubently
+# Client API keys. The 'keys' field holds one entry per line (or per comma);
+# each entry is either "key" or "service:key". Clients send the KEY part only.
+export ADMIN_KEY=$(openssl rand -hex 32)
+kubectl create secret generic kubently-api-keys -n kubently \
+  --from-literal=keys="admin:${ADMIN_KEY}"
 
-# Generate executor tokens
-export CLUSTER_1_TOKEN=$(openssl rand -hex 32)
-export CLUSTER_2_TOKEN=$(openssl rand -hex 32)
-
-# Create executor tokens secret
-kubectl create secret generic kubently-executor-tokens \
-  --from-literal=tokens='{"cluster-1":"'${CLUSTER_1_TOKEN}'","cluster-2":"'${CLUSTER_2_TOKEN}'"}' \
-  -n kubently
+# LLM provider credentials. The secret NAME is fixed in the chart; every key
+# inside it is optional, so include only the provider you use.
+kubectl create secret generic kubently-llm-secrets -n kubently \
+  --from-literal=ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-### Step 2: Deploy Redis
-
-#### Option A: In-Cluster Redis
+### Step 2: Write your values file
 
 ```yaml
-# redis-deployment.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: redis-config
-  namespace: kubently
-data:
-  redis.conf: |
-    maxmemory 2gb
-    maxmemory-policy allkeys-lru
-    save 900 1
-    save 300 10
-    save 60 10000
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: redis-data
-  namespace: kubently
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: redis
-  namespace: kubently
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: redis
-  template:
-    metadata:
-      labels:
-        app: redis
-    spec:
-      containers:
-      - name: redis
-        image: redis:7-alpine
-        command:
-          - redis-server
-          - /etc/redis/redis.conf
-        ports:
-        - containerPort: 6379
-        volumeMounts:
-        - name: config
-          mountPath: /etc/redis
-        - name: data
-          mountPath: /data
-        resources:
-          requests:
-            memory: "1Gi"
-            cpu: "500m"
-          limits:
-            memory: "2Gi"
-            cpu: "1000m"
-      volumes:
-      - name: config
-        configMap:
-          name: redis-config
-      - name: data
-        persistentVolumeClaim:
-          claimName: redis-data
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: redis
-  namespace: kubently
-spec:
-  selector:
-    app: redis
-  ports:
-  - port: 6379
-    targetPort: 6379
+# custom-values.yaml
+api:
+  replicaCount: 3
+  existingSecret: "kubently-api-keys"
+  env:
+    # Required — the agent has no default provider.
+    LLM_PROVIDER: "anthropic-claude"
+    LOG_LEVEL: "INFO"
+    A2A_EXTERNAL_URL: "https://kubently.example.com/a2a/"
+
+redis:
+  enabled: true
+  auth:
+    existingSecret: "kubently-redis-password"
+  master:
+    persistence:
+      enabled: true
+      size: 5Gi          # chart default is 2Gi
+
+# Executors live on the monitored clusters, not here.
+executor:
+  enabled: false
 ```
 
-#### Option B: External Redis
+Redis persistence matters: executor tokens, sessions, cluster state and
+incident history all live there. With persistence off, every token registered
+through the admin API disappears on pod restart.
 
-```yaml
-# external-redis-secret.yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: redis-connection
-  namespace: kubently
-type: Opaque
-data:
-  url: cmVkaXM6Ly91c2VyOnBhc3N3b3JkQHJlZGlzLmV4YW1wbGUuY29tOjYzNzk= # base64 encoded
+### Step 3: Install and verify
+
+```bash
+helm install kubently kubently/kubently \
+  --namespace kubently --values custom-values.yaml
+
+kubectl get pods -n kubently
+kubectl port-forward -n kubently svc/kubently-api 8080:8080 &
+
+curl http://localhost:8080/healthz   # unauthenticated probe -> {"status":"ok"}
+curl http://localhost:8080/health    # detailed: redis, modules, tls, version
 ```
 
-### Step 3: Deploy Kubently API
+### Step 4: Configure Ingress (optional)
 
-```yaml
-# api-deployment.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: kubently-config
-  namespace: kubently
-data:
-  config.yaml: |
-    redis_url: redis://redis:6379
-    api_port: 8080
-    api_workers: 4
-    command_timeout: 10
-    session_ttl: 300
-    result_ttl: 60
-    max_commands_per_fetch: 10
-    long_poll_timeout: 30
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: kubently-api
-  namespace: kubently
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: kubently-api
-  template:
-    metadata:
-      labels:
-        app: kubently-api
-    spec:
-      containers:
-      - name: api
-        image: kubently/api:latest
-        ports:
-        - containerPort: 8080
-        env:
-        - name: KUBENTLY_REDIS_URL
-          value: redis://redis:6379
-        - name: KUBENTLY_API_KEYS
-          valueFrom:
-            secretKeyRef:
-              name: kubently-api-keys
-              key: keys
-        - name: KUBENTLY_AGENT_TOKENS
-          valueFrom:
-            secretKeyRef:
-              name: kubently-executor-tokens
-              key: tokens
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 10
-          periodSeconds: 30
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 10
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "250m"
-          limits:
-            memory: "512Mi"
-            cpu: "1000m"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: kubently-api
-  namespace: kubently
-spec:
-  selector:
-    app: kubently-api
-  ports:
-  - port: 80
-    targetPort: 8080
-  type: LoadBalancer
----
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: kubently-api
-  namespace: kubently
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: kubently-api
-  minReplicas: 2
-  maxReplicas: 10
-  metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: 70
-  - type: Resource
-    resource:
-      name: memory
-      target:
-        type: Utilization
-        averageUtilization: 80
-```
-
-### Step 4: Configure Ingress (Optional)
-
-```yaml
-# ingress.yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: kubently-api
-  namespace: kubently
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
-spec:
-  tls:
-  - hosts:
-    - api.kubently.example.com
-    secretName: kubently-tls
-  rules:
-  - host: api.kubently.example.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: kubently-api
-            port:
-              number: 80
-```
+Set `ingress.enabled: true` with your controller's `className`, hosts and TLS
+secret. The chart follows the "bring your own certificate" pattern — see
+[deployment/helm/kubently/examples/](../deployment/helm/kubently/examples/)
+for cert-manager, cloud load balancer, manual certificate and self-signed
+patterns.
 
 ## Executor Deployment
 
-### Deploy Executor to Target Cluster
+Executors run on each monitored cluster and dial **outbound** to the API, so
+they need no inbound ingress of their own.
+
+### Step 1: Register the token with the API
+
+The API accepts an executor only if a matching token exists in Redis under
+`executor:token:{cluster_id}`.
+
+The chart writes that key for you in exactly one case: a **co-located** release
+where `api.enabled` and `executor.enabled` are both true and the token came
+from `executor.token`. The API Deployment's `sync-executor-tokens` init
+container then seeds it before the API starts. A remote executor is a separate
+release with no API pod, so nothing runs that init container — register the
+token through the admin API first.
 
 ```bash
-# 1. Generate token for this cluster
 export CLUSTER_ID="production-cluster-1"
-export TOKEN=$(openssl rand -hex 32)
-echo "Cluster: $CLUSTER_ID"
-echo "Token: $TOKEN"
 
-# 2. Save token on API side (add to executor tokens)
-kubectl patch secret kubently-executor-tokens -n kubently \
-  --type='json' -p='[{"op":"add","path":"/data/tokens","value":"..."}]'
+# Let the API generate the token...
+curl -X POST https://kubently.example.com/admin/agents/${CLUSTER_ID}/token \
+  -H "X-API-Key: ${ADMIN_KEY}"
 
-# 3. Create executor namespace in target cluster
+# ...or supply your own (32-128 chars, letters/digits/hyphens/underscores)
+curl -X POST https://kubently.example.com/admin/agents/${CLUSTER_ID}/token \
+  -H "X-API-Key: ${ADMIN_KEY}" -H 'Content-Type: application/json' \
+  -d '{"token": "token-from-your-secrets-manager"}'
+```
+
+The response carries `{"token": ..., "clusterId": ..., "createdAt": ...}`. A
+409 means a token already exists for that cluster id — delete it first with
+`DELETE /admin/agents/{cluster_id}/token`.
+
+Related admin endpoints: `GET /admin/agents` lists registered clusters and
+`GET /admin/agents/{cluster_id}/status` reports one cluster's state.
+
+### Step 2: Deploy the executor to the target cluster
+
+```bash
+kubectl config use-context ${CLUSTER_ID}
 kubectl create namespace kubently
 
-# 4. Create token secret
-kubectl create secret generic kubently-executor-token \
-  --from-literal=token=$TOKEN \
-  -n kubently
+kubectl create secret generic kubently-executor-token -n kubently \
+  --from-literal=token="<token from step 1>"
 
-# 5. Apply executor deployment
-cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: kubently-executor
-  namespace: kubently
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: kubently-executor-readonly
-rules:
-- apiGroups: ["*"]
-  resources: ["*"]
-  verbs: ["get", "list", "watch"]
-- nonResourceURLs: ["*"]
-  verbs: ["get", "list"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: kubently-executor-readonly
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: kubently-executor-readonly
-subjects:
-- kind: ServiceAccount
-  name: kubently-executor
-  namespace: kubently
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: kubently-executor
-  namespace: kubently
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: kubently-executor
-  template:
-    metadata:
-      labels:
-        app: kubently-executor
-    spec:
-      serviceAccountName: kubently-executor
-      containers:
-      - name: executor
-        image: kubently/executor:latest
-        env:
-        - name: KUBENTLY_API_URL
-          value: "https://api.kubently.example.com"
-        - name: CLUSTER_ID
-          value: "${CLUSTER_ID}"
-        - name: KUBENTLY_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: kubently-executor-token
-              key: token
-        - name: LOG_LEVEL
-          value: "INFO"
-        resources:
-          requests:
-            memory: "64Mi"
-            cpu: "50m"
-          limits:
-            memory: "256Mi"
-            cpu: "200m"
-EOF
+helm install kubently-executor kubently/kubently \
+  --namespace kubently \
+  --set api.enabled=false \
+  --set redis.enabled=false \
+  --set executor.enabled=true \
+  --set executor.clusterId="${CLUSTER_ID}" \
+  --set executor.apiUrl="https://kubently.example.com" \
+  --set executor.existingSecret=kubently-executor-token
+```
+
+Notes:
+
+- **No `replicaCount`.** The executor Deployment hardcodes `replicas: 1`: an
+  executor *is* a cluster identity, and a second replica would register a
+  duplicate agent for the same `clusterId`.
+- **RBAC** comes from the chart's built-in read-only ClusterRole (pods and
+  `pods/log`, services, endpoints, configmaps, PVs/PVCs, nodes, namespaces,
+  events, quotas, workloads, jobs, ingresses, networkpolicies, RBAC objects,
+  storage classes, HPAs, PDBs — Secrets deliberately excluded). Set
+  `executor.rbacRules` only to *replace* that list, e.g. to add CRDs.
+- **Command whitelist** is a second boundary on top of RBAC:
+  `executor.security.mode` defaults to `readOnly`. `fullAccess` additionally
+  requires the top-level `fullAccessAcknowledged: true`.
+- **Cluster id** falls back to the release namespace when `executor.clusterId`
+  is left empty.
+- **`executor.existingSecret` and `api.enabled` together**: the API's
+  `sync-executor-tokens` init container reads the chart-created
+  `<release>-executor-token` secret by name and does not follow
+  `executor.existingSecret`. In a co-located release that sets
+  `existingSecret`, that secret does not exist and the API pod will not start.
+  On an executor-only release (`api.enabled=false`, as above) there is no init
+  container, so `existingSecret` is the right choice there.
+- **TLS**: `KUBENTLY_SSL_VERIFY` / `KUBENTLY_CA_CERT` cover private CAs — see
+  [MULTI_CLUSTER_TLS.md](MULTI_CLUSTER_TLS.md).
+
+### Step 3: Verify
+
+```bash
+kubectl logs -n kubently -l app.kubernetes.io/component=executor
+# look for the SSE connection being established
+
+curl https://kubently.example.com/admin/agents -H "X-API-Key: ${ADMIN_KEY}"
 ```
 
 ### Multi-Cluster Executor Deployment
 
-For deploying executors across multiple clusters, use this script:
+Repeat the two steps per cluster — each needs its own `clusterId` and token:
 
 ```bash
 #!/bin/bash
 # deploy-executors.sh
-
 CLUSTERS=("cluster-1" "cluster-2" "cluster-3")
-API_URL="https://api.kubently.example.com"
+API_URL="https://kubently.example.com"
 
 for CLUSTER in "${CLUSTERS[@]}"; do
   echo "Deploying to $CLUSTER..."
 
-  # Generate token
-  TOKEN=$(openssl rand -hex 32)
+  # 1. Register the cluster with the API and capture the generated token
+  TOKEN=$(curl -sS -X POST "${API_URL}/admin/agents/${CLUSTER}/token" \
+    -H "X-API-Key: ${ADMIN_KEY}" | jq -r '.token')
 
-  # Switch context
-  kubectl config use-context $CLUSTER
+  # 2. Deploy the executor onto that cluster
+  kubectl config use-context "$CLUSTER"
+  kubectl create namespace kubently --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create secret generic kubently-executor-token -n kubently \
+    --from-literal=token="$TOKEN" --dry-run=client -o yaml | kubectl apply -f -
 
-  # Deploy executor
-  helm install kubently-executor kubently/executor \
+  helm install kubently-executor kubently/kubently \
     --namespace kubently \
-    --create-namespace \
-    --set cluster.id=$CLUSTER \
-    --set cluster.token=$TOKEN \
-    --set api.url=$API_URL
-
-  echo "Executor deployed to $CLUSTER with token: $TOKEN"
+    --set api.enabled=false \
+    --set redis.enabled=false \
+    --set executor.enabled=true \
+    --set executor.clusterId="$CLUSTER" \
+    --set executor.apiUrl="$API_URL" \
+    --set executor.existingSecret=kubently-executor-token
 done
 ```
 
@@ -467,10 +302,17 @@ done
 
 ### Environment-Specific Configurations
 
+Use the real value paths — `api.replicaCount` (not `api.replicas`) and
+`redis.master.persistence` / `redis.master.resources` (not `redis.persistence`).
+The chart has no `monitoring` block; the Prometheus integration is
+`prometheus.url`, which points the agent's `query_prometheus` tool at a
+Prometheus the executor can reach.
+
 ```yaml
 # values-production.yaml
 api:
-  replicas: 3
+  replicaCount: 3
+  existingSecret: "kubently-api-keys"
   resources:
     requests:
       memory: 512Mi
@@ -478,41 +320,59 @@ api:
     limits:
       memory: 1Gi
       cpu: 2000m
+  env:
+    LLM_PROVIDER: "anthropic-claude"
+    LOG_LEVEL: "INFO"
 
 redis:
-  persistence:
-    enabled: true
-    size: 20Gi
-  resources:
-    requests:
-      memory: 2Gi
-      cpu: 1000m
+  auth:
+    existingSecret: "kubently-redis-password"
+  master:
+    persistence:
+      enabled: true
+      size: 20Gi
+    resources:
+      requests:
+        memory: 2Gi
+        cpu: 1000m
 
-monitoring:
-  enabled: true
-  prometheus:
-    enabled: true
-  grafana:
-    enabled: true
+executor:
+  enabled: false
+
+# Optional read-only telemetry the agent can query through each executor
+prometheus:
+  url: "http://prometheus-operated.monitoring.svc.cluster.local:9090"
+loki:
+  url: "http://loki.monitoring.svc.cluster.local:3100"
 ```
 
 ```yaml
 # values-staging.yaml
 api:
-  replicas: 2
+  replicaCount: 2
+  existingSecret: "kubently-api-keys"
   resources:
     requests:
       memory: 256Mi
       cpu: 250m
+  env:
+    LLM_PROVIDER: "anthropic-claude"
 
 redis:
-  persistence:
-    enabled: true
-    size: 10Gi
+  master:
+    persistence:
+      enabled: true
+      size: 10Gi
 
-monitoring:
+executor:
   enabled: false
 ```
+
+For the optional feature blocks — `runbooks`, `mcpServers`, `fleetReport`,
+`scheduledChecks`, `verifyDeployment`, `changeCorrelation`, `gitRemediation`,
+`executor.cloud` — the annotated defaults in
+`deployment/helm/kubently/values.yaml` are the reference, and every variable
+they set is listed in [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md).
 
 ### Secret Management
 
@@ -547,15 +407,21 @@ spec:
     name: vault-backend
     kind: SecretStore
   target:
-    name: kubently-secrets
+    # Must match api.existingSecret, and the key inside must be named "keys"
+    name: kubently-api-keys
   data:
-  - secretKey: api-keys
+  - secretKey: keys
     remoteRef:
       key: kubently/api-keys
-  - secretKey: executor-tokens
-    remoteRef:
-      key: kubently/executor-tokens
 ```
+
+Kubently expects several small, purpose-named secrets rather than one combined
+one: `kubently-api-keys` (key `keys`), `kubently-redis-password` (key
+`password`), `kubently-llm-secrets` (keys `ANTHROPIC_API_KEY` /
+`OPENAI_API_KEY` / `GOOGLE_API_KEY` / `LANGSMITH_API_KEY`), and
+`kubently-executor-token` (key `token`) on each monitored cluster. Executor
+tokens are not consumed from a secret by the API — they are registered through
+`POST /admin/agents/{cluster_id}/token`.
 
 ## Security Hardening
 
@@ -804,11 +670,14 @@ kubectl set env deployment/kubently-executor LOG_LEVEL=DEBUG -n kubently
 # API health
 curl https://api.kubently.example.com/health
 
-# Redis health
-kubectl exec -n kubently deployment/redis -- redis-cli ping
+# API probe endpoint (unauthenticated)
+curl https://api.kubently.example.com/healthz
+
+# Redis health (the chart deploys a StatefulSet named <release>-redis-master)
+kubectl exec -n kubently kubently-redis-master-0 -- redis-cli ping
 
 # Executor status
-kubectl get pods -n kubently -l app=kubently-executor
+kubectl get pods -n kubently -l app.kubernetes.io/component=executor
 ```
 
 ## Backup and Recovery
@@ -868,14 +737,16 @@ kubectl rollout restart deployment/redis -n kubently
 ### Rolling Update
 
 ```bash
-# Update API
-kubectl set image deployment/kubently-api api=kubently/api:v2.0.0 -n kubently
+# Prefer `helm upgrade` so values and manifests stay in step:
+helm upgrade kubently kubently/kubently -n kubently \
+  --values custom-values.yaml --set api.image.tag=v2.0.0
 
 # Monitor rollout
 kubectl rollout status deployment/kubently-api -n kubently
 
-# Update executors (per cluster)
-kubectl set image deployment/kubently-executor executor=kubently/executor:v2.0.0 -n kubently
+# Update executors (per cluster) — same chart, executor image tag
+helm upgrade kubently-executor kubently/kubently -n kubently \
+  --values executor-values.yaml --set executor.image.tag=v2.0.0
 ```
 
 ### Blue-Green Deployment
@@ -885,7 +756,7 @@ kubectl set image deployment/kubently-executor executor=kubently/executor:v2.0.0
 helm install kubently-green kubently/kubently \
   --namespace kubently-green \
   --values values-production.yaml \
-  --set version=v2.0.0
+  --set api.image.tag=v2.0.0
 
 # Test green environment
 curl https://api-green.kubently.example.com/health

@@ -27,6 +27,45 @@
     `a2a.helpers`, and `a2a.types` is now protobuf-generated. See
     `docs/DEPENDENCY_UPGRADES.md`.
 
+### Documentation
+- **Doc-drift sweep against the code and the Helm chart.** Documentation
+  only; no behaviour changed.
+  - `docs/ENVIRONMENT_VARIABLES.md`: documented the shipped cloud-telemetry
+    executor variables (`KUBENTLY_CLOUD_MODE` with `off`/`auto`/`aws`/`gcp`,
+    `KUBENTLY_CLOUD_AWS_REGION`, `KUBENTLY_CLOUD_GCP_PROJECT`,
+    `KUBENTLY_CLOUD_REFRESH_INTERVAL`) together with the two behaviours that
+    surprise operators — cloud mode forces capability reporting on, and a
+    missing boto3/google-cloud SDK logs a warning and disables the feature
+    rather than failing the executor — plus the API-side
+    `KUBENTLY_CLOUD_TOOLS` switch. Swept `kubently/` for undocumented
+    variables and added the OIDC set, `REDIS_PASSWORD`,
+    `KUBENTLY_SSL_VERIFY`, `KUBENTLY_CA_CERT`,
+    `KUBENTLY_REPORT_CAPABILITIES`, `KUBENTLY_HEARTBEAT_INTERVAL`,
+    `EXECUTOR_VERSION`, `KUBENTLY_MAX_OUTPUT_CHARS`,
+    `KUBENTLY_PROMPT_FILE`, `GOOGLE_MODEL_NAME`,
+    `ANTHROPIC_CONTEXT_CLEARING`. Corrected: `LLM_PROVIDER` is required with
+    no default (Ollama is not implemented), `ANTHROPIC_MODEL_NAME` defaults
+    to `claude-sonnet-4-6`, `REDIS_HOST` defaults to
+    `kubently-redis-master`, the whitelist variable is
+    `KUBENTLY_WHITELIST_CONFIG`, and `AGENT_TOKEN_<ID>`, `WHITELIST_PATH`,
+    `REFRESH_INTERVAL`, `TIMEOUT_SECONDS`, `OPENAI_ENDPOINT`, `PORT` and
+    `REDIS_URL` are not read by the running API/executor.
+  - `docs/GETTING_STARTED.md`, `docs/QUICK_START.md`, `docs/DEPLOYMENT.md`,
+    `README.md`: install instructions now match
+    `deployment/helm/kubently/values.yaml`. Stated the single-chart model
+    (`api.enabled` / `redis.enabled` / `executor.enabled`; an executor-only
+    install is the same chart, not a `kubently/executor` chart), replaced
+    `executor.rbac.create`/`.rules` with `executor.rbacRules`, removed
+    `executor.replicaCount` (the Deployment is pinned to one replica),
+    corrected `api.replicaCount` / `redis.master.persistence` /
+    `api.existingSecret` defaults, and replaced references to images and
+    manifests that do not exist (`kubently/api`, `kubently/executor`,
+    `deploy/quickstart.yaml`) with the real ones. Documented when the API's
+    `sync-executor-tokens` init container registers an executor token and
+    when the admin API must be used instead.
+  - `docs/INDEX.md`: rebuilt the index — it listed 8 of 26 docs and pointed
+    at a `kubently/agent/README.md` that no longer exists.
+
 ### Added
 - **A2A SDK contract tests** (`tests/test_a2a_sdk_contract.py`, 35 tests) —
   the a2a-sdk bindings previously had no real coverage; the only test

@@ -9,6 +9,23 @@ Kubently uses a central API server architecture:
 - **Executors**: Lightweight agents deployed to each Kubernetes cluster you want to manage
 - **CLI**: Command-line tool for administration and querying clusters
 
+**One chart, three switches.** There is a single Helm chart —
+`deployment/helm/kubently` in this repo, published as `kubently/kubently` —
+and you choose what it deploys with `api.enabled`, `redis.enabled` and
+`executor.enabled`. A "central API install" is that chart with
+`executor.enabled=false`; an "executor-only install" is the *same* chart with
+`api.enabled=false` and `redis.enabled=false`. There is no separate executor
+chart.
+
+Both forms are shown below. To install from the published repository instead
+of a checkout:
+
+```bash
+helm repo add kubently https://kubently.github.io/kubently
+helm repo update
+# then substitute `kubently/kubently` for `./deployment/helm/kubently`
+```
+
 ## Prerequisites
 
 - Kubernetes cluster for the central API (v1.24+)
@@ -77,30 +94,46 @@ Create a `values.yaml` file for your deployment:
 ```yaml
 # my-values.yaml
 api:
+  # Chart default is 3; the API scales horizontally via the connection registry
   replicaCount: 2
   image:
     repository: ghcr.io/kubently/kubently
     tag: "latest"
 
+  # Name of the API-key secret you created above. The chart default is ""
+  # (empty), in which case the deployment falls back to "<release>-api-keys" —
+  # which happens to be "kubently-api-keys" for a release named "kubently".
+  # Set it explicitly so the reference survives a differently named release,
+  # and so a helm upgrade never replaces your manually created secret.
+  existingSecret: "kubently-api-keys"
+
   env:
-    LLM_PROVIDER: "anthropic-claude"  # or "openai" or "google-gemini"
-    ANTHROPIC_MODEL_NAME: "claude-sonnet-4-20250514"
+    # REQUIRED — the agent has no default provider and fails to start without
+    # this. Must contain "anthropic"/"claude", "openai"/"azure", or
+    # "google"/"gemini".
+    LLM_PROVIDER: "anthropic-claude"
     LOG_LEVEL: "INFO"
     A2A_EXTERNAL_URL: "https://kubently.yourdomain.com/a2a/"  # Update after ingress setup
 
 redis:
   enabled: true
-  # Auth defaults to kubently-redis-password secret (created in Step 2.1)
+  # Auth defaults to the kubently-redis-password secret (created in Step 2.1)
   master:
     persistence:
       enabled: true
-      size: 5Gi
-      storageClass: ""  # Uses cluster default
+      size: 5Gi          # Chart default is 2Gi
+      storageClass: ""   # Uses cluster default
 
-# Executor not deployed with API (deploy separately to other clusters)
+# Executor not deployed with the API (deploy separately to other clusters).
+# The chart default is true, so an API-only install must set this explicitly.
 executor:
   enabled: false
 ```
+
+**Provider keys**: the chart reads `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+`GOOGLE_API_KEY` and `LANGSMITH_API_KEY` from a secret whose name is fixed at
+`kubently-llm-secrets` — the one created in Step 2.1. Every key is optional,
+so only the provider you selected needs to be present.
 
 Deploy with Helm:
 
@@ -123,7 +156,8 @@ kubectl get pods -n kubently
 # Check API health
 kubectl port-forward -n kubently svc/kubently-api 8080:8080 &
 curl http://localhost:8080/health
-# Should return: {"status":"healthy"}
+# Returns {"status":"healthy", "redis":"connected", "modules":"initialized", ...}
+# /healthz is the unauthenticated probe endpoint and returns {"status":"ok"}
 ```
 
 ## Step 3: Configure External Access (Optional)
@@ -160,10 +194,12 @@ ingress:
       hosts:
         - kubently.yourdomain.com
 
-# Secret references (already set by default)
-# redis.auth.existingSecret: "kubently-redis-password"
-# api.existingSecret: "kubently-api-keys"
-# You only need to override these if using custom secret names
+# Secret references:
+#   redis.auth.existingSecret defaults to "kubently-redis-password" — override
+#     only if you named the secret differently.
+#   api.existingSecret defaults to "" — set it (as in my-values.yaml above) so
+#     the chart uses your manually created kubently-api-keys secret instead of
+#     rendering one from api.apiKeys.
 ```
 
 Deploy with ingress and production secrets:
@@ -258,7 +294,7 @@ kubectl create namespace kubently
 kubectl create secret generic kubently-executor-token -n kubently \
   --from-literal=token="<paste-token-from-5.1>"
 
-# Create executor values
+# Create executor values — same chart, API and Redis switched off
 cat > executor-values.yaml <<EOF
 # Disable API and Redis (executor only)
 api:
@@ -270,28 +306,37 @@ redis:
 # Enable executor
 executor:
   enabled: true
-  clusterId: "production-us-west"  # Must match the cluster ID used when creating token
+  clusterId: "production-us-west"  # Must match the cluster ID used when creating the token
   apiUrl: "https://kubently.yourdomain.com"
-  replicaCount: 1
 
-  # Service account permissions
-  rbac:
-    create: true
-    # Executors need read access to cluster resources
-    rules:
-    - apiGroups: ["*"]
-      resources: ["*"]
-      verbs: ["get", "list", "watch"]
-    - apiGroups: [""]
-      resources: ["pods/log"]
-      verbs: ["get"]
+  # Use the secret created above rather than putting the token in values
+  existingSecret: "kubently-executor-token"
+  existingSecretKey: "token"
 EOF
 
-# Deploy executor with Helm
+# Deploy executor with Helm — the same chart as the API install
 helm install kubently-executor ./deployment/helm/kubently \
   --namespace kubently \
   --values executor-values.yaml
 ```
+
+Notes on the executor values, all verifiable in
+`deployment/helm/kubently/values.yaml`:
+
+- **No `replicaCount`.** Executors always run one replica: the deployment
+  hardcodes `replicas: 1` because each executor *is* a cluster identity, and a
+  second replica would register a duplicate agent for the same `clusterId`.
+- **RBAC is `executor.rbacRules`, a flat list** — there is no
+  `executor.rbac.create` / `executor.rbac.rules`. Leave it empty (the default)
+  to get the chart's built-in read-only ClusterRole, which already covers pods,
+  `pods/log`, services, endpoints, configmaps, PVs/PVCs, nodes, namespaces,
+  events, quotas, deployments, daemonsets, statefulsets, replicasets, jobs,
+  cronjobs, ingresses, networkpolicies, RBAC objects, storage classes, HPAs and
+  PDBs — and deliberately excludes Secrets. Set `rbacRules` only to *replace*
+  those defaults, e.g. to add CRDs.
+- **Command whitelist**: `executor.security.mode` defaults to `readOnly`, which
+  is a second boundary on top of RBAC. `fullAccess` additionally requires
+  the top-level `fullAccessAcknowledged: true`.
 
 ### 5.3 Verify Executor Connection
 
@@ -481,7 +526,8 @@ Each cluster needs its own unique token and cluster ID.
 - **Review Architecture**: See [ARCHITECTURE.md](ARCHITECTURE.md) for system design
 - **Configure Advanced Auth**: See [A2A_AUTHENTICATION.md](A2A_AUTHENTICATION.md) for OAuth/OIDC
 - **Set Up Monitoring**: See [DEPLOYMENT.md](DEPLOYMENT.md#monitoring-setup) for observability
-- **Production Hardening**: See [PRODUCTION_DEPLOYMENT_PLAN_REVIEWED.md](PRODUCTION_DEPLOYMENT_PLAN_REVIEWED.md)
+- **Cloud Telemetry**: See [CLOUD_TELEMETRY.md](CLOUD_TELEMETRY.md) to let executors answer CloudWatch/Cloud Logging questions via workload identity
+- **Configuration Reference**: See [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md) for every variable the API and executor read
 
 ## Support
 
