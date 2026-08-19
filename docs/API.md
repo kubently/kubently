@@ -123,6 +123,7 @@ Create a new debugging session.
 - `201 Created` - Session created successfully
 - `400 Bad Request` - Invalid request parameters
 - `401 Unauthorized` - Invalid or missing API key
+- `404 Not Found` - No executor is registered for that cluster
 - `429 Too Many Requests` - Rate limit exceeded
 
 #### GET /debug/session/{session_id}

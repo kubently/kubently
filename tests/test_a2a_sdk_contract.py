@@ -298,7 +298,7 @@ class TestAgentCardContract:
         """
         from kubently.modules.a2a import A2AModule
         from kubently.modules.a2a.protocol_bindings.a2a_server.cloud_tools import (
-            cloud_tools_enabled,
+            cloud_tools_configured,
         )
         from kubently.modules.a2a.protocol_bindings.a2a_server.gitops import gitops_tools_enabled
         from kubently.modules.a2a.protocol_bindings.a2a_server.logsearch import loki_tool_enabled
@@ -320,7 +320,7 @@ class TestAgentCardContract:
         # Optional toolsets appear exactly when their tools would register.
         assert ("prometheus-metrics" in ids) is prometheus_tool_enabled()
         assert ("loki-log-search" in ids) is loki_tool_enabled()
-        assert ("cloud-telemetry" in ids) is cloud_tools_enabled()
+        assert ("cloud-telemetry" in ids) is cloud_tools_configured()
         assert ("gitops-remediation" in ids) is gitops_tools_enabled()
         assert ("external-mcp-tools" in ids) is mcp_client_enabled()
         assert "incident-history" not in ids

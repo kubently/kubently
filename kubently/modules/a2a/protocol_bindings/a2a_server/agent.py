@@ -242,6 +242,8 @@ class KubentlyAgent:
         # Investigation tracking
         self.investigation_steps = []
         self.min_investigation_steps = 4  # Minimum steps for thoroughness
+        # Set in initialize(): whether any executor advertises a cloud identity.
+        self._cloud_tools_enabled = False
 
     async def track_investigation_step(self, command: str, purpose: str, findings: str):
         """Track each investigation step for thoroughness."""
@@ -359,10 +361,15 @@ class KubentlyAgent:
         # tool the model cannot call.
         from kubently.modules.config import get_prompt
 
+        from .cloud_tools import cloud_guidance, cloud_tools_enabled
         from .gitops import gitops_guidance
         from .logsearch import loki_guidance
         from .mcp_client import mcp_guidance
         from .prometheus import metrics_guidance
+
+        # Cloud telemetry has no URL to key off, so the equivalent signal is
+        # whether any registered executor advertises a cloud identity.
+        self._cloud_tools_enabled = await cloud_tools_enabled(self.redis_client)
 
         self.system_prompt = get_prompt(
             role="a2a",
@@ -371,6 +378,7 @@ class KubentlyAgent:
                 "metrics_guidance": metrics_guidance(),
                 "gitops_guidance": gitops_guidance(),
                 "mcp_guidance": mcp_guidance(),
+                "cloud_guidance": cloud_guidance(self._cloud_tools_enabled),
             },
         )
 
@@ -1341,21 +1349,26 @@ class KubentlyAgent:
             logger.info("Loki log search tool registered (LOKI_URL is set)")
 
         # Cloud telemetry tools (query_cloud_logs, query_cloud_metrics,
-        # get_recent_cloud_changes). They dispatch to whichever provider the
-        # target executor reports a workload identity for, and refuse per-call
-        # when a cluster's executor reports none.
+        # get_recent_cloud_changes). Registered only when some executor in the
+        # fleet advertises a cloud identity; they then dispatch to whichever
+        # provider the target executor reports, and refuse per-call when a
+        # cluster's executor reports none.
         from kubently.modules.a2a.protocol_bindings.a2a_server.cloud_tools import (
             build_cloud_tools,
         )
 
-        self.tools.extend(
-            build_cloud_tools(
-                api_url,
-                api_key,
-                interceptor,
-                lambda: current_thread_id.get(),
+        if self._cloud_tools_enabled:
+            self.tools.extend(
+                build_cloud_tools(
+                    api_url,
+                    api_key,
+                    interceptor,
+                    lambda: current_thread_id.get(),
+                )
             )
-        )
+            logger.info("Cloud telemetry tools registered (executor reports a cloud identity)")
+        else:
+            logger.info("No executor reports a cloud identity; cloud telemetry tools disabled")
 
         from kubently.modules.a2a.protocol_bindings.a2a_server.prometheus import (
             build_prometheus_payload,

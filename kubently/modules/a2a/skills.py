@@ -191,9 +191,11 @@ def _is_enabled(gate: str, has_redis: bool) -> bool:
 
         return prometheus_tool_enabled()
     if gate == "cloud":
-        from .protocol_bindings.a2a_server.cloud_tools import cloud_tools_enabled
+        from .protocol_bindings.a2a_server.cloud_tools import cloud_tools_configured
 
-        return cloud_tools_enabled()
+        # The configuration gate, not the fleet gate: the card is built when the
+        # A2A app is mounted, before any executor has reported a cloud identity.
+        return cloud_tools_configured()
     if gate == "gitops":
         from .protocol_bindings.a2a_server.gitops import gitops_tools_enabled
 
