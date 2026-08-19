@@ -48,15 +48,77 @@ class KubentlyAgentExecutor(AgentExecutor):
         context: RequestContext,
         event_queue: EventQueue,
     ) -> None:
-        print("=== EXECUTE CALLED ===")  # Debug print to confirm execution
+        """Run the agent, guaranteeing the event stream is never left empty.
+
+        `message/stream` is served as SSE: the 200 and the `text/event-stream`
+        headers are flushed before this coroutine runs. Anything that raised in
+        here *before* the first `enqueue_event()` therefore reached the client
+        as a 200 with a zero-length body — no events, no error, nothing (#65).
+        `message/send` surfaced the very same failure as a JSON-RPC error,
+        which is why only the streaming path looked broken.
+
+        So: publish the task first, then run everything else under a guard that
+        turns any failure into a visible error artifact and a terminal status
+        event.
+        """
         logger.info("=== KubentlyAgentExecutor.execute() CALLED ===")
-        
+
+        if not context.message:
+            raise Exception("No message provided")
+
+        task = context.current_task
+        if not task:
+            task = new_task(context.message)
+            await event_queue.enqueue_event(task)
+
+        try:
+            await self._execute(context, event_queue, task)
+        except Exception as e:
+            logger.exception("A2A execute() failed before the task reached a terminal state")
+            await self._emit_failure(event_queue, task, e)
+
+    async def _emit_failure(self, event_queue: EventQueue, task, error: Exception) -> None:
+        """End a stream that failed outside the agent loop with a visible error."""
+        message = f"Kubently could not run this request: {error}"
+        try:
+            await event_queue.enqueue_event(
+                TaskArtifactUpdateEvent(
+                    append=False,
+                    contextId=task.contextId,
+                    taskId=task.id,
+                    lastChunk=True,
+                    artifact=new_text_artifact(
+                        name="debug_result",
+                        description="Kubernetes debugging analysis and findings",
+                        text=message,
+                    ),
+                )
+            )
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    status=TaskStatus(
+                        state=TaskState.failed,
+                        message=new_agent_text_message(message, task.contextId, task.id),
+                    ),
+                    final=True,
+                    contextId=task.contextId,
+                    taskId=task.id,
+                )
+            )
+        except Exception:
+            logger.exception("Failed to emit the terminal error event")
+
+    async def _execute(
+        self,
+        context: RequestContext,
+        event_queue: EventQueue,
+        task,
+    ) -> None:
         # Ensure agent is initialized in the correct event loop
         await self.initialize()
-        
+
         query = context.get_user_input()
-        task = context.current_task
-        
+
         # Use context_id from message like mas-agent-atlassian does
         contextId = context.message.context_id if context.message else None
 
@@ -80,13 +142,6 @@ class KubentlyAgentExecutor(AgentExecutor):
         from .agent import _namespaced_thread_id
 
         traceThreadId = _namespaced_thread_id(contextId)
-
-        if not context.message:
-            raise Exception("No message provided")
-
-        if not task:
-            task = new_task(context.message)
-            await event_queue.enqueue_event(task)
 
         # Let the agent handle all queries including cluster discovery
         # The agent's memory and prompt will maintain context properly
