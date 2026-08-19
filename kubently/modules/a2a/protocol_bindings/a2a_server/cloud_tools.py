@@ -11,10 +11,10 @@ Kept out of agent.py so the agent-toolset area stays minimal and additive
 (several sibling branches land there concurrently).
 """
 
-import json
 import logging
 import os
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 
@@ -45,7 +45,7 @@ def cloud_tools_configured() -> bool:
 
 async def get_cloud_capability(
     api_url: str, api_key: str, cluster_id: str
-) -> Optional[dict[str, Any]]:
+) -> dict[str, Any] | None:
     """The cluster executor's reported cloud capability, or None."""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -94,7 +94,7 @@ def build_logs_request(
     provider: str,
     query: str,
     minutes: int,
-    log_group: Optional[str],
+    log_group: str | None,
     limit: int,
 ) -> tuple[str, dict[str, Any]]:
     if provider == "aws":
@@ -103,8 +103,7 @@ def build_logs_request(
             return "aws.logs.describe_log_groups", {"limit": 50}
         return "aws.logs.insights_query", {
             "log_group": log_group,
-            "query": query
-            or "fields @timestamp, @message | sort @timestamp desc | limit 50",
+            "query": query or "fields @timestamp, @message | sort @timestamp desc | limit 50",
             "minutes": minutes,
             "limit": limit,
         }
@@ -119,7 +118,7 @@ def build_logs_request(
 def build_metrics_request(
     provider: str,
     metric: str,
-    dimensions: Optional[dict[str, str]],
+    dimensions: dict[str, str] | None,
     stat: str,
     minutes: int,
     period_seconds: int,
@@ -153,7 +152,7 @@ def build_metrics_request(
 def build_changes_request(
     provider: str,
     minutes: int,
-    resource_name: Optional[str],
+    resource_name: str | None,
     limit: int,
 ) -> tuple[str, dict[str, Any]]:
     if provider == "aws":
@@ -230,7 +229,7 @@ def build_cloud_tools(
     api_url: str,
     api_key_getter: Callable[[], str],
     interceptor: Any,
-    thread_id_getter: Callable[[], Optional[str]],
+    thread_id_getter: Callable[[], str | None],
 ) -> list:
     """
     Build the three provider-agnostic cloud tools.
@@ -332,9 +331,7 @@ def build_cloud_tools(
             "query_cloud_logs",
             cluster_id,
             {"query": query, "minutes": minutes, "log_group": log_group, "limit": limit},
-            lambda provider: build_logs_request(
-                provider, query, minutes, log_group or None, limit
-            ),
+            lambda provider: build_logs_request(provider, query, minutes, log_group or None, limit),
         )
 
     @tool
@@ -414,9 +411,7 @@ def build_cloud_tools(
             "get_recent_cloud_changes",
             cluster_id,
             {"minutes": minutes, "resource_name": resource_name, "limit": limit},
-            lambda provider: build_changes_request(
-                provider, minutes, resource_name or None, limit
-            ),
+            lambda provider: build_changes_request(provider, minutes, resource_name or None, limit),
         )
 
     return [query_cloud_logs, query_cloud_metrics, get_recent_cloud_changes]

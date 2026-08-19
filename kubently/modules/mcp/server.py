@@ -84,7 +84,7 @@ def add_api_key_auth(app, auth_module, public_well_known=False):
             return False
         path = scope.get("path", "")
         root = scope.get("root_path", "")
-        rel = path[len(root):] if root and path.startswith(root) else path
+        rel = path[len(root) :] if root and path.startswith(root) else path
         return rel.startswith("/.well-known/")
 
     async def asgi(scope, receive, send):
@@ -96,7 +96,9 @@ def add_api_key_auth(app, auth_module, public_well_known=False):
             await app(scope, receive, send)
             return
 
-        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+        headers = {
+            k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])
+        }
         api_key = headers.get("x-api-key")
         valid = False
         if api_key:
@@ -112,9 +114,9 @@ def add_api_key_auth(app, auth_module, public_well_known=False):
         if not valid:
             from starlette.responses import JSONResponse
 
-            await JSONResponse({"error": "Unauthorized: valid X-API-Key required"}, status_code=401)(
-                scope, receive, send
-            )
+            await JSONResponse(
+                {"error": "Unauthorized: valid X-API-Key required"}, status_code=401
+            )(scope, receive, send)
             return
 
         await app(scope, receive, send)

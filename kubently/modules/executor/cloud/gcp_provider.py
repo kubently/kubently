@@ -11,8 +11,9 @@ allowlist; there is no generic SDK dispatch.
 
 import logging
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, Callable, Optional
+from typing import Any
 
 from .base import (
     MAX_CHANGE_EVENTS,
@@ -61,10 +62,10 @@ class GCPProvider(CloudProvider):
 
     def __init__(
         self,
-        project: Optional[str] = None,
-        logging_client_factory: Optional[Callable[[], Any]] = None,
-        monitoring_client_factory: Optional[Callable[[], Any]] = None,
-        metadata_fetcher: Optional[Callable[[str], Optional[str]]] = None,
+        project: str | None = None,
+        logging_client_factory: Callable[[], Any] | None = None,
+        monitoring_client_factory: Callable[[], Any] | None = None,
+        metadata_fetcher: Callable[[str], str | None] | None = None,
     ):
         """
         Args:
@@ -76,9 +77,7 @@ class GCPProvider(CloudProvider):
         self._logging_client = None
         self._monitoring_client = None
         self._logging_client_factory = logging_client_factory or self._default_logging
-        self._monitoring_client_factory = (
-            monitoring_client_factory or self._default_monitoring
-        )
+        self._monitoring_client_factory = monitoring_client_factory or self._default_monitoring
         self._metadata_fetcher = metadata_fetcher or self._fetch_metadata
 
         self._handlers: dict[str, Callable[[dict], CloudOperationResult]] = {
@@ -90,7 +89,7 @@ class GCPProvider(CloudProvider):
     # ------------------------------------------------------------ plumbing
 
     @staticmethod
-    def _fetch_metadata(path: str) -> Optional[str]:
+    def _fetch_metadata(path: str) -> str | None:
         """Read one value from the GCE/GKE metadata server; None off-GCP."""
         import requests
 
@@ -117,7 +116,7 @@ class GCPProvider(CloudProvider):
         return monitoring_v3.MetricServiceClient()
 
     @property
-    def project(self) -> Optional[str]:
+    def project(self) -> str | None:
         if not self._project:
             self._project = self._metadata_fetcher("project/project-id")
         if not self._project:
@@ -163,7 +162,7 @@ class GCPProvider(CloudProvider):
 
     # ----------------------------------------------------------- interface
 
-    def detect_identity(self) -> Optional[CloudIdentity]:
+    def detect_identity(self) -> CloudIdentity | None:
         email = self._metadata_fetcher("instance/service-accounts/default/email")
         project = self.project
         if not email and not project:
@@ -231,7 +230,7 @@ class GCPProvider(CloudProvider):
             "payload": payload,
         }
 
-    def _list_entries(self, filter_: str, limit: int) -> tuple[list, Optional[str]]:
+    def _list_entries(self, filter_: str, limit: int) -> tuple[list, str | None]:
         limit = min(limit, MAX_LOG_EVENTS)
         # Fetch one extra entry to detect (and report) truncation
         iterator = self._logging().list_entries(
@@ -248,7 +247,7 @@ class GCPProvider(CloudProvider):
             start, end = _time_range(params)
             clauses = [_ts_filter(start, end)]
             if params.get("filter"):
-                clauses.append(f'({params["filter"]})')
+                clauses.append(f"({params['filter']})")
             filter_ = " AND ".join(clauses)
             limit = min(int(params.get("limit") or MAX_LOG_EVENTS), MAX_LOG_EVENTS)
             entries, note = self._list_entries(filter_, limit)
@@ -339,13 +338,9 @@ class GCPProvider(CloudProvider):
                 f'logName="projects/{project}/logs/cloudaudit.googleapis.com%2Factivity"',
             ]
             if params.get("cluster_name"):
-                clauses.append(
-                    f'resource.labels.cluster_name="{params["cluster_name"]}"'
-                )
+                clauses.append(f'resource.labels.cluster_name="{params["cluster_name"]}"')
             if params.get("resource_name"):
-                clauses.append(
-                    f'protoPayload.resourceName:"{params["resource_name"]}"'
-                )
+                clauses.append(f'protoPayload.resourceName:"{params["resource_name"]}"')
             filter_ = " AND ".join(clauses)
             limit = min(int(params.get("limit") or MAX_CHANGE_EVENTS), MAX_CHANGE_EVENTS)
             entries, note = self._list_entries(filter_, limit)

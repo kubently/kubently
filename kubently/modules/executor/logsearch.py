@@ -215,7 +215,9 @@ class LogSearchRunner:
                 if request.get("previous") and "previous terminated container" in detail:
                     no_match.append(f"{name} (no previous container)")
                 else:
-                    errors.append(f"{name}: {detail.splitlines()[0] if detail else 'unknown error'}")
+                    errors.append(
+                        f"{name}: {detail.splitlines()[0] if detail else 'unknown error'}"
+                    )
                 continue
 
             lines = (result.get("stdout") or result.get("output") or "").splitlines()
@@ -232,10 +234,11 @@ class LogSearchRunner:
             if not matches:
                 no_match.append(name)
                 continue
-            shown = min(matches, self.max_matches_per_container,
-                        self.max_total_matches - total_shown)
+            shown = min(
+                matches, self.max_matches_per_container, self.max_total_matches - total_shown
+            )
             total_shown += shown
-            section = [f"=== {name} ==="] + kept
+            section = [f"=== {name} ===", *kept]
             if capped:
                 section.append(
                     f"[showing {shown} of {matches} matches in this container — "
@@ -244,8 +247,19 @@ class LogSearchRunner:
             sections.append("\n".join(section))
 
         output = self._assemble(
-            request, namespace, selector, pod_name, targets, containers_searched,
-            total_matches, total_shown, sections, no_match, errors, notes, tail,
+            request,
+            namespace,
+            selector,
+            pod_name,
+            targets,
+            containers_searched,
+            total_matches,
+            total_shown,
+            sections,
+            no_match,
+            errors,
+            notes,
+            tail,
         )
         return self._success(output)
 
@@ -263,7 +277,11 @@ class LogSearchRunner:
         result = self._kubectl(args)
         if not result.get("success"):
             detail = (result.get("error") or result.get("output") or "").strip()
-            return [], [], f"Could not list pods: {detail.splitlines()[0] if detail else 'unknown error'}"
+            return (
+                [],
+                [],
+                f"Could not list pods: {detail.splitlines()[0] if detail else 'unknown error'}",
+            )
 
         try:
             payload = json.loads(result.get("stdout") or result.get("output") or "")
@@ -318,14 +336,28 @@ class LogSearchRunner:
     # -- output assembly ----------------------------------------------------
 
     def _assemble(
-        self, request, namespace, selector, pod_name, targets, containers_searched,
-        total_matches, total_shown, sections, no_match, errors, notes, tail,
+        self,
+        request,
+        namespace,
+        selector,
+        pod_name,
+        targets,
+        containers_searched,
+        total_matches,
+        total_shown,
+        sections,
+        no_match,
+        errors,
+        notes,
+        tail,
     ) -> str:
         mode = "regex" if request.get("use_regex") else "substring"
         scope = f"selector '{selector}'" if selector else f"pod '{pod_name}'"
         window = (
-            f"since {request['since_time']}" if request.get("since_time")
-            else f"last {request['since']}" if request.get("since")
+            f"since {request['since_time']}"
+            if request.get("since_time")
+            else f"last {request['since']}"
+            if request.get("since")
             else f"tail {tail} lines/container"
         )
         which = "previous (pre-restart) logs" if request.get("previous") else "current logs"

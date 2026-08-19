@@ -10,7 +10,8 @@ operations allowlist; there is no generic SDK dispatch.
 
 import logging
 import time
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from .base import (
     MAX_CHANGE_EVENTS,
@@ -60,8 +61,8 @@ class AWSProvider(CloudProvider):
 
     def __init__(
         self,
-        region: Optional[str] = None,
-        client_factory: Optional[Callable[[str], Any]] = None,
+        region: str | None = None,
+        client_factory: Callable[[str], Any] | None = None,
     ):
         """
         Args:
@@ -133,7 +134,7 @@ class AWSProvider(CloudProvider):
 
     # ----------------------------------------------------------- interface
 
-    def detect_identity(self) -> Optional[CloudIdentity]:
+    def detect_identity(self) -> CloudIdentity | None:
         try:
             resp = self._client("sts").get_caller_identity()
             region = self._region
@@ -298,15 +299,13 @@ class AWSProvider(CloudProvider):
             ]
             data = {"log_groups": groups}
             if resp.get("nextToken"):
-                data["_truncation_note"] = (
-                    "More log groups exist; refine with a name prefix."
-                )
+                data["_truncation_note"] = "More log groups exist; refine with a name prefix."
             return data
 
         return self._run("aws.logs.describe_log_groups", params, fn)
 
     def _filter_log_events(
-        self, log_group: str, params: dict, stream_prefix: Optional[str] = None
+        self, log_group: str, params: dict, stream_prefix: str | None = None
     ) -> dict:
         start, end = _time_range(params)
         limit = min(int(params.get("limit") or MAX_LOG_EVENTS), MAX_LOG_EVENTS)
@@ -354,18 +353,14 @@ class AWSProvider(CloudProvider):
             cluster = params["cluster_name"]
             log_type = params.get("log_type") or "kube-apiserver"
             if log_type not in EKS_LOG_TYPES:
-                raise ValueError(
-                    f"log_type must be one of {EKS_LOG_TYPES}, got '{log_type}'"
-                )
+                raise ValueError(f"log_type must be one of {EKS_LOG_TYPES}, got '{log_type}'")
 
             # Best-effort: report which control-plane log types are enabled so
             # an empty result is distinguishable from "logging is off".
             enabled_types = None
             try:
                 desc = self._client("eks").describe_cluster(name=cluster)
-                for entry in (
-                    desc.get("cluster", {}).get("logging", {}).get("clusterLogging", [])
-                ):
+                for entry in desc.get("cluster", {}).get("logging", {}).get("clusterLogging", []):
                     if entry.get("enabled"):
                         enabled_types = entry.get("types", [])
                         break
@@ -390,8 +385,7 @@ class AWSProvider(CloudProvider):
             if not queries:
                 # Simplified single-metric form
                 dimensions = [
-                    {"Name": k, "Value": v}
-                    for k, v in (params.get("dimensions") or {}).items()
+                    {"Name": k, "Value": v} for k, v in (params.get("dimensions") or {}).items()
                 ]
                 queries = [
                     {
@@ -416,19 +410,15 @@ class AWSProvider(CloudProvider):
             series = []
             note = None
             for r in resp.get("MetricDataResults", []):
-                points = list(zip(r.get("Timestamps", []), r.get("Values", [])))
-                points, series_note = cap_list(
-                    points, MAX_METRIC_DATAPOINTS, "datapoints"
-                )
+                points = list(zip(r.get("Timestamps", []), r.get("Values", []), strict=False))
+                points, series_note = cap_list(points, MAX_METRIC_DATAPOINTS, "datapoints")
                 note = note or series_note
                 series.append(
                     {
                         "id": r.get("Id"),
                         "label": r.get("Label"),
                         "status": r.get("StatusCode"),
-                        "datapoints": [
-                            {"timestamp": str(t), "value": v} for t, v in points
-                        ],
+                        "datapoints": [{"timestamp": str(t), "value": v} for t, v in points],
                     }
                 )
             data = {"series": series}

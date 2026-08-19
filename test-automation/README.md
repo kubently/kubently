@@ -231,7 +231,7 @@ export GOOGLE_API_KEY=your-gemini-api-key
 ### "No module named 'httpx'"
 ```bash
 # Script auto-installs, but for manual fix:
-pip install httpx rich google-generativeai
+pip install httpx rich google-genai
 ```
 
 ### Test hangs or times out

@@ -1,7 +1,6 @@
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import List, Optional
 
 
 class SessionModule:
@@ -19,9 +18,9 @@ class SessionModule:
     async def create_session(
         self,
         cluster_id: str,
-        user_id: Optional[str] = None,
-        correlation_id: Optional[str] = None,
-        service_identity: Optional[str] = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+        service_identity: str | None = None,
     ) -> str:
         """
         Create a new debugging session.
@@ -85,7 +84,7 @@ class SessionModule:
 
         return session_id
 
-    async def get_session(self, session_id: str) -> Optional[dict]:
+    async def get_session(self, session_id: str) -> dict | None:
         """
         Get session details.
 
@@ -221,7 +220,7 @@ class SessionModule:
             },
         )
 
-    async def get_active_sessions(self) -> List[dict]:
+    async def get_active_sessions(self) -> list[dict]:
         """
         Get all active sessions.
 
@@ -246,7 +245,7 @@ class SessionModule:
 
         return sessions
 
-    async def get_sessions_by_correlation(self, correlation_id: str) -> List[dict]:
+    async def get_sessions_by_correlation(self, correlation_id: str) -> list[dict]:
         """
         Get all sessions linked to a correlation ID (A2A chains).
 
@@ -297,7 +296,7 @@ class SessionModule:
         event = {"type": event_type, "timestamp": datetime.now(UTC).isoformat(), "data": data}
 
         # Publish to Redis pub/sub for real-time monitoring
-        await self.redis.publish(f"events:session", json.dumps(event))
+        await self.redis.publish("events:session", json.dumps(event))
 
         # Also store in list for history
         await self.redis.lpush("session:events", json.dumps(event))

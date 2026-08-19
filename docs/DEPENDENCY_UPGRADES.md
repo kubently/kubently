@@ -98,9 +98,3 @@ imports already carry `.js` extensions.
 - **#81** — `test-automation/requirements.txt` pins `a2a>=0.44`, but nothing
   under `test-automation/` imports it; `kubently-cli/nodejs` declares `ws` and
   `readline-sync`, but neither is imported under `src/`.
-- **#80** — `google-generativeai` is end-of-life upstream ("All support for the
-  `google.generativeai` package has ended"). `test-automation/analyzer.py`
-  should migrate to `google-genai`.
-- **#79** — `ruff check kubently/` reports ~971 violations, which is why the CI
-  lint job is `continue-on-error`. Clearing that backlog would let lint gate
-  too.

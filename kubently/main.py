@@ -13,19 +13,22 @@ All business logic is in the modules, following black box principles.
 import asyncio
 import json
 import logging
-import os
+import logging.config as log_config
 import uuid
+from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
-from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 import redis.asyncio as redis
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response, Body
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from sse_starlette.sse import EventSourceResponse
 
+from kubently.config.provider import ConfigProvider, EnvConfigProvider
+from kubently.logging_config import get_logging_config
 from kubently.modules.a2a import create_a2a_server
 from kubently.modules.api import (
     ArgoCDQueryRequest,
@@ -41,24 +44,20 @@ from kubently.modules.api import (
     SessionResponse,
     SessionStatus,
 )
-from kubently.config.provider import EnvConfigProvider, ConfigProvider
-from kubently.modules.auth.factory import AuthFactory
-from kubently.modules.auth.service import AuthenticationService, AuthResult
 from kubently.modules.api.oidc_discovery import create_discovery_router
+from kubently.modules.auth.factory import AuthFactory
+from kubently.modules.auth.service import AuthenticationService
+from kubently.modules.capability import CapabilityModule, ExecutorCapabilities
 
 # Import modules through their black box interfaces
 from kubently.modules.config import get_config
 from kubently.modules.queue import QueueModule
 from kubently.modules.session import SessionModule
-from kubently.modules.capability import CapabilityModule, ExecutorCapabilities
 
 # Get configuration
 config = get_config()
 
 # Configure logging with health check suppression
-from kubently.logging_config import get_logging_config
-import logging.config as log_config
-
 log_config.dictConfig(get_logging_config())
 logger = logging.getLogger(__name__)
 
@@ -66,11 +65,11 @@ logger = logging.getLogger(__name__)
 config_provider: ConfigProvider = EnvConfigProvider()
 
 # Module instances (initialized at startup)
-auth_service: Optional[AuthenticationService] = None
-session_module: Optional[SessionModule] = None
-queue_module: Optional[QueueModule] = None
-capability_module: Optional[CapabilityModule] = None
-redis_client: Optional[redis.Redis] = None
+auth_service: AuthenticationService | None = None
+session_module: SessionModule | None = None
+queue_module: QueueModule | None = None
+capability_module: CapabilityModule | None = None
+redis_client: redis.Redis | None = None
 a2a_server = None  # A2A server instance
 a2a_app = None  # A2A FastAPI sub-application
 pubsub_connections = {}  # Active SSE connections for agents
@@ -80,31 +79,34 @@ pubsub_connections = {}  # Active SSE connections for agents
 class CreateTokenRequest(BaseModel):
     """Request model for creating executor tokens with optional custom token."""
 
-    token: Optional[str] = Field(
+    token: str | None = Field(
         None,
         min_length=32,
         max_length=128,
-        description="Custom token (32-128 chars). If not provided, a secure token will be auto-generated."
+        description="Custom token (32-128 chars). If not provided, a secure token will be auto-generated.",
     )
 
-    @field_validator('token')
+    @field_validator("token")
     @classmethod
-    def validate_token_format(cls, v: Optional[str]) -> Optional[str]:
+    def validate_token_format(cls, v: str | None) -> str | None:
         """Validate token is alphanumeric, hyphens, or underscores only."""
-        if v is not None:
-            # Allow alphanumeric, hyphens, underscores (common in tokens)
-            if not all(c.isalnum() or c in '-_' for c in v):
-                raise ValueError('Token must contain only alphanumeric characters, hyphens, or underscores')
+        # Allow alphanumeric, hyphens, underscores (common in tokens)
+        if v is not None and not all(c.isalnum() or c in "-_" for c in v):
+            raise ValueError(
+                "Token must contain only alphanumeric characters, hyphens, or underscores"
+            )
         return v
 
 
 async def get_redis_client() -> redis.Redis:
     """Create Redis client from configuration."""
     # Build basic Redis URL without password (password passed separately)
-    redis_url = f"redis://{config.get('redis_host')}:{config.get('redis_port')}/{config.get('redis_db')}"
+    redis_url = (
+        f"redis://{config.get('redis_host')}:{config.get('redis_port')}/{config.get('redis_db')}"
+    )
 
     # Get password if configured
-    redis_password = config.get('redis_password')
+    redis_password = config.get("redis_password")
 
     return await redis.from_url(
         redis_url,
@@ -150,7 +152,7 @@ async def lifespan(app: FastAPI):
         host="0.0.0.0",
         port=config.get("port", 8080),  # Use main API port since A2A is mounted
         external_url=a2a_external_url,
-        redis_client=redis_client
+        redis_client=redis_client,
     )
     if a2a_server:
         # A2A module provides its own mount configuration (black box interface)
@@ -217,7 +219,9 @@ async def lifespan(app: FastAPI):
     try:
         from kubently.modules.webhook import create_verify_deployment_router
 
-        app.include_router(create_verify_deployment_router(verify_dual_auth, redis_client=redis_client))
+        app.include_router(
+            create_verify_deployment_router(verify_dual_auth, redis_client=redis_client)
+        )
         logger.info("Deployment verification endpoint mounted at /webhooks/verify-deployment")
     except Exception as e:
         logger.warning(f"Failed to mount deployment verification endpoint: {e}")
@@ -227,7 +231,9 @@ async def lifespan(app: FastAPI):
     try:
         from kubently.modules.webhook import create_scheduled_checks_router
 
-        app.include_router(create_scheduled_checks_router(verify_dual_auth, redis_client=redis_client))
+        app.include_router(
+            create_scheduled_checks_router(verify_dual_auth, redis_client=redis_client)
+        )
         logger.info("Scheduled checks endpoint mounted at /webhooks/scheduled-check")
     except Exception as e:
         logger.warning(f"Failed to mount scheduled checks endpoint: {e}")
@@ -262,8 +268,8 @@ app.include_router(discovery_router, tags=["auth"])
 
 # Dependency injection helpers
 async def verify_api_key(
-    x_api_key: Optional[str] = Header(None, description="API key for authentication")
-) -> Tuple[bool, Optional[str]]:
+    x_api_key: str | None = Header(None, description="API key for authentication"),
+) -> tuple[bool, str | None]:
     """Verify API key and return service identity."""
     if not auth_service:
         raise HTTPException(503, "Service not initialized")
@@ -275,10 +281,10 @@ async def verify_api_key(
         raise HTTPException(401, "Missing API key", headers={"WWW-Authenticate": "ApiKey"})
 
     result = await auth_service.authenticate(api_key=x_api_key, authorization=None)
-    
+
     if not result.ok:
         raise HTTPException(401, "Invalid API key")
-    
+
     service_identity = result.identity
     is_valid = True
     if not is_valid:
@@ -288,30 +294,24 @@ async def verify_api_key(
 
 
 async def verify_dual_auth(
-    x_api_key: Optional[str] = Header(None, description="API key for authentication"),
-    authorization: Optional[str] = Header(None, description="Bearer token for authentication")
-) -> Tuple[str, str]:
+    x_api_key: str | None = Header(None, description="API key for authentication"),
+    authorization: str | None = Header(None, description="Bearer token for authentication"),
+) -> tuple[str, str]:
     """
     Verify either API key or JWT Bearer token using authentication service.
-    
+
     Returns:
         Tuple of (identity, auth_method)
     """
     if not auth_service:
         raise HTTPException(503, "Service not initialized")
-    
+
     # Use authentication service facade
-    result = await auth_service.authenticate(
-        api_key=x_api_key,
-        authorization=authorization
-    )
-    
+    result = await auth_service.authenticate(api_key=x_api_key, authorization=authorization)
+
     if not result.ok:
-        raise HTTPException(
-            status_code=401,
-            detail=f"Authentication failed: {result.error}"
-        )
-    
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {result.error}")
+
     return result.identity, result.method
 
 
@@ -383,8 +383,7 @@ async def executor_stream(cluster_id: str = Depends(verify_executor_auth)):
             while True:
                 # Wait efficiently for a message for up to keepalive_interval seconds
                 message = await pubsub.get_message(
-                    ignore_subscribe_messages=True,
-                    timeout=keepalive_interval
+                    ignore_subscribe_messages=True, timeout=keepalive_interval
                 )
 
                 if message and message["type"] == "message":
@@ -412,7 +411,9 @@ async def executor_stream(cluster_id: str = Depends(verify_executor_auth)):
             await pubsub.close()
             # Do NOT delete cluster:active key - let TTL handle cleanup naturally
             # This prevents false "inactive" state if multiple executors are connected
-            logger.info(f"Executor {cluster_id} disconnected (cluster will expire via TTL if no other executors)")
+            logger.info(
+                f"Executor {cluster_id} disconnected (cluster will expire via TTL if no other executors)"
+            )
 
     return EventSourceResponse(event_generator())
 
@@ -437,7 +438,8 @@ async def post_result(payload: CommandResult, cluster_id: str = Depends(verify_e
     if not await queue_module.command_belongs_to(payload.command_id, cluster_id):
         logger.warning(
             "Rejected result for command %s from cluster %s (not the issuing cluster)",
-            payload.command_id, cluster_id,
+            payload.command_id,
+            cluster_id,
         )
         raise HTTPException(403, "Command was not issued to this cluster")
 
@@ -456,34 +458,24 @@ class CapabilityReport(BaseModel):
     mode: str = Field(
         ...,
         pattern=r"^(readOnly|extendedReadOnly|fullAccess)$",
-        description="Security mode (readOnly, extendedReadOnly, fullAccess)"
+        description="Security mode (readOnly, extendedReadOnly, fullAccess)",
     )
     allowed_verbs: list[str] = Field(
-        default_factory=list,
-        max_length=50,
-        description="Allowed kubectl verbs"
+        default_factory=list, max_length=50, description="Allowed kubectl verbs"
     )
     restricted_resources: list[str] = Field(
-        default_factory=list,
-        max_length=50,
-        description="Restricted resources"
+        default_factory=list, max_length=50, description="Restricted resources"
     )
     allowed_flags: list[str] = Field(
-        default_factory=list,
-        max_length=100,
-        description="Allowed flags"
+        default_factory=list, max_length=100, description="Allowed flags"
     )
-    executor_version: Optional[str] = Field(
-        None,
-        max_length=50,
-        description="Executor version"
-    )
-    executor_pod: Optional[str] = Field(
+    executor_version: str | None = Field(None, max_length=50, description="Executor version")
+    executor_pod: str | None = Field(
         None,
         max_length=253,  # Max K8s pod name length
-        description="Executor pod name"
+        description="Executor pod name",
     )
-    cloud: Optional[Dict[str, Any]] = Field(
+    cloud: dict[str, Any] | None = Field(
         None,
         description=(
             "Cloud telemetry access held via workload identity: provider, "
@@ -581,7 +573,7 @@ async def executor_heartbeat(
 @app.get("/api/v1/clusters/{cluster_id}/capabilities")
 async def get_cluster_capabilities(
     cluster_id: str,
-    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    auth_info: tuple[bool, str | None] = Depends(verify_api_key),
 ):
     """
     Get capabilities for a specific cluster.
@@ -639,9 +631,9 @@ async def require_registered_cluster(cluster_id: str) -> None:
 @app.post("/debug/session", response_model=SessionResponse, status_code=201)
 async def create_session(
     request: CreateSessionRequest,
-    auth_info: Tuple[str, str] = Depends(verify_dual_auth),
-    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
-    x_service_identity: Optional[str] = Header(None, description="Calling service identifier"),
+    auth_info: tuple[str, str] = Depends(verify_dual_auth),
+    x_correlation_id: str | None = Header(None, description="Correlation ID for A2A tracking"),
+    x_service_identity: str | None = Header(None, description="Calling service identifier"),
 ):
     """
     Create a new debugging session for a cluster.
@@ -690,9 +682,9 @@ async def create_session(
 @app.post("/debug/execute", response_model=CommandResponse)
 async def execute_command(
     request: ExecuteCommandRequest,
-    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
-    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
-    x_request_timeout: Optional[int] = Header(
+    auth_info: tuple[bool, str | None] = Depends(verify_api_key),
+    x_correlation_id: str | None = Header(None, description="Correlation ID for A2A tracking"),
+    x_request_timeout: int | None = Header(
         None, ge=1, le=60, description="Request timeout in seconds"
     ),
 ):
@@ -824,7 +816,7 @@ async def _run_executor_tool(
     tool: str,
     tool_request: dict,
     timeout: int,
-    correlation_id: Optional[str],
+    correlation_id: str | None,
     timeout_error: str,
 ) -> CommandResponse:
     """Publish a non-kubectl tool envelope to a cluster's executor and await
@@ -899,18 +891,18 @@ class CloudExecuteRequest(BaseModel):
         max_length=100,
         description="Whitelisted operation name, e.g. 'aws.logs.insights_query'",
     )
-    params: Dict[str, Any] = Field(default_factory=dict)
-    timeout_seconds: Optional[int] = Field(
+    params: dict[str, Any] = Field(default_factory=dict)
+    timeout_seconds: int | None = Field(
         None, ge=1, le=60, description="How long to wait for the executor"
     )
-    correlation_id: Optional[str] = None
+    correlation_id: str | None = None
 
 
 @app.post("/cloud/execute", response_model=CommandResponse)
 async def execute_cloud_operation(
     request: CloudExecuteRequest,
-    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
-    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+    auth_info: tuple[bool, str | None] = Depends(verify_api_key),
+    x_correlation_id: str | None = Header(None, description="Correlation ID for A2A tracking"),
 ):
     """
     Execute a read-only cloud telemetry operation on a cluster's executor.
@@ -960,8 +952,8 @@ async def execute_cloud_operation(
 @app.post("/debug/logs/search", response_model=CommandResponse)
 async def search_logs(
     request: LogSearchRequest,
-    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
-    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+    auth_info: tuple[bool, str | None] = Depends(verify_api_key),
+    x_correlation_id: str | None = Header(None, description="Correlation ID for A2A tracking"),
 ):
     """
     Search logs across the pods matching a selector on one cluster.
@@ -1006,8 +998,8 @@ async def search_logs(
 @app.post("/debug/loki", response_model=CommandResponse)
 async def execute_loki_query(
     request: LokiQueryRequest,
-    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
-    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+    auth_info: tuple[bool, str | None] = Depends(verify_api_key),
+    x_correlation_id: str | None = Header(None, description="Correlation ID for A2A tracking"),
 ):
     """
     Run a read-only LogQL range query on a cluster's Loki.
@@ -1044,8 +1036,8 @@ async def execute_loki_query(
 @app.post("/debug/prometheus", response_model=CommandResponse)
 async def execute_prometheus_query(
     request: PrometheusQueryRequest,
-    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
-    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+    auth_info: tuple[bool, str | None] = Depends(verify_api_key),
+    x_correlation_id: str | None = Header(None, description="Correlation ID for A2A tracking"),
 ):
     """
     Run a read-only PromQL query on a cluster's Prometheus.
@@ -1084,8 +1076,8 @@ async def execute_prometheus_query(
 @app.post("/debug/helm", response_model=CommandResponse)
 async def execute_helm_command(
     request: HelmCommandRequest,
-    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
-    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+    auth_info: tuple[bool, str | None] = Depends(verify_api_key),
+    x_correlation_id: str | None = Header(None, description="Correlation ID for A2A tracking"),
 ):
     """
     Run a read-only helm subcommand (history/list) on a cluster's executor.
@@ -1122,8 +1114,8 @@ async def execute_helm_command(
 @app.post("/debug/argocd", response_model=CommandResponse)
 async def execute_argocd_query(
     request: ArgoCDQueryRequest,
-    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
-    x_correlation_id: Optional[str] = Header(None, description="Correlation ID for A2A tracking"),
+    auth_info: tuple[bool, str | None] = Depends(verify_api_key),
+    x_correlation_id: str | None = Header(None, description="Correlation ID for A2A tracking"),
 ):
     """
     Run a read-only ArgoCD Application query on a cluster's executor.
@@ -1158,7 +1150,7 @@ async def execute_argocd_query(
 
 @app.get("/debug/session/{session_id}", response_model=SessionResponse)
 async def get_session(
-    session_id: str, auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key)
+    session_id: str, auth_info: tuple[bool, str | None] = Depends(verify_api_key)
 ):
     """
     Get session status (useful for A2A polling).
@@ -1189,7 +1181,7 @@ async def get_session(
 
 @app.delete("/debug/session/{session_id}", status_code=204)
 async def end_session(
-    session_id: str, auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key)
+    session_id: str, auth_info: tuple[bool, str | None] = Depends(verify_api_key)
 ):
     """
     End a debugging session.
@@ -1216,8 +1208,8 @@ async def end_session(
 @app.post("/admin/agents/{cluster_id}/token")
 async def create_agent_token(
     cluster_id: str,
-    request: Optional[CreateTokenRequest] = Body(None),
-    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    request: CreateTokenRequest | None = Body(None),
+    auth_info: tuple[bool, str | None] = Depends(verify_api_key),
 ):
     """
     Create authentication token for cluster executor.
@@ -1255,15 +1247,21 @@ async def create_agent_token(
         # Check if token already exists for this cluster
         existing_token = await redis_client.get(f"executor:token:{cluster_id}")
         if existing_token:
-            raise HTTPException(409, f"Token already exists for cluster '{cluster_id}'. Delete it first to create a new one.")
+            raise HTTPException(
+                409,
+                f"Token already exists for cluster '{cluster_id}'. Delete it first to create a new one.",
+            )
 
         # Use custom token if provided, otherwise auto-generate
         if request and request.token:
             token = request.token
-            logger.info(f"Created executor token for cluster '{cluster_id}' (custom token provided)")
+            logger.info(
+                f"Created executor token for cluster '{cluster_id}' (custom token provided)"
+            )
         else:
             # Generate secure token for executor
             import secrets
+
             token = secrets.token_hex(32)  # 64 character hex string
             logger.info(f"Created executor token for cluster '{cluster_id}' (auto-generated)")
 
@@ -1273,18 +1271,18 @@ async def create_agent_token(
         return {
             "token": token,
             "clusterId": cluster_id,
-            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "createdAt": datetime.now(UTC).isoformat(),
         }
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to create token for cluster {cluster_id}: {e}")
-        raise HTTPException(500, "Failed to create token")
+        raise HTTPException(500, "Failed to create token") from e
 
 
 @app.get("/admin/agents")
 async def list_agents(
-    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    auth_info: tuple[bool, str | None] = Depends(verify_api_key),
 ):
     """
     List all registered cluster executors.
@@ -1309,34 +1307,33 @@ async def list_agents(
         for key in token_keys:
             raw = key.decode() if isinstance(key, bytes) else key
             if raw.startswith(token_prefix):
-                cluster_id = raw[len(token_prefix):]
+                cluster_id = raw[len(token_prefix) :]
 
                 # Check if cluster is currently connected (has active marker)
                 is_active = await redis_client.exists(f"cluster:active:{cluster_id}")
 
-                clusters.append({
-                    "id": cluster_id,
-                    "connected": bool(is_active),
-                    "lastSeen": None  # Could track with TTL timestamp
-                })
+                clusters.append(
+                    {
+                        "id": cluster_id,
+                        "connected": bool(is_active),
+                        "lastSeen": None,  # Could track with TTL timestamp
+                    }
+                )
 
         # Sort by cluster_id for consistent ordering
         clusters.sort(key=lambda x: x["id"])
 
-        return {
-            "clusters": clusters,
-            "count": len(clusters)
-        }
+        return {"clusters": clusters, "count": len(clusters)}
 
     except Exception as e:
         logger.error(f"Failed to list agents: {e}")
-        raise HTTPException(500, "Failed to list agents")
+        raise HTTPException(500, "Failed to list agents") from e
 
 
 @app.get("/admin/agents/{cluster_id}/status")
 async def get_agent_status(
     cluster_id: str,
-    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    auth_info: tuple[bool, str | None] = Depends(verify_api_key),
 ):
     """
     Get detailed status of a specific cluster executor.
@@ -1387,13 +1384,13 @@ async def get_agent_status(
         raise
     except Exception as e:
         logger.error(f"Failed to get status for cluster {cluster_id}: {e}")
-        raise HTTPException(500, "Failed to get agent status")
+        raise HTTPException(500, "Failed to get agent status") from e
 
 
 @app.delete("/admin/agents/{cluster_id}/token")
 async def revoke_agent_token(
     cluster_id: str,
-    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    auth_info: tuple[bool, str | None] = Depends(verify_api_key),
 ):
     """
     Revoke authentication token for cluster executor.
@@ -1427,12 +1424,12 @@ async def revoke_agent_token(
 
         logger.info(f"Revoked executor token for cluster: {cluster_id}")
         return Response(status_code=204)
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to revoke token for cluster {cluster_id}: {e}")
-        raise HTTPException(500, "Failed to revoke token")
+        raise HTTPException(500, "Failed to revoke token") from e
 
 
 # Cluster Management Endpoints
@@ -1440,7 +1437,7 @@ async def revoke_agent_token(
 
 @app.get("/debug/clusters")
 async def list_clusters(
-    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    auth_info: tuple[bool, str | None] = Depends(verify_api_key),
 ):
     """
     List available Kubernetes clusters.
@@ -1463,7 +1460,7 @@ async def list_clusters(
             for key in token_keys:
                 raw = key.decode() if isinstance(key, bytes) else key
                 if raw.startswith(token_prefix):
-                    clusters_set.add(raw[len(token_prefix):])
+                    clusters_set.add(raw[len(token_prefix) :])
 
         clusters = sorted(clusters_set)
 
@@ -1471,13 +1468,13 @@ async def list_clusters(
 
     except Exception as e:
         logger.error(f"Failed to list clusters: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/debug/clusters/{cluster_id}")
 async def get_cluster_detail(
     cluster_id: str,
-    auth_info: Tuple[bool, Optional[str]] = Depends(verify_api_key),
+    auth_info: tuple[bool, str | None] = Depends(verify_api_key),
 ):
     """
     Get detailed status for a specific cluster, including capabilities.
@@ -1521,7 +1518,7 @@ async def get_cluster_detail(
         raise
     except Exception as e:
         logger.error(f"Failed to get cluster detail for {cluster_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # Health/Monitoring Endpoints
@@ -1563,7 +1560,7 @@ async def health_check(request: Request):
 
         # Check if we're running with TLS
         tls_status = "enabled" if request.url.scheme == "https" else "disabled"
-        
+
         # Warn if not using TLS in production mode
         environment = config.get("environment", "development")
         if environment == "production" and tls_status == "disabled":
@@ -1571,12 +1568,12 @@ async def health_check(request: Request):
 
         if redis_status == "connected" and modules_ready:
             return {
-                "status": "healthy", 
-                "redis": redis_status, 
+                "status": "healthy",
+                "redis": redis_status,
                 "modules": "initialized",
                 "tls": tls_status,
                 "environment": environment,
-                "version": "1.0.0"
+                "version": "1.0.0",
             }
         else:
             return JSONResponse(

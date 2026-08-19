@@ -50,7 +50,7 @@ def build_execute_payload(command: str, namespace: str = "default") -> dict:
             actual_namespace = parts[idx + 1]
     elif namespace == "all":
         if "-A" not in args and "--all-namespaces" not in args:
-            args = args + ["-A"]
+            args = [*args, "-A"]
     elif namespace != "default":
         actual_namespace = namespace
 

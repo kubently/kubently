@@ -81,8 +81,10 @@ class PrometheusRunner:
         max_output_chars: int | None = None,
     ):
         self.base_url = (
-            base_url if base_url is not None else os.environ.get("PROMETHEUS_URL", "")
-        ).strip().rstrip("/")
+            (base_url if base_url is not None else os.environ.get("PROMETHEUS_URL", ""))
+            .strip()
+            .rstrip("/")
+        )
         self.timeout = timeout or int(
             os.environ.get("PROMETHEUS_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS))
         )
@@ -150,16 +152,18 @@ class PrometheusRunner:
             body = response.json()
         except ValueError:
             return self._error(
-                f"Prometheus returned non-JSON (HTTP {response.status_code}): "
-                f"{response.text[:200]}"
+                f"Prometheus returned non-JSON (HTTP {response.status_code}): {response.text[:200]}"
             )
 
         if response.status_code != 200 or body.get("status") != "success":
             # Prometheus puts PromQL errors in errorType/error with HTTP 400.
             detail = body.get("error") or f"HTTP {response.status_code}"
             error_type = body.get("errorType")
-            prefix = f"Prometheus query failed ({error_type}): " if error_type else \
-                "Prometheus query failed: "
+            prefix = (
+                f"Prometheus query failed ({error_type}): "
+                if error_type
+                else "Prometheus query failed: "
+            )
             return self._error(prefix + str(detail))
 
         output = self._format_capped(body.get("data") or {})
@@ -211,7 +215,7 @@ class PrometheusRunner:
 
         if len(output) > self.max_output_chars:
             output = output[: self.max_output_chars] + (
-                f'\n[truncated at {self.max_output_chars} chars — result too large even '
+                f"\n[truncated at {self.max_output_chars} chars — result too large even "
                 "after series/sample caps; aggregate the query further]"
             )
         return output

@@ -7,14 +7,13 @@ Handles persistence of command history, metrics, and learning data.
 
 import json
 import logging
-import os
 import sqlite3
 import threading
 import time
-from collections import Counter, defaultdict
-from datetime import datetime, timedelta
+from collections import Counter
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger("kubently-agent.whitelist-store")
 
@@ -33,7 +32,7 @@ class WhitelistStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         self._lock = threading.RLock()
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: sqlite3.Connection | None = None
 
         # Metrics cache
         self._metrics_cache = {
@@ -50,7 +49,9 @@ class WhitelistStore:
         """Initialize database schema."""
         try:
             self._conn = sqlite3.connect(
-                str(self.db_path), check_same_thread=False, isolation_level=None  # Autocommit mode
+                str(self.db_path),
+                check_same_thread=False,
+                isolation_level=None,  # Autocommit mode
             )
 
             # Enable Write-Ahead Logging for better concurrency
@@ -93,19 +94,19 @@ class WhitelistStore:
             # Create indexes for efficient queries
             cursor.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_command_timestamp 
+                CREATE INDEX IF NOT EXISTS idx_command_timestamp
                 ON command_history(timestamp DESC)
             """
             )
             cursor.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_command_verb 
+                CREATE INDEX IF NOT EXISTS idx_command_verb
                 ON command_history(verb)
             """
             )
             cursor.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_command_allowed 
+                CREATE INDEX IF NOT EXISTS idx_command_allowed
                 ON command_history(allowed)
             """
             )
@@ -156,13 +157,13 @@ class WhitelistStore:
 
             cursor.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_metrics_timestamp 
+                CREATE INDEX IF NOT EXISTS idx_metrics_timestamp
                 ON metrics(timestamp DESC)
             """
             )
             cursor.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_metrics_name 
+                CREATE INDEX IF NOT EXISTS idx_metrics_name
                 ON metrics(metric_name)
             """
             )
@@ -170,14 +171,14 @@ class WhitelistStore:
     def record_command(
         self,
         cluster_id: str,
-        args: List[str],
+        args: list[str],
         allowed: bool,
-        rejection_reason: Optional[str] = None,
-        category: Optional[str] = None,
-        risk_level: Optional[str] = None,
-        execution_time_ms: Optional[int] = None,
-        success: Optional[bool] = None,
-        error_message: Optional[str] = None,
+        rejection_reason: str | None = None,
+        category: str | None = None,
+        risk_level: str | None = None,
+        execution_time_ms: int | None = None,
+        success: bool | None = None,
+        error_message: str | None = None,
     ) -> None:
         """
         Record command execution attempt.
@@ -202,7 +203,7 @@ class WhitelistStore:
 
                 cursor.execute(
                     """
-                    INSERT INTO command_history 
+                    INSERT INTO command_history
                     (timestamp, cluster_id, verb, full_command, category, risk_level,
                      allowed, rejection_reason, execution_time_ms, success, error_message)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -235,9 +236,9 @@ class WhitelistStore:
         self,
         config_hash: str,
         mode: str,
-        allowed_verbs: List[str],
+        allowed_verbs: list[str],
         success: bool,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> None:
         """
         Record configuration reload event.
@@ -255,7 +256,7 @@ class WhitelistStore:
 
                 cursor.execute(
                     """
-                    INSERT INTO config_history 
+                    INSERT INTO config_history
                     (timestamp, config_hash, mode, allowed_verbs, success, error_message)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """,
@@ -277,7 +278,7 @@ class WhitelistStore:
                 logger.error(f"Failed to record config reload: {e}")
 
     def record_pattern(
-        self, pattern: str, verb: str, allowed: bool, risk_assessment: Optional[str] = None
+        self, pattern: str, verb: str, allowed: bool, risk_assessment: str | None = None
     ) -> None:
         """
         Record command pattern for learning.
@@ -297,8 +298,8 @@ class WhitelistStore:
                 # Try to update existing pattern
                 cursor.execute(
                     """
-                    UPDATE learning_patterns 
-                    SET last_seen = ?, 
+                    UPDATE learning_patterns
+                    SET last_seen = ?,
                         occurrence_count = occurrence_count + 1,
                         always_allowed = always_allowed AND ?
                     WHERE pattern = ?
@@ -310,8 +311,8 @@ class WhitelistStore:
                     # Insert new pattern
                     cursor.execute(
                         """
-                        INSERT INTO learning_patterns 
-                        (pattern, verb, first_seen, last_seen, occurrence_count, 
+                        INSERT INTO learning_patterns
+                        (pattern, verb, first_seen, last_seen, occurrence_count,
                          always_allowed, risk_assessment)
                         VALUES (?, ?, ?, ?, 1, ?, ?)
                     """,
@@ -321,9 +322,7 @@ class WhitelistStore:
             except Exception as e:
                 logger.error(f"Failed to record pattern: {e}")
 
-    def get_command_stats(
-        self, cluster_id: Optional[str] = None, hours: int = 24
-    ) -> Dict[str, Any]:
+    def get_command_stats(self, cluster_id: str | None = None, hours: int = 24) -> dict[str, Any]:
         """
         Get command statistics.
 
@@ -351,7 +350,7 @@ class WhitelistStore:
                 # Total commands
                 cursor.execute(
                     f"""
-                    SELECT COUNT(*) FROM command_history 
+                    SELECT COUNT(*) FROM command_history
                     WHERE {base_where}
                 """,
                     params,
@@ -361,7 +360,7 @@ class WhitelistStore:
                 # Allowed vs blocked
                 cursor.execute(
                     f"""
-                    SELECT allowed, COUNT(*) FROM command_history 
+                    SELECT allowed, COUNT(*) FROM command_history
                     WHERE {base_where}
                     GROUP BY allowed
                 """,
@@ -372,7 +371,7 @@ class WhitelistStore:
                 # Top verbs
                 cursor.execute(
                     f"""
-                    SELECT verb, COUNT(*) as count FROM command_history 
+                    SELECT verb, COUNT(*) as count FROM command_history
                     WHERE {base_where}
                     GROUP BY verb
                     ORDER BY count DESC
@@ -385,7 +384,7 @@ class WhitelistStore:
                 # Risk distribution
                 cursor.execute(
                     f"""
-                    SELECT risk_level, COUNT(*) FROM command_history 
+                    SELECT risk_level, COUNT(*) FROM command_history
                     WHERE {base_where} AND risk_level IS NOT NULL
                     GROUP BY risk_level
                 """,
@@ -396,7 +395,7 @@ class WhitelistStore:
                 # Rejection reasons
                 cursor.execute(
                     f"""
-                    SELECT rejection_reason, COUNT(*) as count FROM command_history 
+                    SELECT rejection_reason, COUNT(*) as count FROM command_history
                     WHERE {base_where} AND allowed = 0 AND rejection_reason IS NOT NULL
                     GROUP BY rejection_reason
                     ORDER BY count DESC
@@ -422,7 +421,7 @@ class WhitelistStore:
 
     def get_learning_suggestions(
         self, min_occurrences: int = 10, min_days: int = 7
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Get suggestions for commands to add to whitelist.
 
@@ -441,7 +440,7 @@ class WhitelistStore:
 
                 cursor.execute(
                     """
-                    SELECT pattern, verb, occurrence_count, 
+                    SELECT pattern, verb, occurrence_count,
                            first_seen, last_seen, risk_assessment
                     FROM learning_patterns
                     WHERE occurrence_count >= ?
@@ -475,7 +474,7 @@ class WhitelistStore:
                 logger.error(f"Failed to get learning suggestions: {e}")
                 return []
 
-    def export_metrics(self) -> Dict[str, Any]:
+    def export_metrics(self) -> dict[str, Any]:
         """
         Export metrics in Prometheus format.
 
@@ -521,7 +520,7 @@ class WhitelistStore:
                 # Clean command history
                 cursor.execute(
                     """
-                    DELETE FROM command_history 
+                    DELETE FROM command_history
                     WHERE timestamp < ?
                 """,
                     (cutoff,),
@@ -531,7 +530,7 @@ class WhitelistStore:
                 # Clean config history
                 cursor.execute(
                     """
-                    DELETE FROM config_history 
+                    DELETE FROM config_history
                     WHERE timestamp < ?
                 """,
                     (cutoff,),
@@ -541,7 +540,7 @@ class WhitelistStore:
                 # Clean metrics
                 cursor.execute(
                     """
-                    DELETE FROM metrics 
+                    DELETE FROM metrics
                     WHERE timestamp < ?
                 """,
                     (cutoff,),

@@ -3,5 +3,7 @@ rich>=15.0.0
 pyyaml>=6.0
 click>=8.1.0
 python-dotenv>=1.0.0
-google-generativeai>=0.8.6  # For Gemini AI analysis (upstream EOL; migrate to google-genai)
+# Successor to the EOL google-generativeai. Floor matches what langchain-google-genai
+# (used by the API image) already requires, so one environment satisfies both.
+google-genai>=1.65.0  # Gemini AI analysis in analyzer.py
 a2a-sdk>=0.2.16  # provides the `a2a` namespace imported by test_runner.py

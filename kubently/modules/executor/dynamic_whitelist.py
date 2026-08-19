@@ -8,12 +8,11 @@ and multiple security modes.
 
 import hashlib
 import logging
-import os
 import threading
 import time
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, ClassVar
 
 import yaml
 
@@ -31,7 +30,7 @@ class SecurityMode(Enum):
 class WhitelistConfig:
     """Container for whitelist configuration."""
 
-    def __init__(self, config_dict: Dict[str, Any]):
+    def __init__(self, config_dict: dict[str, Any]):
         """Initialize from configuration dictionary."""
         self.mode = SecurityMode(config_dict.get("mode", "readOnly"))
 
@@ -47,7 +46,7 @@ class WhitelistConfig:
 
         self.reload_interval = config_dict.get("reloadIntervalSeconds", 30)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "mode": self.mode.value,
@@ -69,7 +68,7 @@ class DynamicCommandWhitelist:
     """Dynamic command whitelist with hot-reloading capability."""
 
     # Immutable security baseline - never allow these patterns
-    IMMUTABLE_FORBIDDEN_PATTERNS = {
+    IMMUTABLE_FORBIDDEN_PATTERNS: ClassVar[set[str]] = {
         # Authentication bypass attempts
         "--token",
         "--kubeconfig",
@@ -105,12 +104,12 @@ class DynamicCommandWhitelist:
     # read-only subcommand (checked in validate_command, immutable). "rollout"
     # covers rollout history/status for change correlation; rollout restart/
     # undo/pause/resume stay blocked in every mode.
-    VERB_ALLOWED_SUBCOMMANDS = {
+    VERB_ALLOWED_SUBCOMMANDS: ClassVar[dict[str, set[str]]] = {
         "rollout": {"history", "status"},
     }
 
     # Default configurations per security mode
-    MODE_DEFAULTS = {
+    MODE_DEFAULTS: ClassVar[dict] = {
         SecurityMode.READ_ONLY: {
             "allowedVerbs": {
                 "get",
@@ -213,11 +212,11 @@ class DynamicCommandWhitelist:
             config_path: Path to configuration file
         """
         self.config_path = Path(config_path)
-        self.current_config: Optional[WhitelistConfig] = None
-        self.last_modified: Optional[float] = None
-        self.config_hash: Optional[str] = None
+        self.current_config: WhitelistConfig | None = None
+        self.last_modified: float | None = None
+        self.config_hash: str | None = None
         self._lock = threading.RLock()
-        self._watcher_thread: Optional[threading.Thread] = None
+        self._watcher_thread: threading.Thread | None = None
         self._stop_watcher = threading.Event()
 
         # Load initial configuration
@@ -266,10 +265,7 @@ class DynamicCommandWhitelist:
             with open(self.config_path, "rb") as f:
                 content_hash = hashlib.sha256(f.read()).hexdigest()
 
-            if self.config_hash and content_hash == self.config_hash:
-                return False
-
-            return True
+            return not (self.config_hash and content_hash == self.config_hash)
 
         except Exception as e:
             logger.error(f"Error checking config changes: {e}")
@@ -283,7 +279,7 @@ class DynamicCommandWhitelist:
                 self._use_defaults()
                 return
 
-            with open(self.config_path, "r") as f:
+            with open(self.config_path) as f:
                 config_data = yaml.safe_load(f)
 
             if not self._validate_config(config_data):
@@ -313,7 +309,7 @@ class DynamicCommandWhitelist:
             if not self.current_config:
                 self._use_defaults()
 
-    def _merge_with_defaults(self, config_data: Dict, mode: SecurityMode) -> Dict:
+    def _merge_with_defaults(self, config_data: dict, mode: SecurityMode) -> dict:
         """Merge user configuration with mode defaults."""
         defaults = self.MODE_DEFAULTS.get(mode, self.MODE_DEFAULTS[SecurityMode.READ_ONLY])
 
@@ -394,7 +390,7 @@ class DynamicCommandWhitelist:
 
         logger.info("Using default safe configuration")
 
-    def _validate_config(self, config: Dict) -> bool:
+    def _validate_config(self, config: dict) -> bool:
         """
         Validate configuration against security policies.
 
@@ -452,7 +448,7 @@ class DynamicCommandWhitelist:
             logger.error(f"Config validation error: {e}")
             return False
 
-    def validate_command(self, args: List[str]) -> tuple[bool, Optional[str]]:
+    def validate_command(self, args: list[str]) -> tuple[bool, str | None]:
         """
         Validate kubectl command against dynamic whitelist.
 
@@ -530,7 +526,7 @@ class DynamicCommandWhitelist:
                 return self.current_config.timeout_seconds
             return 30
 
-    def get_config_summary(self) -> Dict[str, Any]:
+    def get_config_summary(self) -> dict[str, Any]:
         """Get current configuration summary."""
         with self._lock:
             if not self.current_config:

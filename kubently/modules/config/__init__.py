@@ -9,8 +9,9 @@ Can be replaced with different config systems (Consul, etcd, AWS Parameter Store
 """
 
 import os
-from typing import Any, Dict
+from typing import Any
 
+from .prompts import get_prompt
 
 # Configuration Contract: Required and Optional Keys
 # This defines the black box interface - what the config module guarantees to provide
@@ -69,7 +70,7 @@ class ConfigModule:
                 f"Check environment variables and deployment configuration."
             )
 
-    def _load_from_env(self) -> Dict[str, Any]:
+    def _load_from_env(self) -> dict[str, Any]:
         """Load configuration from environment."""
         # Parse Redis port (might be in tcp://host:port format from K8s)
         redis_port_env = os.getenv("REDIS_PORT", "6379")
@@ -108,12 +109,12 @@ class ConfigModule:
         """Set configuration value."""
         self._config[key] = value
 
-    def get_all(self) -> Dict[str, Any]:
+    def get_all(self) -> dict[str, Any]:
         """Get all configuration values."""
         return self._config.copy()
 
     @staticmethod
-    def get_config_schema() -> Dict[str, Any]:
+    def get_config_schema() -> dict[str, Any]:
         """
         Get the configuration schema (contract) for this module.
 
@@ -146,7 +147,4 @@ def get_config() -> ConfigModule:
     return _instance
 
 
-# Public prompt loader interface
-from .prompts import get_prompt
-
-__all__ = ["get_config", "ConfigModule", "get_prompt"]
+__all__ = ["ConfigModule", "get_config", "get_prompt"]

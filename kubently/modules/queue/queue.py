@@ -2,7 +2,6 @@ import asyncio
 import json
 import uuid
 from datetime import UTC, datetime
-from typing import List, Optional
 
 
 class QueueModule:
@@ -57,7 +56,7 @@ class QueueModule:
 
         return command["id"]
 
-    async def pull_commands(self, cluster_id: str, wait: int = 0) -> List[dict]:
+    async def pull_commands(self, cluster_id: str, wait: int = 0) -> list[dict]:
         """
         Pull commands from queue with optional blocking.
 
@@ -92,7 +91,7 @@ class QueueModule:
 
                     await self._record_latency(command)
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
         else:
@@ -168,7 +167,7 @@ class QueueModule:
             else:
                 await self._increment_metric("commands_failed", cluster_id)
 
-    async def wait_for_result(self, command_id: str, timeout: int = 10) -> Optional[dict]:
+    async def wait_for_result(self, command_id: str, timeout: int = 10) -> dict | None:
         """
         Wait for command result using Redis pub/sub.
 
@@ -220,7 +219,7 @@ class QueueModule:
                             # If result not found, continue listening
                             # (shouldn't happen, but defensive)
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Timeout reached without result
                 await self._increment_metric("commands_timeout", "global")
                 return None

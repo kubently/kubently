@@ -15,7 +15,7 @@ import json
 import logging
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("kubently.capability")
 
@@ -31,29 +31,29 @@ class ExecutorCapabilities:
 
     cluster_id: str
     mode: str  # "readOnly", "extendedReadOnly", "fullAccess"
-    allowed_verbs: List[str]
-    restricted_resources: List[str] = field(default_factory=list)
-    allowed_flags: List[str] = field(default_factory=list)
+    allowed_verbs: list[str]
+    restricted_resources: list[str] = field(default_factory=list)
+    allowed_flags: list[str] = field(default_factory=list)
 
     # Metadata
-    executor_version: Optional[str] = None
-    executor_pod: Optional[str] = None
-    reported_at: Optional[str] = None
-    expires_at: Optional[str] = None
+    executor_version: str | None = None
+    executor_pod: str | None = None
+    reported_at: str | None = None
+    expires_at: str | None = None
 
     # Feature flags derived from mode
-    features: Dict[str, bool] = field(default_factory=dict)
+    features: dict[str, bool] = field(default_factory=dict)
 
     # Cloud telemetry access held via workload identity (provider, identity,
     # whitelisted operations). None when the executor holds no cloud identity.
-    cloud: Optional[Dict[str, Any]] = None
+    cloud: dict[str, Any] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ExecutorCapabilities":
+    def from_dict(cls, data: dict[str, Any]) -> "ExecutorCapabilities":
         """Create from dictionary (e.g., from JSON)."""
         return cls(
             cluster_id=data.get("cluster_id", ""),
@@ -73,9 +73,9 @@ class ExecutorCapabilities:
     def from_whitelist_summary(
         cls,
         cluster_id: str,
-        summary: Dict[str, Any],
-        executor_version: Optional[str] = None,
-        executor_pod: Optional[str] = None,
+        summary: dict[str, Any],
+        executor_version: str | None = None,
+        executor_pod: str | None = None,
     ) -> "ExecutorCapabilities":
         """
         Create from DynamicCommandWhitelist.get_config_summary() output.
@@ -132,9 +132,7 @@ class CapabilityModule:
         """Generate Redis key for cluster capabilities."""
         return f"cluster:{cluster_id}:capabilities"
 
-    async def store_capabilities(
-        self, capabilities: ExecutorCapabilities
-    ) -> bool:
+    async def store_capabilities(self, capabilities: ExecutorCapabilities) -> bool:
         """
         Store executor capabilities in Redis.
 
@@ -150,9 +148,7 @@ class CapabilityModule:
             # Add timestamps
             now = datetime.now(UTC)
             capabilities.reported_at = now.isoformat()
-            capabilities.expires_at = (
-                now + timedelta(seconds=self.default_ttl)
-            ).isoformat()
+            capabilities.expires_at = (now + timedelta(seconds=self.default_ttl)).isoformat()
 
             # Store with TTL
             data = json.dumps(capabilities.to_dict())
@@ -168,9 +164,7 @@ class CapabilityModule:
             logger.error(f"Failed to store capabilities: {e}")
             return False
 
-    async def get_capabilities(
-        self, cluster_id: str
-    ) -> Optional[ExecutorCapabilities]:
+    async def get_capabilities(self, cluster_id: str) -> ExecutorCapabilities | None:
         """
         Retrieve executor capabilities from Redis.
 
@@ -257,7 +251,7 @@ class CapabilityModule:
             logger.error(f"Failed to delete capabilities for {cluster_id}: {e}")
             return False
 
-    async def list_all_capabilities(self) -> List[ExecutorCapabilities]:
+    async def list_all_capabilities(self) -> list[ExecutorCapabilities]:
         """
         List capabilities for all clusters.
 
@@ -290,7 +284,7 @@ class CapabilityModule:
             logger.error(f"Failed to list capabilities: {e}")
             return []
 
-    async def get_cluster_detail(self, cluster_id: str) -> Dict[str, Any]:
+    async def get_cluster_detail(self, cluster_id: str) -> dict[str, Any]:
         """
         Get detailed cluster status including capabilities.
 

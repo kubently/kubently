@@ -6,11 +6,13 @@ import uuid
 from collections.abc import AsyncIterable
 from contextvars import ContextVar
 from datetime import UTC, datetime
+from typing import ClassVar
 
 import httpx
 from deepagents import create_deep_agent
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables.config import RunnableConfig
+
 from .checkpointer import create_checkpointer
 from .fleet import cap_output
 from .tool_call_interceptor import get_tool_call_interceptor
@@ -29,9 +31,9 @@ def debug_print(message: str, banner: bool = True):
             print("=" * 80)
 
 
-def structured_log(log_data: dict, thread_id: str = None):
+def structured_log(log_data: dict, thread_id: str | None = None):
     """Log structured data when A2A_SERVER_DEBUG is enabled.
-    
+
     Args:
         log_data: Dictionary containing log data
         thread_id: Optional thread ID to include in the log
@@ -43,6 +45,7 @@ def structured_log(log_data: dict, thread_id: str = None):
 
         # Add timestamp
         import datetime
+
         log_data["timestamp"] = datetime.datetime.now(datetime.UTC).isoformat()
 
         # Log as formatted JSON
@@ -134,18 +137,30 @@ def _posthog_llm_callbacks():
         # Singleton: the client owns a background flush thread and connection
         # pool, and initialize() runs per agent construction — a client per call
         # would leak both.
-        _POSTHOG_CLIENT = Posthog(
-            key, host=os.getenv("POSTHOG_HOST", "https://us.i.posthog.com")
-        )
+        _POSTHOG_CLIENT = Posthog(key, host=os.getenv("POSTHOG_HOST", "https://us.i.posthog.com"))
 
     return [CallbackHandler(client=_POSTHOG_CLIENT)]
 
 
 # Dangerous kubectl verbs that require explicit permission
 DANGEROUS_VERBS = {
-    "delete", "create", "apply", "patch", "edit", "scale",
-    "cordon", "drain", "uncordon", "taint", "label", "annotate",
-    "set", "autoscale", "rollout", "expose", "run"
+    "delete",
+    "create",
+    "apply",
+    "patch",
+    "edit",
+    "scale",
+    "cordon",
+    "drain",
+    "uncordon",
+    "taint",
+    "label",
+    "annotate",
+    "set",
+    "autoscale",
+    "rollout",
+    "expose",
+    "run",
 }
 
 # Partially read-only verbs: allowed only with these read-only subcommands
@@ -153,6 +168,7 @@ DANGEROUS_VERBS = {
 READ_ONLY_SUBCOMMANDS = {
     "rollout": {"history", "status"},
 }
+
 
 def validate_kubectl_command(command: str, allow_write: bool = False) -> bool:
     """Validate kubectl command for safety."""
@@ -174,6 +190,7 @@ def validate_kubectl_command(command: str, allow_write: bool = False) -> bool:
 
     return True
 
+
 def parse_kubectl_command(command: str) -> dict:
     """Parse kubectl command for structured logging."""
     parts = command.split()
@@ -182,7 +199,7 @@ def parse_kubectl_command(command: str) -> dict:
         "resource": None,
         "name": None,
         "namespace": "default",
-        "flags": []
+        "flags": [],
     }
 
     # Basic parsing logic
@@ -210,7 +227,7 @@ def parse_kubectl_command(command: str) -> dict:
 class KubentlyAgent:
     """Kubernetes Debugging Agent - Enhanced with thorough investigation."""
 
-    SUPPORTED_CONTENT_TYPES = ["text/plain", "application/json"]
+    SUPPORTED_CONTENT_TYPES: ClassVar[list[str]] = ["text/plain", "application/json"]
 
     def __init__(self, redis_client=None):
         """Initialize the Kubently agent."""
@@ -247,19 +264,24 @@ class KubentlyAgent:
 
     async def track_investigation_step(self, command: str, purpose: str, findings: str):
         """Track each investigation step for thoroughness."""
-        self.investigation_steps.append({
-            "command": command,
-            "purpose": purpose,
-            "findings": findings,
-            "timestamp": datetime.now(UTC).isoformat()
-        })
+        self.investigation_steps.append(
+            {
+                "command": command,
+                "purpose": purpose,
+                "findings": findings,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
 
         # Log structured data for analysis
-        structured_log({
-            "investigation_step": len(self.investigation_steps),
-            "command": command,
-            "purpose": purpose
-        }, thread_id=current_thread_id.get())
+        structured_log(
+            {
+                "investigation_step": len(self.investigation_steps),
+                "command": command,
+                "purpose": purpose,
+            },
+            thread_id=current_thread_id.get(),
+        )
 
     def should_continue_investigation(self, steps_taken: int) -> bool:
         """Encourage continued investigation."""
@@ -267,12 +289,23 @@ class KubentlyAgent:
             return True
 
         # Check if recent findings suggest more investigation needed
-        recent_findings = self.investigation_steps[-2:] if len(self.investigation_steps) >= 2 else []
+        recent_findings = (
+            self.investigation_steps[-2:] if len(self.investigation_steps) >= 2 else []
+        )
 
         # Continue if recent steps revealed new questions
         for step in recent_findings:
-            if any(keyword in step["findings"].lower() for keyword in
-                   ["unclear", "need to check", "verify", "confirm", "strange", "unexpected"]):
+            if any(
+                keyword in step["findings"].lower()
+                for keyword in [
+                    "unclear",
+                    "need to check",
+                    "verify",
+                    "confirm",
+                    "strange",
+                    "unexpected",
+                ]
+            ):
                 return True
 
         return False
@@ -299,7 +332,9 @@ class KubentlyAgent:
         # Initialize LLM with context management support for Anthropic models
         # https://docs.claude.com/en/docs/build-with-claude/context-editing#how-it-works
         llm_provider = os.getenv("LLM_PROVIDER", "").lower()
-        enable_context_management = os.getenv("ANTHROPIC_CONTEXT_CLEARING", "true").lower() == "true"
+        enable_context_management = (
+            os.getenv("ANTHROPIC_CONTEXT_CLEARING", "true").lower() == "true"
+        )
 
         # PostHog LLM observability (optional): when POSTHOG_API_KEY is set, every
         # generation reports model/tokens/cost/latency to PostHog. Attached to the
@@ -318,20 +353,22 @@ class KubentlyAgent:
                     model=model_name,
                     max_tokens=4096,
                     betas=["context-management-2025-06-27"],
-                    context_management={
-                        "edits": [{"type": "clear_tool_uses_20250919"}]
-                    },
+                    context_management={"edits": [{"type": "clear_tool_uses_20250919"}]},
                     callbacks=posthog_cbs,
                 )
                 logger.info(f"Anthropic Claude initialized with context management: {model_name}")
-                logger.info("Context management will automatically clear tool results to prevent context overflow")
+                logger.info(
+                    "Context management will automatically clear tool results to prevent context overflow"
+                )
             else:
                 # Anthropic without context-clearing: plain ChatAnthropic.
                 from langchain_anthropic import ChatAnthropic
 
                 model_name = os.getenv("ANTHROPIC_MODEL_NAME", "claude-sonnet-4-6")
                 self.llm = ChatAnthropic(model=model_name, max_tokens=4096, callbacks=posthog_cbs)
-                logger.info(f"Anthropic Claude initialized without context management: {model_name}")
+                logger.info(
+                    f"Anthropic Claude initialized without context management: {model_name}"
+                )
         elif "openai" in llm_provider or "azure" in llm_provider:
             from langchain_openai import ChatOpenAI
 
@@ -347,7 +384,9 @@ class KubentlyAgent:
         elif "google" in llm_provider or "gemini" in llm_provider:
             from langchain_google_genai import ChatGoogleGenerativeAI
 
-            self.llm = ChatGoogleGenerativeAI(model=os.getenv("GOOGLE_MODEL_NAME", "gemini-2.0-flash"), callbacks=posthog_cbs)
+            self.llm = ChatGoogleGenerativeAI(
+                model=os.getenv("GOOGLE_MODEL_NAME", "gemini-2.0-flash"), callbacks=posthog_cbs
+            )
             logger.info(f"Google Gemini initialized: {llm_provider}")
         else:
             raise ValueError(
@@ -450,9 +489,9 @@ class KubentlyAgent:
         @tool
         async def list_clusters() -> str:
             """List all available Kubernetes clusters.
-            
+
             Use this tool when the user doesn't specify a cluster to get a list of available options.
-            
+
             Returns:
                 List of available cluster IDs
             """
@@ -460,9 +499,7 @@ class KubentlyAgent:
 
             # Record tool call
             tool_call_id = await interceptor.record_tool_call(
-                tool_name="list_clusters",
-                args={},
-                thread_id=current_thread_id.get()
+                tool_name="list_clusters", args={}, thread_id=current_thread_id.get()
             )
 
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -497,7 +534,7 @@ class KubentlyAgent:
             cluster_id: str,
             command: str,
             namespace: str = "default",
-            extra_args: list[str] | None = None
+            extra_args: list[str] | None = None,
         ) -> str:
             """Execute any kubectl command for thorough Kubernetes investigation.
 
@@ -572,7 +609,11 @@ class KubentlyAgent:
             verb = command_parts[0]
 
             # Handle namespace if not specified in command
-            if "-n" not in command_parts and "--namespace" not in command_parts and namespace != "default":
+            if (
+                "-n" not in command_parts
+                and "--namespace" not in command_parts
+                and namespace != "default"
+            ):
                 # Add namespace unless it's already specified
                 if namespace == "all":
                     command_parts.append("-A")
@@ -591,26 +632,23 @@ class KubentlyAgent:
                     "command": command,
                     "namespace": namespace,
                     "extra_args": extra_args,
-                    "parsed": cmd_info
+                    "parsed": cmd_info,
                 },
-                thread_id=current_thread_id.get()
+                thread_id=current_thread_id.get(),
             )
 
             # Track investigation step
             await self.track_investigation_step(
-                command=' '.join(command_parts),
+                command=" ".join(command_parts),
                 purpose=f"Execute: {verb} {cmd_info.get('resource', '')}",
-                findings="Pending"
+                findings="Pending",
             )
 
             async with httpx.AsyncClient(timeout=30.0) as client:
                 try:
                     # Prepare the API payload
                     # Command is the verb, rest are args
-                    if len(command_parts) > 1:
-                        args = command_parts[1:]
-                    else:
-                        args = []
+                    args = command_parts[1:] if len(command_parts) > 1 else []
 
                     # Fix namespace handling
                     actual_namespace = None
@@ -666,12 +704,16 @@ class KubentlyAgent:
 
                         # Update investigation tracking with findings
                         if self.investigation_steps:
-                            self.investigation_steps[-1]["findings"] = output[:200] if output else "No output"
+                            self.investigation_steps[-1]["findings"] = (
+                                output[:200] if output else "No output"
+                            )
 
                         await interceptor.record_tool_result(tool_call_id, output)
                         return output
                     else:
-                        error_msg = cap_output(f"Error: HTTP {response.status_code}: {response.text}")
+                        error_msg = cap_output(
+                            f"Error: HTTP {response.status_code}: {response.text}"
+                        )
                         debug_print(f"Tool failed: {error_msg}")
                         await interceptor.record_tool_result(tool_call_id, None, error_msg)
                         return error_msg
@@ -834,7 +876,11 @@ class KubentlyAgent:
                     if err:
                         unavailable["workload metadata"] = err
 
-                    scoped = [w for w in workloads if w.name == resource_name] if resource_name else workloads
+                    scoped = (
+                        [w for w in workloads if w.name == resource_name]
+                        if resource_name
+                        else workloads
+                    )
                     if resource_name and not scoped:
                         unavailable["workload scope"] = (
                             f"'{resource_name}' not found among deployments/statefulsets/"
@@ -1049,6 +1095,7 @@ class KubentlyAgent:
                 error_msg = f"Error fetching events: {e!s}"
                 await interceptor.record_tool_result(tool_call_id, None, error_msg)
                 return error_msg
+
         from kubently.modules.a2a.protocol_bindings.a2a_server.logsearch import (
             build_log_search_payload,
             build_loki_payload,
@@ -1630,7 +1677,7 @@ class KubentlyAgent:
                         {"event": "runbooks_injected", "runbooks": injected},
                         thread_id=thread_id,
                     )
-                    messages = [{"role": "user", "content": runbook_context}] + messages
+                    messages = [{"role": "user", "content": runbook_context}, *messages]
                     # Cap the dedup map so long-lived processes don't grow it
                     # unboundedly across threads.
                     if len(self._injected_runbooks) > 1024:
@@ -1662,14 +1709,12 @@ class KubentlyAgent:
                 )
                 if match:
                     score, past = match
-                    logger.info(
-                        f"Auto-surfacing past incident {past.id} (score={score})"
-                    )
+                    logger.info(f"Auto-surfacing past incident {past.id} (score={score})")
                     structured_log(
                         {"event": "incident_surfaced", "incident_id": past.id, "score": score},
                         thread_id=thread_id,
                     )
-                    messages = [{"role": "user", "content": build_surface_note(past)}] + messages
+                    messages = [{"role": "user", "content": build_surface_note(past)}, *messages]
                     if thread_id:
                         if len(self._surfaced_incidents) > 1024:
                             self._surfaced_incidents.pop(next(iter(self._surfaced_incidents)))
@@ -1687,10 +1732,10 @@ class KubentlyAgent:
             cluster_context = {
                 "role": "user",
                 "content": f"IMPORTANT CONTEXT: The user has selected cluster '{cluster_id}' for this session. "
-                           f"Use this cluster_id in all execute_kubectl calls unless the user explicitly "
-                           f"requests a different cluster. Do NOT ask which cluster to use - it has been specified."
+                f"Use this cluster_id in all execute_kubectl calls unless the user explicitly "
+                f"requests a different cluster. Do NOT ask which cluster to use - it has been specified.",
             }
-            messages = [cluster_context] + messages
+            messages = [cluster_context, *messages]
 
         # Convert messages to LangChain format
         lc_messages = []
@@ -1699,9 +1744,7 @@ class KubentlyAgent:
             content = msg.get("content", "")
             if isinstance(content, list):
                 # Handle multi-part messages
-                text_parts = [
-                    p.get("text", "") for p in content if p.get("type") == "text"
-                ]
+                text_parts = [p.get("text", "") for p in content if p.get("type") == "text"]
                 content = " ".join(text_parts)
 
             if role == "user":
@@ -1713,7 +1756,9 @@ class KubentlyAgent:
 
         # Use thread_id for memory if available
         actual_thread_id = thread_id or str(uuid.uuid4())
-        logger.info(f"Agent.run called with thread_id: {actual_thread_id}, memory enabled: {self.memory is not None}")
+        logger.info(
+            f"Agent.run called with thread_id: {actual_thread_id}, memory enabled: {self.memory is not None}"
+        )
 
         # Note: For Anthropic models with context management enabled, tool results are automatically
         # cleared server-side to prevent context overflow. No manual intervention needed.
@@ -1727,19 +1772,24 @@ class KubentlyAgent:
         )
 
         # Log the prompt being sent
-        structured_log({
-            "event": "llm_prompt",
-            "messages": [{"role": m.__class__.__name__, "content": m.content[:200] if hasattr(m, 'content') else str(m)[:200]} for m in lc_messages],
-            "thread_id": actual_thread_id,
-            "message_count": len(lc_messages)
-        })
+        structured_log(
+            {
+                "event": "llm_prompt",
+                "messages": [
+                    {
+                        "role": m.__class__.__name__,
+                        "content": m.content[:200] if hasattr(m, "content") else str(m)[:200],
+                    }
+                    for m in lc_messages
+                ],
+                "thread_id": actual_thread_id,
+                "message_count": len(lc_messages),
+            }
+        )
 
         try:
             # Run the single agent (per-request variant when MCP servers were injected)
-            result = await run_agent.ainvoke(
-                {"messages": lc_messages},
-                config=config
-            )
+            result = await run_agent.ainvoke({"messages": lc_messages}, config=config)
 
             # Extract the final message
             final_messages = result.get("messages", [])
@@ -1765,13 +1815,16 @@ class KubentlyAgent:
                         # Add a simple list of what tools were executed (not trying to interpret results)
                         tool_summary = []
                         for msg in final_messages[-10:]:  # Look at recent messages only
-                            if hasattr(msg, 'content'):
+                            if hasattr(msg, "content"):
                                 content = str(msg.content)
-                                if "kubectl" in content and "✅" in content:
-                                    # Extract just the kubectl command that was run
-                                    if "execute_kubectl" in content:
-                                        tool_summary.append("• Executed kubectl commands")
-                                        break
+                                # Extract just the kubectl command that was run
+                                if (
+                                    "kubectl" in content
+                                    and "✅" in content
+                                    and "execute_kubectl" in content
+                                ):
+                                    tool_summary.append("• Executed kubectl commands")
+                                    break
 
                         if tool_summary:
                             response_text += "\n".join(tool_summary)
@@ -1815,21 +1868,21 @@ class KubentlyAgent:
                     yield {
                         "type": "message",
                         "content": response_text,
-                        "metadata": {"thread_id": actual_thread_id}
+                        "metadata": {"thread_id": actual_thread_id},
                     }
                 else:
                     # Fallback response
                     yield {
                         "type": "message",
                         "content": "I can help you debug Kubernetes issues. Please specify which cluster you want to examine, or I can list the available clusters for you.",
-                        "metadata": {"thread_id": actual_thread_id}
+                        "metadata": {"thread_id": actual_thread_id},
                     }
             else:
                 # No messages returned
                 yield {
                     "type": "message",
                     "content": "I can help you debug Kubernetes issues. Please specify which cluster you want to examine, or I can list the available clusters for you.",
-                    "metadata": {"thread_id": actual_thread_id}
+                    "metadata": {"thread_id": actual_thread_id},
                 }
 
         except Exception as e:
@@ -1837,5 +1890,5 @@ class KubentlyAgent:
             yield {
                 "type": "error",
                 "content": f"I encountered an error while processing your request: {e!s}",
-                "metadata": {"thread_id": actual_thread_id}
+                "metadata": {"thread_id": actual_thread_id},
             }

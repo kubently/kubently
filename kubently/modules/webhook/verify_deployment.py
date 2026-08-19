@@ -27,7 +27,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -277,7 +277,7 @@ def _event_time(value) -> datetime | None:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def _first_seen(event: dict) -> datetime | None:
@@ -411,7 +411,7 @@ def build_query(
     warnings: tuple[list[str], list[str]] | None = None,
 ) -> str:
     """The post-deploy investigation the agent actually runs."""
-    started = (started_at or datetime.now(timezone.utc)).strftime("%Y-%m-%d %H:%M:%S")
+    started = (started_at or datetime.now(UTC)).strftime("%Y-%m-%d %H:%M:%S")
     target = f"{req.kind}/{req.workload} in namespace {req.namespace} on cluster {req.cluster}"
     if settle_outcome == SETTLE_COMPLETE:
         lead = f"The rollout of {target} just completed ({settle_detail})."
@@ -467,7 +467,7 @@ async def _run_verification(agent_factory, req: VerifyRequest) -> tuple[str, str
     """Settle-watch + agent investigation. Returns (verdict, body)."""
     from kubently.modules.mcp import tools
 
-    started_at = datetime.now(timezone.utc)
+    started_at = datetime.now(UTC)
     settle_outcome, settle_detail = await wait_for_settle(req)
     warnings = await fetch_warnings(req, started_at)
     query = build_query(req, settle_outcome, settle_detail, started_at, warnings)

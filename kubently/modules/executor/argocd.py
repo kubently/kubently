@@ -66,11 +66,11 @@ class ArgoCDRunner:
         max_output_chars: int | None = None,
     ):
         self.base_url = (
-            base_url if base_url is not None else os.environ.get("ARGOCD_URL", "")
-        ).strip().rstrip("/")
-        self.token = (
-            token if token is not None else os.environ.get("ARGOCD_TOKEN", "")
-        ).strip()
+            (base_url if base_url is not None else os.environ.get("ARGOCD_URL", ""))
+            .strip()
+            .rstrip("/")
+        )
+        self.token = (token if token is not None else os.environ.get("ARGOCD_TOKEN", "")).strip()
         self.timeout = timeout or int(
             os.environ.get("ARGOCD_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS))
         )
@@ -99,9 +99,10 @@ class ArgoCDRunner:
             )
 
         app_name = request.get("app_name")
-        if operation in ("get_app", "revision_metadata"):
-            if not app_name or not _APP_NAME_PATTERN.match(str(app_name)):
-                return self._error(f"Invalid or missing app_name '{app_name}'.")
+        if operation in ("get_app", "revision_metadata") and (
+            not app_name or not _APP_NAME_PATTERN.match(str(app_name))
+        ):
+            return self._error(f"Invalid or missing app_name '{app_name}'.")
 
         params = {}
         if operation == "get_app":
@@ -132,9 +133,7 @@ class ArgoCDRunner:
                 verify=self.ca_cert_path if self.ca_cert_path else True,
             )
         except requests.exceptions.Timeout:
-            return self._error(
-                f"ArgoCD query timed out after {self.timeout}s.", status="TIMEOUT"
-            )
+            return self._error(f"ArgoCD query timed out after {self.timeout}s.", status="TIMEOUT")
         except requests.exceptions.RequestException as e:
             return self._error(f"Could not reach ArgoCD at {self.base_url}: {e}")
 
@@ -142,8 +141,7 @@ class ArgoCDRunner:
             body = response.json()
         except ValueError:
             return self._error(
-                f"ArgoCD returned non-JSON (HTTP {response.status_code}): "
-                f"{response.text[:200]}"
+                f"ArgoCD returned non-JSON (HTTP {response.status_code}): {response.text[:200]}"
             )
 
         if response.status_code != 200:
@@ -168,14 +166,11 @@ class ArgoCDRunner:
             total = len(items)
             # History is dropped in list mode — get_app has it per app.
             payload = {
-                "items": [
-                    self._compact_app(app, max_history=0) for app in items[:DEFAULT_MAX_APPS]
-                ]
+                "items": [self._compact_app(app, max_history=0) for app in items[:DEFAULT_MAX_APPS]]
             }
             if total > DEFAULT_MAX_APPS:
                 payload["kubently_truncation"] = (
-                    f"showing {DEFAULT_MAX_APPS} of {total} applications — "
-                    "filter with a selector"
+                    f"showing {DEFAULT_MAX_APPS} of {total} applications — filter with a selector"
                 )
         else:  # revision_metadata: already small (author/date/message)
             payload = body

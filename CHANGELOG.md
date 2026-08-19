@@ -35,6 +35,37 @@
   chart-content change, so it takes the patch bump the new `chart-version` job
   requires.
 
+### Changed
+- **The CI lint job can now fail the build** (#79). Both ruff steps were
+  `continue-on-error: true`, which made them a third check that could not fire:
+  `ruff check kubently/` reported 971 violations and `ruff format --check`
+  wanted to reformat 42 of 86 files, so style regressions accumulated in a step
+  nobody read. The backlog is cleared in three separate commits -- 833 safe
+  autofixes, a standalone `ruff format` run, and the 110 findings triaged by
+  hand -- and `continue-on-error` is gone from both steps. No blanket `# noqa`
+  and no rules added to the ignore list; two of the findings turned out to be
+  real bugs (`AuthFactory.build_for_testing()` raised `NameError` from an
+  undefined `redis_client`, and `A2AModule.get_mount_config()` annotated a
+  `FastAPI` it never imported). One rule *was* switched off: `C90` (mccabe
+  complexity), because 22 functions exceed the default threshold and the only
+  honest fix is decomposing them -- a refactor, not a lint pass. The ruff
+  install is now pinned, since an unpinned formatter behind a blocking gate
+  turns an unrelated ruff release into a red `main`.
+- **`test-automation/analyzer.py` migrated to the `google-genai` SDK** (#80).
+  `google-generativeai` is end-of-life upstream and announces it with a
+  `FutureWarning` on import. The successor is client-based rather than
+  module-global, so `genai.configure()` plus two `GenerativeModel` objects
+  become one `genai.Client` with the model id passed per call, and the RCA
+  pass's `generation_config` dict becomes a `types.GenerateContentConfig`. The
+  model ids stay configurable via `KUBENTLY_ANALYZER_MODEL` /
+  `KUBENTLY_ANALYZER_RCA_MODEL` (#96); their defaults, `gemini-2.5-pro` and
+  `gemini-2.5-flash`, are both still live -- Google's deprecation page lists no
+  shutdown date for either. `tests/test_analyzer_client.py` covers the
+  construction path: the SDK actually imported, a client built from a
+  real-shaped key, and placeholder keys (`your-...`, `...-here`, which is what
+  the repo's own examples ship) rejected before the run starts. No API key and
+  no network call.
+
 ## [Unreleased] - 2026-08-18
 
 ### Fixed

@@ -7,18 +7,15 @@ This module follows Black Box Design principles:
 - No direct environment variable access
 """
 
-import json
 import logging
 import time
-from typing import Dict, Optional, Tuple, Any
-from urllib.parse import urljoin
+from typing import Any
 
-import httpx
 import jwt
 from jwt import PyJWKClient
 
-from .interfaces import TokenValidator
 from ...config.provider import OIDCConfig
+from .interfaces import TokenValidator
 
 logger = logging.getLogger(__name__)
 
@@ -26,17 +23,17 @@ logger = logging.getLogger(__name__)
 class OIDCValidator(TokenValidator):
     """
     Validates JWT tokens from OIDC providers.
-    
+
     This class is a black box that:
     - Validates JWT signatures via JWKS
     - Verifies token claims
     - Caches validation results
     """
-    
+
     def __init__(self, config: OIDCConfig):
         """
         Initialize OIDC validator with injected config.
-        
+
         Args:
             config: OIDC configuration object
         """
@@ -45,7 +42,7 @@ class OIDCValidator(TokenValidator):
         self.client_id = config.client_id
         self.audience = config.audience
         self.jwks_uri = config.jwks_uri
-        
+
         # Initialize JWKS client if configured
         self.jwks_client = None
         if self.jwks_uri and config.is_configured:
@@ -53,29 +50,29 @@ class OIDCValidator(TokenValidator):
                 self.jwks_client = PyJWKClient(
                     self.jwks_uri,
                     cache_keys=True,
-                    lifespan=3600  # Cache keys for 1 hour
+                    lifespan=3600,  # Cache keys for 1 hour
                 )
             except Exception as e:
                 logger.warning(f"Failed to initialize JWKS client: {e}")
-        
+
         # Cache for validation results
-        self.cache: Dict[str, Tuple[Dict[str, Any], float]] = {}
+        self.cache: dict[str, tuple[dict[str, Any], float]] = {}
         self.cache_ttl = 300  # 5 minutes
-    
-    async def validate_jwt_async(self, token: str) -> Tuple[bool, Optional[Dict[str, Any]]]:
+
+    async def validate_jwt_async(self, token: str) -> tuple[bool, dict[str, Any] | None]:
         """
         Validate a JWT token asynchronously.
-        
+
         Args:
             token: JWT token string (with or without Bearer prefix)
-            
+
         Returns:
             Tuple of (is_valid, claims_dict or None)
         """
         # Remove Bearer prefix if present
         if token.startswith("Bearer "):
             token = token[7:]
-        
+
         # Check cache first
         if token in self.cache:
             claims, expires_at = self.cache[token]
@@ -83,18 +80,18 @@ class OIDCValidator(TokenValidator):
                 return True, claims
             else:
                 del self.cache[token]
-        
+
         try:
             # If OIDC is not configured, reject all tokens
             if not self.config.is_configured:
                 logger.debug("OIDC not configured - rejecting token")
                 return False, None
-            
+
             # If we have a JWKS client, use it for verification
             if self.jwks_client:
                 # Get the signing key from JWKS
                 signing_key = self.jwks_client.get_signing_key_from_jwt(token)
-                
+
                 # Decode and verify the token
                 claims = jwt.decode(
                     token,
@@ -107,8 +104,8 @@ class OIDCValidator(TokenValidator):
                         "verify_aud": bool(self.audience),
                         "verify_iss": bool(self.issuer),
                         "verify_exp": True,
-                        "require": ["exp", "iat", "sub"]
-                    }
+                        "require": ["exp", "iat", "sub"],
+                    },
                 )
             else:
                 # No JWKS client - for testing only
@@ -117,14 +114,14 @@ class OIDCValidator(TokenValidator):
                     token,
                     options={"verify_signature": False},
                     audience=self.audience,
-                    issuer=self.issuer
+                    issuer=self.issuer,
                 )
-            
+
             # Cache the valid claims
             self.cache[token] = (claims, time.time() + self.cache_ttl)
-            
+
             return True, claims
-            
+
         except jwt.ExpiredSignatureError:
             logger.debug("JWT token expired")
             return False, None
@@ -140,14 +137,14 @@ class OIDCValidator(TokenValidator):
         except Exception as e:
             logger.error(f"Unexpected error validating JWT: {e}")
             return False, None
-    
-    def extract_user_info(self, claims: Dict[str, Any]) -> Dict[str, Any]:
+
+    def extract_user_info(self, claims: dict[str, Any]) -> dict[str, Any]:
         """
         Extract standardized user information from JWT claims.
-        
+
         Args:
             claims: JWT claims dictionary
-            
+
         Returns:
             User information dictionary
         """
@@ -160,5 +157,5 @@ class OIDCValidator(TokenValidator):
             "iss": claims.get("iss"),
             "aud": claims.get("aud"),
             "exp": claims.get("exp"),
-            "iat": claims.get("iat")
+            "iat": claims.get("iat"),
         }

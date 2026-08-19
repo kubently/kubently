@@ -89,7 +89,7 @@ Each module can be tested in complete isolation:
 auth = AuthModule(mock_redis)
 assert auth.verify_api_key("test-key")
 
-# Test session module alone  
+# Test session module alone
 session = SessionModule(mock_redis)
 session_id = await session.create_session("cluster-1")
 ```

@@ -23,7 +23,7 @@ Deliberately import-light (stdlib + requests) to match sse_executor.py.
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import requests
 
@@ -49,7 +49,7 @@ def format_loki_timestamp(ns_timestamp: str) -> str:
     try:
         seconds = int(ns_timestamp) / 1_000_000_000
         return (
-            datetime.fromtimestamp(seconds, tz=timezone.utc)
+            datetime.fromtimestamp(seconds, tz=UTC)
             .isoformat(timespec="milliseconds")
             .replace("+00:00", "Z")
         )
@@ -108,17 +108,15 @@ class LokiRunner:
         max_output_chars: int | None = None,
     ):
         self.base_url = (
-            base_url if base_url is not None else os.environ.get("LOKI_URL", "")
-        ).strip().rstrip("/")
+            (base_url if base_url is not None else os.environ.get("LOKI_URL", ""))
+            .strip()
+            .rstrip("/")
+        )
         self.tenant_id = (
             tenant_id if tenant_id is not None else os.environ.get("LOKI_TENANT_ID", "")
         ).strip()
-        self.timeout = timeout or int(
-            os.environ.get("LOKI_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS))
-        )
-        self.max_lines = max_lines or int(
-            os.environ.get("LOKI_MAX_LINES", str(DEFAULT_MAX_LINES))
-        )
+        self.timeout = timeout or int(os.environ.get("LOKI_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS)))
+        self.max_lines = max_lines or int(os.environ.get("LOKI_MAX_LINES", str(DEFAULT_MAX_LINES)))
         self.max_line_chars = max_line_chars or int(
             os.environ.get("LOKI_MAX_LINE_CHARS", str(DEFAULT_MAX_LINE_CHARS))
         )
@@ -144,8 +142,7 @@ class LokiRunner:
         direction = request.get("direction") or "backward"
         if direction not in ("backward", "forward"):
             return self._error(
-                f"Invalid direction '{direction}': use 'backward' (newest first) "
-                "or 'forward'."
+                f"Invalid direction '{direction}': use 'backward' (newest first) or 'forward'."
             )
 
         params = {"query": query, "limit": limit, "direction": direction}
@@ -178,8 +175,7 @@ class LokiRunner:
             body = response.json()
         except ValueError:
             return self._error(
-                f"Loki returned non-JSON (HTTP {response.status_code}): "
-                f"{response.text[:200]}"
+                f"Loki returned non-JSON (HTTP {response.status_code}): {response.text[:200]}"
             )
 
         if response.status_code != 200 or body.get("status") != "success":
@@ -211,9 +207,7 @@ class LokiRunner:
         else:
             # Metric-style LogQL (rate/count_over_time/...) returns matrix or
             # vector data; pass it through compactly.
-            text = json.dumps(
-                {"resultType": result_type, "result": result}, separators=(",", ":")
-            )
+            text = json.dumps({"resultType": result_type, "result": result}, separators=(",", ":"))
 
         if len(text) > self.max_output_chars:
             text = text[: self.max_output_chars] + (
