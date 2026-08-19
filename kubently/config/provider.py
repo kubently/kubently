@@ -2,42 +2,42 @@
 import os
 import re
 from dataclasses import dataclass
-from typing import Optional, Protocol, List
+from typing import Protocol
 
 
 @dataclass
 class OIDCConfig:
     """OIDC configuration."""
     enabled: bool
-    issuer: Optional[str]
+    issuer: str | None
     client_id: str
-    jwks_uri: Optional[str]
-    token_endpoint: Optional[str]
-    device_endpoint: Optional[str]
-    audience: Optional[str]
-    scopes: List[str]
-    
+    jwks_uri: str | None
+    token_endpoint: str | None
+    device_endpoint: str | None
+    audience: str | None
+    scopes: list[str]
+
     @property
     def is_configured(self) -> bool:
         """Check if OIDC is properly configured."""
         return self.enabled and bool(self.issuer)
 
 
-@dataclass 
+@dataclass
 class AuthConfig:
     """Authentication configuration."""
     api_keys_enabled: bool
     oauth_enabled: bool
-    api_keys: List[str]
+    api_keys: list[str]
 
 
 class ConfigProvider(Protocol):
     """Protocol for configuration providers."""
-    
+
     def get_oidc_config(self) -> OIDCConfig:
         """Get OIDC configuration."""
         ...
-    
+
     def get_auth_config(self) -> AuthConfig:
         """Get authentication configuration."""
         ...
@@ -45,13 +45,13 @@ class ConfigProvider(Protocol):
 
 class EnvConfigProvider:
     """Environment-based configuration provider."""
-    
+
     def get_oidc_config(self) -> OIDCConfig:
         """Get OIDC configuration from environment variables."""
         enabled = os.getenv("OIDC_ENABLED", "false").lower() == "true"
         issuer = os.getenv("OIDC_ISSUER")
         client_id = os.getenv("OIDC_CLIENT_ID", "kubently-cli")
-        
+
         return OIDCConfig(
             enabled=enabled,
             issuer=issuer,
@@ -62,7 +62,7 @@ class EnvConfigProvider:
             audience=os.getenv("OIDC_AUDIENCE") or client_id,
             scopes=os.getenv("OIDC_SCOPES", "openid email profile groups").split()
         )
-    
+
     def get_auth_config(self) -> AuthConfig:
         """Get authentication configuration from environment variables."""
         oauth_enabled = os.getenv("OIDC_ENABLED", "false").lower() == "true"

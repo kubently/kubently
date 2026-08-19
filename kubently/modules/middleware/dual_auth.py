@@ -5,7 +5,6 @@ Supports both API key and JWT authentication in a single middleware.
 """
 
 import logging
-from typing import Callable, Dict, Optional, Tuple
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -21,11 +20,11 @@ class DualAuthMiddleware:
     1. JWT in Authorization: Bearer header (for human users)
     2. API key in X-API-Key header (for services/machines)
     """
-    
+
     def __init__(
         self,
         enhanced_auth_module,
-        skip_paths: Optional[Dict[str, list]] = None,
+        skip_paths: dict[str, list] | None = None,
         error_format: str = "json",
         log_attempts: bool = True
     ):
@@ -42,20 +41,20 @@ class DualAuthMiddleware:
         self.skip_paths = skip_paths or {}
         self.error_format = error_format
         self.log_attempts = log_attempts
-    
+
     def should_skip_auth(self, request: Request) -> bool:
         """Check if authentication should be skipped for this request."""
         path = str(request.url.path)
         method = request.method.upper()
-        
+
         if path in self.skip_paths:
             allowed_methods = self.skip_paths[path]
             if "*" in allowed_methods or method in allowed_methods:
                 return True
-        
+
         return False
-    
-    def extract_credentials(self, request: Request) -> Tuple[Optional[str], Optional[str]]:
+
+    def extract_credentials(self, request: Request) -> tuple[str | None, str | None]:
         """
         Extract authentication credentials from request.
         
@@ -67,17 +66,17 @@ class DualAuthMiddleware:
         bearer_token = None
         if auth_header and auth_header.startswith("Bearer "):
             bearer_token = auth_header
-        
+
         # Check for API key in X-API-Key header
         api_key = None
         for header_name in ["x-api-key", "X-API-Key", "X-Api-Key"]:
             api_key = request.headers.get(header_name)
             if api_key:
                 break
-        
+
         return api_key, bearer_token
-    
-    def format_error(self, status_code: int, message: str, request_id: Optional[str] = None) -> Dict:
+
+    def format_error(self, status_code: int, message: str, request_id: str | None = None) -> dict:
         """Format error response based on configured format."""
         if self.error_format == "jsonrpc":
             return {
@@ -93,7 +92,7 @@ class DualAuthMiddleware:
                 "error": message,
                 "status": status_code
             }
-    
+
     async def __call__(self, request: Request, call_next):
         """Process the request through dual authentication middleware."""
         # Check if we should skip authentication for this request
@@ -101,15 +100,15 @@ class DualAuthMiddleware:
             if self.log_attempts:
                 logger.debug(f"Skipping auth for {request.method} {request.url.path}")
             return await call_next(request)
-        
+
         # Extract credentials
         api_key, bearer_token = self.extract_credentials(request)
-        
+
         # Check if any credentials were provided
         if not api_key and not bearer_token:
             if self.log_attempts:
                 logger.warning(f"Request to {request.url.path} without credentials")
-            
+
             return JSONResponse(
                 status_code=401,
                 content=self.format_error(
@@ -117,43 +116,43 @@ class DualAuthMiddleware:
                     "Authentication required: No API key or Bearer token provided"
                 )
             )
-        
+
         # Validate credentials
         try:
             is_valid, identity, auth_method = await self.auth_module.verify_credentials(
                 api_key=api_key,
                 bearer_token=bearer_token
             )
-            
+
             if not is_valid:
                 if self.log_attempts:
                     logger.warning(f"Invalid credentials attempted for {request.url.path}")
-                
+
                 return JSONResponse(
                     status_code=401,
                     content=self.format_error(401, "Authentication failed: Invalid credentials")
                 )
-            
+
             if self.log_attempts:
                 logger.info(
                     f"Request authenticated via {auth_method} for identity: {identity}"
                 )
-            
+
             # Store authentication info for downstream use
             request.state.auth_identity = identity
             request.state.auth_method = auth_method
-            
+
             # Get and store permissions
             permissions = await self.auth_module.get_user_permissions(identity, auth_method)
             request.state.permissions = permissions
-            
+
         except Exception as e:
             logger.error(f"Error during authentication: {e}")
             return JSONResponse(
                 status_code=500,
                 content=self.format_error(500, "Internal error during authentication")
             )
-        
+
         # Proceed with authenticated request
         response = await call_next(request)
         return response
@@ -161,7 +160,7 @@ class DualAuthMiddleware:
 
 def create_dual_auth_middleware(
     enhanced_auth_module,
-    skip_paths: Optional[Dict[str, list]] = None,
+    skip_paths: dict[str, list] | None = None,
     error_format: str = "json"
 ) -> DualAuthMiddleware:
     """
@@ -186,10 +185,10 @@ def create_dual_auth_middleware(
         "/device/approve": ["POST"],
         "/token": ["POST"],
     }
-    
+
     if skip_paths:
         default_skip_paths.update(skip_paths)
-    
+
     return DualAuthMiddleware(
         enhanced_auth_module=enhanced_auth_module,
         skip_paths=default_skip_paths,

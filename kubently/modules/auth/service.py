@@ -8,27 +8,27 @@ This module provides:
 """
 
 from dataclasses import dataclass
-from typing import Optional, Literal, Protocol, Any
+from typing import Any, Literal, Protocol
 
 
 @dataclass
 class AuthResult:
     """Standardized authentication result."""
     ok: bool
-    identity: Optional[str]
-    method: Optional[Literal["api_key", "jwt"]]
-    error: Optional[str] = None
-    claims: Optional[dict] = None
-    permissions: Optional[dict] = None
+    identity: str | None
+    method: Literal["api_key", "jwt"] | None
+    error: str | None = None
+    claims: dict | None = None
+    permissions: dict | None = None
 
 
 class AuthenticationService(Protocol):
     """Protocol for authentication services."""
-    
+
     async def authenticate(
-        self, 
-        api_key: Optional[str], 
-        authorization: Optional[str]
+        self,
+        api_key: str | None,
+        authorization: str | None
     ) -> AuthResult:
         """
         Authenticate a request.
@@ -50,7 +50,7 @@ class DefaultAuthenticationService:
     This facade hides the complexity of the underlying auth module
     and provides a clean, stable interface for the API layer.
     """
-    
+
     def __init__(self, auth_module: Any):
         """
         Initialize with any auth module that has verify_credentials.
@@ -59,11 +59,11 @@ class DefaultAuthenticationService:
             auth_module: Module with verify_credentials method
         """
         self._auth = auth_module
-    
+
     async def authenticate(
         self,
-        api_key: Optional[str],
-        authorization: Optional[str]
+        api_key: str | None,
+        authorization: str | None
     ) -> AuthResult:
         """
         Authenticate a request using the underlying auth module.
@@ -79,20 +79,20 @@ class DefaultAuthenticationService:
         bearer_token = None
         if authorization and authorization.startswith("Bearer "):
             bearer_token = authorization
-        
+
         # Call the underlying auth module
         ok, identity, method = await self._auth.verify_credentials(
             api_key=api_key,
             bearer_token=bearer_token
         )
-        
+
         # Build standardized result
         if ok:
             # Get permissions if available
             permissions = None
             if hasattr(self._auth, 'get_user_permissions'):
                 permissions = await self._auth.get_user_permissions(identity, method)
-            
+
             return AuthResult(
                 ok=True,
                 identity=identity,

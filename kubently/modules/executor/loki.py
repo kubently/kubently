@@ -23,7 +23,7 @@ Deliberately import-light (stdlib + requests) to match sse_executor.py.
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import requests
 
@@ -49,7 +49,7 @@ def format_loki_timestamp(ns_timestamp: str) -> str:
     try:
         seconds = int(ns_timestamp) / 1_000_000_000
         return (
-            datetime.fromtimestamp(seconds, tz=timezone.utc)
+            datetime.fromtimestamp(seconds, tz=UTC)
             .isoformat(timespec="milliseconds")
             .replace("+00:00", "Z")
         )

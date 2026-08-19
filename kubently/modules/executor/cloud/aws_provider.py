@@ -10,7 +10,8 @@ operations allowlist; there is no generic SDK dispatch.
 
 import logging
 import time
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from .base import (
     MAX_CHANGE_EVENTS,
@@ -60,8 +61,8 @@ class AWSProvider(CloudProvider):
 
     def __init__(
         self,
-        region: Optional[str] = None,
-        client_factory: Optional[Callable[[str], Any]] = None,
+        region: str | None = None,
+        client_factory: Callable[[str], Any] | None = None,
     ):
         """
         Args:
@@ -133,7 +134,7 @@ class AWSProvider(CloudProvider):
 
     # ----------------------------------------------------------- interface
 
-    def detect_identity(self) -> Optional[CloudIdentity]:
+    def detect_identity(self) -> CloudIdentity | None:
         try:
             resp = self._client("sts").get_caller_identity()
             region = self._region
@@ -306,7 +307,7 @@ class AWSProvider(CloudProvider):
         return self._run("aws.logs.describe_log_groups", params, fn)
 
     def _filter_log_events(
-        self, log_group: str, params: dict, stream_prefix: Optional[str] = None
+        self, log_group: str, params: dict, stream_prefix: str | None = None
     ) -> dict:
         start, end = _time_range(params)
         limit = min(int(params.get("limit") or MAX_LOG_EVENTS), MAX_LOG_EVENTS)

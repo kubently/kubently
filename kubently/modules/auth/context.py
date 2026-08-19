@@ -8,6 +8,5 @@ inherits the caller's key automatically.
 """
 
 from contextvars import ContextVar
-from typing import Optional
 
-current_api_key: ContextVar[Optional[str]] = ContextVar("current_api_key", default=None)
+current_api_key: ContextVar[str | None] = ContextVar("current_api_key", default=None)

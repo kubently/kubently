@@ -10,8 +10,7 @@ import logging
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Set, Tuple
+from datetime import datetime
 
 logger = logging.getLogger("kubently-agent.learning-engine")
 
@@ -22,9 +21,9 @@ class Pattern:
 
     template: str
     verb: str
-    resource_type: Optional[str]
-    namespace_pattern: Optional[str]
-    flags: Set[str]
+    resource_type: str | None
+    namespace_pattern: str | None
+    flags: set[str]
     occurrences: int
     first_seen: datetime
     last_seen: datetime
@@ -40,7 +39,7 @@ class LearningSuggestion:
     target: str  # What to add/modify
     reason: str  # Why this suggestion
     confidence: float  # Confidence level (0-1)
-    supporting_data: Dict  # Evidence for suggestion
+    supporting_data: dict  # Evidence for suggestion
 
 
 class LearningEngine:
@@ -72,7 +71,7 @@ class LearningEngine:
             store: WhitelistStore instance for persistence
         """
         self.store = store
-        self.patterns: Dict[str, Pattern] = {}
+        self.patterns: dict[str, Pattern] = {}
         self.verb_frequency = Counter()
         self.flag_frequency = Counter()
         self.resource_frequency = Counter()
@@ -80,10 +79,10 @@ class LearningEngine:
 
     def learn_from_command(
         self,
-        args: List[str],
+        args: list[str],
         allowed: bool,
-        rejection_reason: Optional[str] = None,
-        analysis: Optional[Dict] = None,
+        rejection_reason: str | None = None,
+        analysis: dict | None = None,
     ) -> None:
         """
         Learn from a command execution attempt.
@@ -149,7 +148,7 @@ class LearningEngine:
                 risk_assessment=analysis.get("risk_level") if analysis else None,
             )
 
-    def _generalize_command(self, args: List[str]) -> str:
+    def _generalize_command(self, args: list[str]) -> str:
         """
         Generalize command to pattern template.
 
@@ -167,7 +166,7 @@ class LearningEngine:
 
         return command_str
 
-    def _extract_flags(self, args: List[str]) -> Set[str]:
+    def _extract_flags(self, args: list[str]) -> set[str]:
         """Extract flags from command arguments."""
         flags = set()
 
@@ -182,7 +181,7 @@ class LearningEngine:
 
         return flags
 
-    def _extract_resources(self, args: List[str]) -> List[str]:
+    def _extract_resources(self, args: list[str]) -> list[str]:
         """Extract resource types from command."""
         resources = []
 
@@ -263,12 +262,10 @@ class LearningEngine:
 
         return resources
 
-    def _extract_namespace_pattern(self, args: List[str]) -> Optional[str]:
+    def _extract_namespace_pattern(self, args: list[str]) -> str | None:
         """Extract namespace pattern from command."""
         for i, arg in enumerate(args):
-            if arg in ["-n", "--namespace"] and i + 1 < len(args):
-                return "<namespace>"
-            elif arg.startswith("--namespace="):
+            if (arg in ["-n", "--namespace"] and i + 1 < len(args)) or arg.startswith("--namespace="):
                 return "<namespace>"
             elif arg == "--all-namespaces":
                 return "*"
@@ -277,7 +274,7 @@ class LearningEngine:
 
     def get_suggestions(
         self, min_confidence: float = 0.7, min_occurrences: int = 5
-    ) -> List[LearningSuggestion]:
+    ) -> list[LearningSuggestion]:
         """
         Generate suggestions for whitelist improvements.
 
@@ -304,7 +301,7 @@ class LearningEngine:
 
         return suggestions
 
-    def _suggest_new_verbs(self, min_occurrences: int) -> List[LearningSuggestion]:
+    def _suggest_new_verbs(self, min_occurrences: int) -> list[LearningSuggestion]:
         """Suggest new verbs to add to whitelist."""
         suggestions = []
 
@@ -342,7 +339,7 @@ class LearningEngine:
 
         return suggestions
 
-    def _suggest_new_flags(self, min_occurrences: int) -> List[LearningSuggestion]:
+    def _suggest_new_flags(self, min_occurrences: int) -> list[LearningSuggestion]:
         """Suggest new flags to add to whitelist."""
         suggestions = []
 
@@ -372,7 +369,7 @@ class LearningEngine:
 
         return suggestions
 
-    def _suggest_limit_adjustments(self) -> List[LearningSuggestion]:
+    def _suggest_limit_adjustments(self) -> list[LearningSuggestion]:
         """Suggest adjustments to limits (timeout, max args)."""
         suggestions = []
 
@@ -397,7 +394,7 @@ class LearningEngine:
 
         return suggestions
 
-    def _suggest_mode_changes(self) -> List[LearningSuggestion]:
+    def _suggest_mode_changes(self) -> list[LearningSuggestion]:
         """Suggest security mode changes based on usage patterns."""
         suggestions = []
 
@@ -453,7 +450,7 @@ class LearningEngine:
 
         return sum(factors)
 
-    def export_learning_data(self) -> Dict:
+    def export_learning_data(self) -> dict:
         """
         Export learning data for analysis.
 

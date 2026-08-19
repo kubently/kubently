@@ -8,8 +8,8 @@ capped result for the complete picture.
 
 import json
 from abc import ABC, abstractmethod
-from dataclasses import asdict, dataclass, field
-from typing import Any, Optional
+from dataclasses import asdict, dataclass
+from typing import Any
 
 # Hard caps applied to every operation result, regardless of what the caller
 # asked for. Providers also clamp per-call limits (rows/events/datapoints)
@@ -26,9 +26,9 @@ class CloudIdentity:
     """The cloud identity the executor pod currently holds."""
 
     provider: str  # "aws" or "gcp"
-    account: Optional[str] = None  # AWS account id / GCP project id
-    principal: Optional[str] = None  # AWS ARN / GCP service-account email
-    region: Optional[str] = None  # AWS region (GCP: unset)
+    account: str | None = None  # AWS account id / GCP project id
+    principal: str | None = None  # AWS ARN / GCP service-account email
+    region: str | None = None  # AWS region (GCP: unset)
 
     def to_dict(self) -> dict[str, Any]:
         return {k: v for k, v in asdict(self).items() if v is not None}
@@ -41,11 +41,11 @@ class CloudOperationResult:
     success: bool
     operation: str
     provider: str
-    data: Optional[dict[str, Any]] = None
-    error: Optional[str] = None
-    error_code: Optional[str] = None
+    data: dict[str, Any] | None = None
+    error: str | None = None
+    error_code: str | None = None
     truncated: bool = False
-    truncation_note: Optional[str] = None
+    truncation_note: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         out = asdict(self)
@@ -55,7 +55,7 @@ class CloudOperationResult:
         }
 
 
-def cap_list(items: list, limit: int, what: str) -> tuple[list, Optional[str]]:
+def cap_list(items: list, limit: int, what: str) -> tuple[list, str | None]:
     """Truncate a list to `limit`, returning a human-readable note if cut."""
     if len(items) <= limit:
         return items, None
@@ -106,7 +106,7 @@ class CloudProvider(ABC):
     name: str  # "aws" or "gcp"
 
     @abstractmethod
-    def detect_identity(self) -> Optional[CloudIdentity]:
+    def detect_identity(self) -> CloudIdentity | None:
         """
         Return the identity the pod holds, or None when the provider's
         identity plumbing is absent (no IRSA/Pod Identity, no metadata server).

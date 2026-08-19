@@ -18,13 +18,13 @@ CloudProvider and are individually replaceable.
 """
 
 from .base import CloudIdentity, CloudOperationResult, CloudProvider, cap_payload
+from .manager import CloudOpsManager
 from .operations import (
     ALLOWED_CLOUD_OPERATIONS,
     OPERATION_FAMILIES,
     OperationSpec,
     operations_for_provider,
 )
-from .manager import CloudOpsManager
 
 __all__ = [
     "ALLOWED_CLOUD_OPERATIONS",

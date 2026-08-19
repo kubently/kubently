@@ -5,20 +5,15 @@ This module provides a mock OAuth provider that simulates the behavior
 of a real OIDC provider (like Okta, Auth0, etc.) for testing purposes.
 """
 
-import hashlib
-import json
 import secrets
 import time
 from datetime import UTC, datetime, timedelta
-from typing import Dict, Optional, Tuple
-from urllib.parse import parse_qs, urlparse
 
 import jwt
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 
 class MockOAuthProvider:
@@ -32,13 +27,13 @@ class MockOAuthProvider:
     - JWKS endpoint for public key discovery
     - User info endpoint
     """
-    
+
     def __init__(self, issuer: str = "http://localhost:9000"):
         """Initialize the mock provider."""
         self.issuer = issuer
         self.client_id = "kubently-cli"
         self.client_secret = "mock-secret-123"
-        
+
         # Generate RSA key pair for JWT signing
         self.private_key = rsa.generate_private_key(
             public_exponent=65537,
@@ -46,12 +41,12 @@ class MockOAuthProvider:
             backend=default_backend()
         )
         self.public_key = self.private_key.public_key()
-        
+
         # Storage for pending device codes and auth codes
-        self.device_codes: Dict[str, dict] = {}
-        self.auth_codes: Dict[str, dict] = {}
-        self.refresh_tokens: Dict[str, dict] = {}
-        
+        self.device_codes: dict[str, dict] = {}
+        self.auth_codes: dict[str, dict] = {}
+        self.refresh_tokens: dict[str, dict] = {}
+
         # Mock users database
         self.users = {
             "test@example.com": {
@@ -67,15 +62,15 @@ class MockOAuthProvider:
                 "groups": ["admins", "kubently-admins"]
             }
         }
-        
+
         # Current authenticated user (for testing)
         self.current_user = "test@example.com"
-    
+
     def get_jwks(self) -> dict:
         """Get the JSON Web Key Set (JWKS) for token verification."""
         # Get public key numbers
         public_numbers = self.public_key.public_numbers()
-        
+
         # Convert to base64url-encoded values
         def int_to_base64url(n):
             """Convert integer to base64url-encoded string."""
@@ -85,7 +80,7 @@ class MockOAuthProvider:
             bytes_n = bytes.fromhex(hex_n)
             import base64
             return base64.urlsafe_b64encode(bytes_n).rstrip(b'=').decode('ascii')
-        
+
         return {
             "keys": [
                 {
@@ -98,7 +93,7 @@ class MockOAuthProvider:
                 }
             ]
         }
-    
+
     def create_jwt_token(
         self,
         user_email: str,
@@ -109,10 +104,10 @@ class MockOAuthProvider:
         user = self.users.get(user_email)
         if not user:
             raise ValueError(f"User {user_email} not found")
-        
+
         now = datetime.now(UTC)
         exp = now + timedelta(seconds=expires_in)
-        
+
         # Standard OIDC claims
         claims = {
             "iss": self.issuer,
@@ -125,12 +120,12 @@ class MockOAuthProvider:
             "name": user["name"],
             "groups": user["groups"]
         }
-        
+
         if token_type == "id":
             # Add additional ID token claims
             claims["nonce"] = secrets.token_urlsafe(16)
             claims["auth_time"] = int(now.timestamp())
-        
+
         # Sign with RS256
         token = jwt.encode(
             claims,
@@ -138,15 +133,15 @@ class MockOAuthProvider:
             algorithm="RS256",
             headers={"kid": "mock-key-1"}
         )
-        
+
         return token
-    
+
     def device_authorization(self) -> dict:
         """Handle device authorization request."""
         # Generate device code and user code
         device_code = secrets.token_urlsafe(32)
         user_code = f"{secrets.randbelow(1000):03d}-{secrets.randbelow(1000):03d}"
-        
+
         # Store pending authorization
         self.device_codes[device_code] = {
             "user_code": user_code,
@@ -155,7 +150,7 @@ class MockOAuthProvider:
             "status": "pending",
             "user": None
         }
-        
+
         return {
             "device_code": device_code,
             "user_code": user_code,
@@ -164,42 +159,42 @@ class MockOAuthProvider:
             "expires_in": 600,
             "interval": 5
         }
-    
+
     def device_token(self, device_code: str) -> dict:
         """Handle device token request (polling)."""
         if device_code not in self.device_codes:
             raise HTTPException(status_code=400, detail="Invalid device_code")
-        
+
         device_info = self.device_codes[device_code]
-        
+
         if time.time() > device_info["expires_at"]:
             del self.device_codes[device_code]
             raise HTTPException(status_code=400, detail="Device code expired")
-        
+
         if device_info["status"] == "pending":
             raise HTTPException(status_code=428, detail="authorization_pending")
-        
+
         if device_info["status"] == "denied":
             del self.device_codes[device_code]
             raise HTTPException(status_code=403, detail="access_denied")
-        
+
         if device_info["status"] == "approved":
             user_email = device_info["user"]
-            
+
             # Generate tokens
             access_token = self.create_jwt_token(user_email, "access", 3600)
             id_token = self.create_jwt_token(user_email, "id", 3600)
             refresh_token = secrets.token_urlsafe(32)
-            
+
             # Store refresh token
             self.refresh_tokens[refresh_token] = {
                 "user": user_email,
                 "created_at": time.time()
             }
-            
+
             # Clean up device code
             del self.device_codes[device_code]
-            
+
             return {
                 "access_token": access_token,
                 "token_type": "Bearer",
@@ -207,9 +202,9 @@ class MockOAuthProvider:
                 "refresh_token": refresh_token,
                 "id_token": id_token
             }
-        
+
         raise HTTPException(status_code=400, detail="Invalid device code status")
-    
+
     def approve_device(self, user_code: str, user_email: str) -> bool:
         """Approve a device authorization request."""
         for device_code, info in self.device_codes.items():
@@ -218,25 +213,25 @@ class MockOAuthProvider:
                 info["user"] = user_email
                 return True
         return False
-    
+
     def refresh_access_token(self, refresh_token: str) -> dict:
         """Handle refresh token request."""
         if refresh_token not in self.refresh_tokens:
             raise HTTPException(status_code=401, detail="Invalid refresh token")
-        
+
         token_info = self.refresh_tokens[refresh_token]
         user_email = token_info["user"]
-        
+
         # Generate new access token
         access_token = self.create_jwt_token(user_email, "access", 3600)
-        
+
         return {
             "access_token": access_token,
             "token_type": "Bearer",
             "expires_in": 3600,
             "refresh_token": refresh_token
         }
-    
+
     def get_user_info(self, access_token: str) -> dict:
         """Get user info from access token."""
         try:
@@ -247,7 +242,7 @@ class MockOAuthProvider:
                 algorithms=["RS256"],
                 audience=self.client_id
             )
-            
+
             return {
                 "sub": claims["sub"],
                 "email": claims["email"],
@@ -262,7 +257,7 @@ def create_mock_oauth_app() -> FastAPI:
     """Create a FastAPI app for the mock OAuth provider."""
     app = FastAPI(title="Mock OAuth Provider")
     provider = MockOAuthProvider()
-    
+
     @app.get("/.well-known/openid-configuration")
     async def openid_configuration():
         """OpenID Connect discovery endpoint."""
@@ -282,17 +277,17 @@ def create_mock_oauth_app() -> FastAPI:
                 "urn:ietf:params:oauth:grant-type:device_code"
             ]
         }
-    
+
     @app.get("/jwks")
     async def jwks():
         """JWKS endpoint for public keys."""
         return provider.get_jwks()
-    
+
     @app.post("/device/code")
     async def device_code():
         """Device authorization endpoint."""
         return provider.device_authorization()
-    
+
     @app.get("/device", response_class=HTMLResponse)
     async def device_verification(user_code: str = None):
         """Device verification page."""
@@ -315,19 +310,19 @@ def create_mock_oauth_app() -> FastAPI:
         </html>
         """
         return html
-    
+
     @app.post("/device/approve")
     async def device_approve(request: Request):
         """Approve device authorization."""
         form = await request.form()
         user_code = form.get("user_code")
         user_email = form.get("user_email")
-        
+
         if provider.approve_device(user_code, user_email):
             return HTMLResponse("<h1>Device approved!</h1><p>You can close this window.</p>")
         else:
             raise HTTPException(status_code=400, detail="Invalid user code")
-    
+
     @app.post("/token")
     async def token(request: Request):
         """Token endpoint."""
@@ -351,24 +346,24 @@ def create_mock_oauth_app() -> FastAPI:
                 }
                 code = error_map.get(str(e.detail), "invalid_grant")
                 return JSONResponse(status_code=400, content={"error": code})
-        
+
         elif grant_type == "refresh_token":
             refresh_token = form.get("refresh_token")
             return provider.refresh_access_token(refresh_token)
-        
+
         else:
             raise HTTPException(status_code=400, detail="Unsupported grant type")
-    
+
     @app.get("/userinfo")
     async def userinfo(request: Request):
         """User info endpoint."""
         auth_header = request.headers.get("Authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
             raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
-        
+
         access_token = auth_header[7:]
         return provider.get_user_info(access_token)
-    
+
     return app
 
 

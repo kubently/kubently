@@ -11,8 +11,7 @@ import json
 import os
 import re
 import secrets
-from datetime import UTC, datetime, timedelta
-from typing import Dict, Optional, Tuple
+from datetime import UTC, datetime
 
 
 class AuthModule:
@@ -24,7 +23,7 @@ class AuthModule:
     """
 
     @staticmethod
-    def extract_first_api_key(api_keys_env: Optional[str] = None) -> str:
+    def extract_first_api_key(api_keys_env: str | None = None) -> str:
         """
         Extract the first API key from environment variable, handling service:key format.
 
@@ -80,9 +79,9 @@ class AuthModule:
         # Load API keys from environment with optional service identity
         # Format: API_KEYS="key1,service1:key2,service2:key3"
         # Examples: "abc123,orchestrator:def456,monitoring:ghi789"
-        self.api_keys: Dict[str, Optional[str]] = self._load_api_keys()
+        self.api_keys: dict[str, str | None] = self._load_api_keys()
 
-    def _load_api_keys(self) -> Dict[str, Optional[str]]:
+    def _load_api_keys(self) -> dict[str, str | None]:
         """Load API keys with optional service identities from environment."""
         keys = {}
         api_keys_env = os.environ.get("API_KEYS", "")
@@ -134,7 +133,7 @@ class AuthModule:
 
         return False
 
-    async def verify_api_key(self, api_key: str) -> Tuple[bool, Optional[str]]:
+    async def verify_api_key(self, api_key: str) -> tuple[bool, str | None]:
         """
         Verify AI/User/A2A Service API key.
 
@@ -177,9 +176,9 @@ class AuthModule:
 
     async def verify_credentials(
         self,
-        api_key: Optional[str] = None,
-        bearer_token: Optional[str] = None
-    ) -> Tuple[bool, Optional[str], Optional[str]]:
+        api_key: str | None = None,
+        bearer_token: str | None = None
+    ) -> tuple[bool, str | None, str | None]:
         """
         Verify credentials (API key only for base module).
 
@@ -199,7 +198,7 @@ class AuthModule:
         # No valid authentication
         return False, None, None
 
-    async def extract_service_identity(self, api_key: str) -> Optional[str]:
+    async def extract_service_identity(self, api_key: str) -> str | None:
         """
         Extract service identity from API key if present.
 
@@ -254,7 +253,7 @@ class AuthModule:
             {"cluster_id": cluster_id, "timestamp": datetime.now(UTC).isoformat()},
         )
 
-    async def _log_event(self, event_type: str, data: dict, correlation_id: Optional[str] = None):
+    async def _log_event(self, event_type: str, data: dict, correlation_id: str | None = None):
         """
         Log security event for audit with optional correlation ID.
 

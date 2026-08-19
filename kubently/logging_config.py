@@ -4,12 +4,12 @@ Custom logging configuration to suppress health check logs
 
 import logging
 import logging.config
-from typing import Dict, Any
+from typing import Any
 
 
 class HealthCheckFilter(logging.Filter):
     """Filter to suppress health check endpoint logs."""
-    
+
     def filter(self, record: logging.LogRecord) -> bool:
         """Filter out health check requests from uvicorn access logs."""
         # Check if this is a uvicorn access log
@@ -21,7 +21,7 @@ class HealthCheckFilter(logging.Filter):
         return True  # Allow all other logs
 
 
-def get_logging_config() -> Dict[str, Any]:
+def get_logging_config() -> dict[str, Any]:
     """Get logging configuration with health check suppression."""
     return {
         "version": 1,

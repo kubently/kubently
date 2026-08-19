@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -18,7 +18,7 @@ from a2a.types import (
 
 def update_task_with_agent_response(task: Task, agent_response: dict[str, Any]) -> None:
     """Updates the provided task with the agent response."""
-    task.status.timestamp = datetime.now(timezone.utc).isoformat()
+    task.status.timestamp = datetime.now(UTC).isoformat()
     parts: list[Part] = [Part(root=TextPart(text=agent_response["content"]))]
     if agent_response["require_user_input"]:
         task.status.state = TaskState.input_required
@@ -85,7 +85,7 @@ def process_streaming_agent_response(
         status=TaskStatus(
             state=task_state,
             message=message,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
         ),
         final=end_stream,
     )

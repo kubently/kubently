@@ -7,14 +7,13 @@ Handles persistence of command history, metrics, and learning data.
 
 import json
 import logging
-import os
 import sqlite3
 import threading
 import time
-from collections import Counter, defaultdict
-from datetime import datetime, timedelta
+from collections import Counter
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger("kubently-agent.whitelist-store")
 
@@ -33,7 +32,7 @@ class WhitelistStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         self._lock = threading.RLock()
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: sqlite3.Connection | None = None
 
         # Metrics cache
         self._metrics_cache = {
@@ -170,14 +169,14 @@ class WhitelistStore:
     def record_command(
         self,
         cluster_id: str,
-        args: List[str],
+        args: list[str],
         allowed: bool,
-        rejection_reason: Optional[str] = None,
-        category: Optional[str] = None,
-        risk_level: Optional[str] = None,
-        execution_time_ms: Optional[int] = None,
-        success: Optional[bool] = None,
-        error_message: Optional[str] = None,
+        rejection_reason: str | None = None,
+        category: str | None = None,
+        risk_level: str | None = None,
+        execution_time_ms: int | None = None,
+        success: bool | None = None,
+        error_message: str | None = None,
     ) -> None:
         """
         Record command execution attempt.
@@ -235,9 +234,9 @@ class WhitelistStore:
         self,
         config_hash: str,
         mode: str,
-        allowed_verbs: List[str],
+        allowed_verbs: list[str],
         success: bool,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> None:
         """
         Record configuration reload event.
@@ -277,7 +276,7 @@ class WhitelistStore:
                 logger.error(f"Failed to record config reload: {e}")
 
     def record_pattern(
-        self, pattern: str, verb: str, allowed: bool, risk_assessment: Optional[str] = None
+        self, pattern: str, verb: str, allowed: bool, risk_assessment: str | None = None
     ) -> None:
         """
         Record command pattern for learning.
@@ -322,8 +321,8 @@ class WhitelistStore:
                 logger.error(f"Failed to record pattern: {e}")
 
     def get_command_stats(
-        self, cluster_id: Optional[str] = None, hours: int = 24
-    ) -> Dict[str, Any]:
+        self, cluster_id: str | None = None, hours: int = 24
+    ) -> dict[str, Any]:
         """
         Get command statistics.
 
@@ -422,7 +421,7 @@ class WhitelistStore:
 
     def get_learning_suggestions(
         self, min_occurrences: int = 10, min_days: int = 7
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Get suggestions for commands to add to whitelist.
 
@@ -475,7 +474,7 @@ class WhitelistStore:
                 logger.error(f"Failed to get learning suggestions: {e}")
                 return []
 
-    def export_metrics(self) -> Dict[str, Any]:
+    def export_metrics(self) -> dict[str, Any]:
         """
         Export metrics in Prometheus format.
 

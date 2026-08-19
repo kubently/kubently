@@ -13,7 +13,7 @@ Responsibilities:
 import logging
 import time
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any
 
 from .base import CloudIdentity, CloudOperationResult, CloudProvider
 from .operations import ALLOWED_CLOUD_OPERATIONS, operations_for_provider
@@ -29,10 +29,10 @@ class CloudOpsManager:
     def __init__(
         self,
         mode: str = "auto",
-        aws_region: Optional[str] = None,
-        gcp_project: Optional[str] = None,
+        aws_region: str | None = None,
+        gcp_project: str | None = None,
         refresh_interval: int = DEFAULT_REFRESH_INTERVAL,
-        providers: Optional[list[CloudProvider]] = None,
+        providers: list[CloudProvider] | None = None,
     ):
         """
         Args:
@@ -49,14 +49,14 @@ class CloudOpsManager:
                 mode, aws_region, gcp_project
             )
         )
-        self._active: Optional[CloudProvider] = None
-        self.identity: Optional[CloudIdentity] = None
+        self._active: CloudProvider | None = None
+        self.identity: CloudIdentity | None = None
         self.usable_families: dict[str, bool] = {}
         self._last_detection: float = 0.0
 
     @staticmethod
     def _build_candidates(
-        mode: str, aws_region: Optional[str], gcp_project: Optional[str]
+        mode: str, aws_region: str | None, gcp_project: str | None
     ) -> list[CloudProvider]:
         candidates: list[CloudProvider] = []
         if mode in ("auto", "aws"):
@@ -77,7 +77,7 @@ class CloudOpsManager:
 
     # ----------------------------------------------------------- detection
 
-    def detect(self, force: bool = False) -> Optional[CloudIdentity]:
+    def detect(self, force: bool = False) -> CloudIdentity | None:
         """
         Detect the held cloud identity and usable permissions.
 
@@ -169,7 +169,7 @@ class CloudOpsManager:
 
     # -------------------------------------------------------- capabilities
 
-    def capability_payload(self) -> Optional[dict[str, Any]]:
+    def capability_payload(self) -> dict[str, Any] | None:
         """
         The `cloud` section of the executor capability report, or None when
         no cloud identity is held (so the agent registers no cloud tools).

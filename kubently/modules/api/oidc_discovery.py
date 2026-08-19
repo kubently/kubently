@@ -5,8 +5,9 @@ This module provides an endpoint that clients can use to discover
 the OIDC configuration for authentication.
 """
 
-from typing import Dict
+
 from fastapi import APIRouter
+
 from kubently.config.provider import ConfigProvider
 
 
@@ -21,9 +22,9 @@ def create_discovery_router(config_provider: ConfigProvider) -> APIRouter:
         FastAPI router with discovery endpoints
     """
     router = APIRouter(tags=["discovery"])
-    
+
     @router.get("/.well-known/kubently-auth")
-    async def get_auth_config() -> Dict:
+    async def get_auth_config() -> dict:
         """
         Get authentication configuration for clients.
         
@@ -38,7 +39,7 @@ def create_discovery_router(config_provider: ConfigProvider) -> APIRouter:
         # Get configurations from provider (no direct env access)
         auth_config = config_provider.get_auth_config()
         oidc_config = config_provider.get_oidc_config()
-        
+
         # Build discovery response
         response = {
             "authentication_methods": [],
@@ -47,11 +48,11 @@ def create_discovery_router(config_provider: ConfigProvider) -> APIRouter:
                 "description": "Static API key for service authentication"
             }
         }
-        
+
         # Always support API keys
         if auth_config.api_keys_enabled:
             response["authentication_methods"].append("api_key")
-        
+
         # Add OAuth if configured
         if oidc_config.is_configured and auth_config.oauth_enabled:
             response["authentication_methods"].append("oauth")
@@ -70,20 +71,20 @@ def create_discovery_router(config_provider: ConfigProvider) -> APIRouter:
                 "enabled": False,
                 "message": "OAuth authentication is not configured for this instance"
             }
-        
+
         return response
-    
+
     @router.get("/auth/discovery")
-    async def auth_discovery() -> Dict:
+    async def auth_discovery() -> dict:
         """
         Alternative discovery endpoint.
         
         Some clients might look for this instead of .well-known.
         """
         return await get_auth_config()
-    
+
     @router.get("/health/auth")
-    async def auth_health() -> Dict:
+    async def auth_health() -> dict:
         """
         Check authentication system health.
         
@@ -92,7 +93,7 @@ def create_discovery_router(config_provider: ConfigProvider) -> APIRouter:
         """
         auth_config = config_provider.get_auth_config()
         oidc_config = config_provider.get_oidc_config()
-        
+
         health = {
             "api_key": {
                 "enabled": auth_config.api_keys_enabled,
@@ -103,12 +104,12 @@ def create_discovery_router(config_provider: ConfigProvider) -> APIRouter:
                 "healthy": False
             }
         }
-        
+
         # Check OAuth health if enabled
         if oidc_config.is_configured:
             health["oauth"]["healthy"] = True
             health["oauth"]["issuer"] = oidc_config.issuer
-        
+
         return health
-    
+
     return router

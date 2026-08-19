@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Dict, List, Optional
 
 import yaml
 from pydantic import BaseModel, Field, conint, validator
@@ -11,7 +10,7 @@ from pydantic import BaseModel, Field, conint, validator
 class VariableSpec(BaseModel):
     name: str
     required: bool = False
-    default: Optional[str] = None
+    default: str | None = None
 
 
 class PromptSpec(BaseModel):
@@ -19,8 +18,8 @@ class PromptSpec(BaseModel):
     name: str
     role: str
     content: str
-    variables: List[VariableSpec] = Field(default_factory=list)
-    metadata: Dict[str, str] = Field(default_factory=dict)
+    variables: list[VariableSpec] = Field(default_factory=list)
+    metadata: dict[str, str] = Field(default_factory=dict)
 
     @validator("role")
     def role_must_be_system(cls, v: str) -> str:
@@ -35,20 +34,20 @@ DEFAULT_PROMPT = (
 )
 
 
-def _render(content: str, values: Dict[str, str]) -> str:
+def _render(content: str, values: dict[str, str]) -> str:
     """Render {{var}} placeholders using a simple replacement."""
     return re.sub(r"\{\{([^}]+)\}\}", lambda m: values.get(m.group(1).strip(), m.group(0)), content)
 
 
 def _load_spec(path: str) -> PromptSpec:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     return PromptSpec(**data)
 
 
-def _resolve_values(spec: PromptSpec, overrides: Optional[Dict[str, str]]) -> Dict[str, str]:
+def _resolve_values(spec: PromptSpec, overrides: dict[str, str] | None) -> dict[str, str]:
     overrides = overrides or {}
-    resolved: Dict[str, str] = {}
+    resolved: dict[str, str] = {}
     for v in spec.variables:
         if v.name in overrides:
             resolved[v.name] = overrides[v.name]
@@ -62,7 +61,7 @@ def _resolve_values(spec: PromptSpec, overrides: Optional[Dict[str, str]]) -> Di
     return resolved
 
 
-def _candidate_paths(role: str, filename: str) -> List[str]:
+def _candidate_paths(role: str, filename: str) -> list[str]:
     """Return candidate file paths to search for the prompt file."""
     return [
         os.getenv(f"KUBENTLY_{role.upper()}_PROMPT_FILE"),  # Role-specific env var
@@ -77,7 +76,7 @@ def _candidate_paths(role: str, filename: str) -> List[str]:
 def get_prompt(
     role: str = "a2a",
     default_filename: str = "system.prompt.yaml",
-    variables: Optional[Dict[str, str]] = None
+    variables: dict[str, str] | None = None
 ) -> str:
     """Load and render the system prompt for a role.
 
@@ -88,7 +87,7 @@ def get_prompt(
     - /etc/kubently/prompts/<default_filename>
     Fallback to a safe built-in prompt on error.
     """
-    last_error: Optional[Exception] = None
+    last_error: Exception | None = None
     for path in filter(None, _candidate_paths(role, default_filename)):
         try:
             if not os.path.isfile(path):
@@ -96,7 +95,7 @@ def get_prompt(
             spec = _load_spec(path)
             values = _resolve_values(spec, variables)
             return _render(spec.content, values)
-        except Exception as e:  # noqa: BLE001 - we need to continue on any error
+        except Exception as e:
             last_error = e
             continue
     # Fallback prompt

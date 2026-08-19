@@ -111,7 +111,7 @@ class A2AModule:
             skills=skills,
         )
 
-    def get_mount_config(self) -> tuple[str, "FastAPI"]:
+    def get_mount_config(self) -> tuple[str, FastAPI]:
         """
         Get the mount configuration for integrating A2A into the main API.
 
@@ -138,17 +138,17 @@ class A2AModule:
             agent_executor = KubentlyAgentExecutor(redis_client=self.redis_client)
             # Don't initialize here - let it initialize in the correct event loop
             # asyncio.run(agent_executor.initialize())
-            
+
             # Log executor creation
             logger.info(f"Created KubentlyAgentExecutor: {agent_executor}")
-            
+
             # Use DefaultRequestHandler for now
             request_handler = DefaultRequestHandler(
                 agent_executor=agent_executor,
                 task_store=InMemoryTaskStore(),
                 push_sender=SimplePushNotificationSender(),
             )
-            
+
             logger.info(f"Created DefaultRequestHandler with executor: {request_handler}")
 
             # Create A2A application
@@ -207,11 +207,11 @@ class A2AModule:
 
 # Module interface
 def create_a2a_server(
-    host: str = "0.0.0.0", 
-    port: int = 8000, 
+    host: str = "0.0.0.0",
+    port: int = 8000,
     external_url: str = None,
     redis_client=None
-) -> Optional["A2AModule"]:
+) -> A2AModule | None:
     """Create A2A server if dependencies are available."""
     if not A2A_AVAILABLE:
         logger.warning("A2A dependencies not installed")

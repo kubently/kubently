@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional, TypedDict
+from typing import TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -23,13 +23,13 @@ class ConfigSchema(TypedDict):
 
 
 class InputState(BaseModel):
-    messages: Optional[list[Message]] = None
+    messages: list[Message] | None = None
 
 
 class OutputState(BaseModel):
-    messages: Optional[list[Message]] = None
+    messages: list[Message] | None = None
 
 
 class AgentState(BaseModel):
     input: InputState
-    output: Optional[OutputState] = None
+    output: OutputState | None = None

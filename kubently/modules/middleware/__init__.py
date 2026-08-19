@@ -10,7 +10,9 @@ Completely independent and replaceable.
 """
 
 import logging
-from typing import Callable, Optional, Tuple, Dict, Any
+from collections.abc import Callable
+from typing import Any, Dict, Optional, Tuple
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
@@ -24,12 +26,12 @@ class AuthMiddleware:
     This is a black box that handles authentication for any FastAPI app.
     Simply provide an auth validator function and optional configuration.
     """
-    
+
     def __init__(
         self,
-        auth_validator: Callable[[str], Tuple[bool, Optional[str]]],
-        header_names: Optional[list] = None,
-        skip_paths: Optional[Dict[str, list]] = None,
+        auth_validator: Callable[[str], tuple[bool, str | None]],
+        header_names: list | None = None,
+        skip_paths: dict[str, list] | None = None,
         error_format: str = "json",
         log_attempts: bool = True
     ):
@@ -48,28 +50,28 @@ class AuthMiddleware:
         self.skip_paths = skip_paths or {}
         self.error_format = error_format
         self.log_attempts = log_attempts
-    
+
     def should_skip_auth(self, request: Request) -> bool:
         """Check if authentication should be skipped for this request."""
         path = str(request.url.path)
         method = request.method.upper()
-        
+
         if path in self.skip_paths:
             allowed_methods = self.skip_paths[path]
             if "*" in allowed_methods or method in allowed_methods:
                 return True
-        
+
         return False
-    
-    def extract_api_key(self, request: Request) -> Optional[str]:
+
+    def extract_api_key(self, request: Request) -> str | None:
         """Extract API key from request headers."""
         for header_name in self.header_names:
             api_key = request.headers.get(header_name)
             if api_key:
                 return api_key
         return None
-    
-    def format_error(self, status_code: int, message: str, request_id: Optional[str] = None) -> Dict[str, Any]:
+
+    def format_error(self, status_code: int, message: str, request_id: str | None = None) -> dict[str, Any]:
         """Format error response based on configured format."""
         if self.error_format == "jsonrpc":
             return {
@@ -85,7 +87,7 @@ class AuthMiddleware:
                 "error": message,
                 "status": status_code
             }
-    
+
     async def __call__(self, request: Request, call_next):
         """Process the request through authentication middleware."""
         # Check if we should skip authentication for this request
@@ -100,45 +102,45 @@ class AuthMiddleware:
             if self.log_attempts:
                 logger.debug(f"Skipping auth for internal request from {client_host}")
             return await call_next(request)
-        
+
         # Extract API key
         api_key = self.extract_api_key(request)
-        
+
         if not api_key:
             if self.log_attempts:
                 logger.warning(f"Request to {request.url.path} without API key")
-            
+
             return JSONResponse(
                 status_code=401,
                 content=self.format_error(401, "Authentication required: API key not provided")
             )
-        
+
         # Validate API key
         try:
             is_valid, service_identity = await self.auth_validator(api_key)
-            
+
             if not is_valid:
                 if self.log_attempts:
                     logger.warning(f"Invalid API key attempted: {api_key[:8]}...")
-                
+
                 return JSONResponse(
                     status_code=401,
                     content=self.format_error(401, "Authentication failed: Invalid API key")
                 )
-            
+
             if self.log_attempts:
                 logger.info(f"Request authenticated for service: {service_identity}")
-            
+
             # Store service identity for downstream use
             request.state.service_identity = service_identity
-            
+
         except Exception as e:
             logger.error(f"Error during authentication: {e}")
             return JSONResponse(
                 status_code=500,
                 content=self.format_error(500, "Internal error during authentication")
             )
-        
+
         # Proceed with authenticated request
         response = await call_next(request)
         return response
@@ -146,7 +148,7 @@ class AuthMiddleware:
 
 def create_api_key_middleware(
     auth_module,
-    skip_paths: Optional[Dict[str, list]] = None,
+    skip_paths: dict[str, list] | None = None,
     error_format: str = "json"
 ) -> AuthMiddleware:
     """
@@ -160,10 +162,10 @@ def create_api_key_middleware(
     Returns:
         Configured AuthMiddleware instance
     """
-    async def validator(api_key: str) -> Tuple[bool, Optional[str]]:
+    async def validator(api_key: str) -> tuple[bool, str | None]:
         """Validate API key using auth module."""
         return await auth_module.verify_api_key(api_key)
-    
+
     return AuthMiddleware(
         auth_validator=validator,
         skip_paths=skip_paths,
@@ -173,7 +175,7 @@ def create_api_key_middleware(
 
 def create_bearer_token_middleware(
     auth_module,
-    skip_paths: Optional[Dict[str, list]] = None,
+    skip_paths: dict[str, list] | None = None,
     error_format: str = "json"
 ) -> AuthMiddleware:
     """
@@ -187,13 +189,13 @@ def create_bearer_token_middleware(
     Returns:
         Configured AuthMiddleware instance
     """
-    async def validator(token: str) -> Tuple[bool, Optional[str]]:
+    async def validator(token: str) -> tuple[bool, str | None]:
         """Validate Bearer token using auth module."""
         # Remove "Bearer " prefix if present
         if token.startswith("Bearer "):
             token = token[7:]
         return await auth_module.verify_executor_token(token)
-    
+
     return AuthMiddleware(
         auth_validator=validator,
         header_names=["authorization", "Authorization"],

@@ -8,13 +8,13 @@ This factory:
 """
 
 import logging
-from typing import Optional, Any
+from typing import Any
 
+from ...config.provider import ConfigProvider
 from .auth import AuthModule
 from .enhanced import EnhancedAuthModule
 from .oidc_validator import OIDCValidator
-from .service import DefaultAuthenticationService, AuthenticationService
-from ...config.provider import ConfigProvider
+from .service import AuthenticationService, DefaultAuthenticationService
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +28,11 @@ class AuthFactory:
     - Wires them together via dependency injection
     - Returns only the public interface
     """
-    
+
     @staticmethod
     def build(
         config_provider: ConfigProvider,
-        redis_client: Optional[Any] = None
+        redis_client: Any | None = None
     ) -> AuthenticationService:
         """
         Build the complete authentication stack.
@@ -47,17 +47,17 @@ class AuthFactory:
         # Get configurations
         auth_config = config_provider.get_auth_config()
         oidc_config = config_provider.get_oidc_config()
-        
+
         # Create base API key auth module
         base_auth = AuthModule(redis_client)
-        
+
         # Determine which auth module to use
         if oidc_config.is_configured and auth_config.oauth_enabled:
             logger.info("Building authentication stack with OAuth support")
-            
+
             # Create token validator
             token_validator = OIDCValidator(oidc_config)
-            
+
             # Create enhanced module with dependency injection
             auth_module = EnhancedAuthModule(
                 redis_client=redis_client,
@@ -68,14 +68,14 @@ class AuthFactory:
             logger.info("Building authentication stack with API keys only")
             # Use basic auth module only
             auth_module = base_auth
-        
+
         # Wrap in service facade
         return DefaultAuthenticationService(auth_module)
-    
+
     @staticmethod
     def build_for_testing(
-        mock_validator: Optional[Any] = None,
-        mock_auth_module: Optional[Any] = None
+        mock_validator: Any | None = None,
+        mock_auth_module: Any | None = None
     ) -> AuthenticationService:
         """
         Build auth stack for testing with mock dependencies.
@@ -89,11 +89,11 @@ class AuthFactory:
         """
         if mock_auth_module:
             return DefaultAuthenticationService(mock_auth_module)
-        
+
         # Create test configuration
         from ...config.provider import EnvConfigProvider
         config_provider = EnvConfigProvider()
-        
+
         # Build with optional mock validator
         if mock_validator:
             base_auth = AuthModule(redis_client)
@@ -103,6 +103,6 @@ class AuthFactory:
                 token_validator=mock_validator
             )
             return DefaultAuthenticationService(auth_module)
-        
+
         # Build normal stack for integration testing
         return AuthFactory.build(config_provider)

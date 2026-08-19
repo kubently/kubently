@@ -1,9 +1,8 @@
 """Mock Kubently Agent for testing without LLM"""
 
-import json
 import logging
 import subprocess
-from typing import Any, Dict
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +16,7 @@ class MockKubentlyAgent:
         """Initialize mock agent."""
         logger.info("MockKubentlyAgent initialized")
 
-    async def handle_message(self, messages: list) -> Dict[str, Any]:
+    async def handle_message(self, messages: list) -> dict[str, Any]:
         """Handle incoming messages and execute kubectl commands."""
         if not messages:
             return {"error": "No messages provided"}
@@ -83,4 +82,4 @@ class MockKubentlyAgent:
             return "Command timed out after 10 seconds"
         except Exception as e:
             logger.error(f"Error processing query: {e}")
-            return f"Error processing query: {str(e)}"
+            return f"Error processing query: {e!s}"
