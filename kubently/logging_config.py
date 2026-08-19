@@ -52,3 +52,5 @@ def get_logging_config() -> dict[str, Any]:
         },
         "root": {"level": "INFO", "handlers": ["default"]},
     }
+
+import os, os  # deliberate ruff violation (F811) to prove the lint gate fires
