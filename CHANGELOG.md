@@ -92,6 +92,42 @@
   and `deployment/README.md` no longer point at files that do not exist.
 
 ### Changed
+- **Migrated the A2A bindings to `a2a-sdk` 1.1.2** (#76, closes Dependabot #35).
+  1.x is a package rewrite, not a version bump, so this is one commit across
+  `kubently/modules/a2a/`: `a2a.server.apps.A2AStarletteApplication` is gone and
+  `A2AModule.get_app()` now assembles the endpoint from `a2a.server.routes`
+  (`create_agent_card_routes` + `create_jsonrpc_routes`); the `new_*` helpers
+  moved from `a2a.utils` to `a2a.helpers`, with `new_agent_text_message(text,
+  ctx, task)` replaced by `new_text_message(text, context_id=…, task_id=…)` and
+  `new_task(message)` by `new_task_from_user_message(message)`; and `a2a.types`
+  is protobuf-generated, so every event is built with snake_case fields
+  (`context_id`, `task_id`, `last_chunk`) and `TaskState.TASK_STATE_*` members.
+  The pin is `a2a-sdk[http-server]==1.1.2` — starlette and sse-starlette moved
+  behind that extra in 1.x, and without it the JSON-RPC/SSE routes raise
+  `ImportError` when the app is built.
+
+  **The wire contract is unchanged.** 1.x renamed the JSON-RPC methods
+  (`message/stream` → `SendStreamingMessage`), so the endpoint is built with
+  `enable_v0_3_compat=True` and answers both spellings: the Kubently CLI and
+  every other deployed client keep working, rather than receiving
+  `-32601 Method not found`. `TaskStatusUpdateEvent.final` no longer exists in
+  1.x — the stream ends on a terminal `TaskState`, and the compatibility layer
+  re-derives `final: true` from it — so the executor emits terminal states where
+  it used to set the flag, and the #65 guard in `tests/test_a2a_streaming.py`
+  now drives the real `A2AModule.get_app()` (not a hand-assembled copy of it) so
+  a broken composition cannot pass.
+- **The agent card advertises what it actually serves** (#76, finishing #92).
+  1.x replaced the card's single `url`/`protocolVersion` pair with a list of
+  `supportedInterfaces`, so the card now declares two — protocol `1.0` and `0.3`
+  over JSON-RPC, which is exactly what the endpoint answers. The SDK derives the
+  pre-1.x top-level `url`, `protocolVersion` and `preferredTransport` fields from
+  the 0.3 interface, so clients that read those still find them; `protocolVersion`
+  becomes `0.3` instead of the stale `0.2.6` the SDK default used to publish. The
+  card is served at both `/.well-known/agent-card.json` (the 1.x default and the
+  current spec) and `/.well-known/agent.json` (what 0.2.x served), because a
+  discovery path is a public contract. Skills still come from
+  `kubently/modules/a2a/skills.py`, unchanged, so the gating #92 established is
+  intact.
 - **The CI lint job can now fail the build** (#79). Both ruff steps were
   `continue-on-error: true`, which made them a third check that could not fire:
   `ruff check kubently/` reported 971 violations and `ruff format --check`

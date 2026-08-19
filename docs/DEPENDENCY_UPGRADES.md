@@ -3,77 +3,53 @@
 Notes on dependency bumps that are **not** safe to apply as version changes, so
 the next person (or the next Dependabot PR) does not have to rediscover why.
 
-## a2a-sdk: held at 0.2.16
+## a2a-sdk: migrated to 1.1.2 (#76)
 
-Dependabot proposes `a2a-sdk==0.2.16 -> 1.1.2` (PR #35). **Do not merge that
-bump on its own.** It is not a version change; a2a-sdk 1.x is a rewrite of the
-package, and `kubently/modules/a2a/` needs migrating first. Tracked in #76.
+Resolved. Dependabot's `0.2.16 -> 1.1.2` bump (#35) could not be applied as a
+version change, because 1.x is a rewrite of the package. The migration landed in
+#76; this section records what actually moved, because the reconnaissance that
+preceded it was written without porting the code and got some of it wrong.
 
-### Why it cannot just be bumped
+### What 1.1.2 actually changed
 
-Verified by installing `a2a-sdk==1.1.2` and resolving every symbol the codebase
-imports:
-
-| What the code imports | State in 1.1.2 |
+| What the code imported (0.2.16) | 1.1.2 |
 | --- | --- |
-| `a2a.server.apps.A2AStarletteApplication` | **Module gone.** Replaced by `a2a.server.routes` (`add_a2a_routes_to_fastapi`, `create_jsonrpc_routes`, `create_agent_card_routes`, …). Not restored by any extra — `[http-server]` and `[fastapi]` both lack it. |
-| `a2a.utils.new_agent_text_message` | **Gone.** Not present anywhere in the package. |
-| `a2a.utils.new_task`, `a2a.utils.new_text_artifact` | Moved to `a2a.helpers` / `a2a.helpers.proto_helpers`. |
-| `a2a.types.Message`, `Task`, `Part`, `Role`, `TextPart`, `Artifact`, `TaskStatus`, `TaskState`, `AgentCard`, … | `a2a.types` is now protobuf-generated (`a2a.types.a2a_pb2`). The pydantic models the bindings construct are not there under these names. |
-| `a2a.types.AgentAuthentication` | Gone — and already absent in 0.2.16 (see the dead-code note below). |
-| `DefaultRequestHandler`, `InMemoryTaskStore`, `PushNotificationSender`, `AgentExecutor`, `RequestContext`, `EventQueue` | Still resolve. |
+| `a2a.server.apps.A2AStarletteApplication` | **Module gone.** The endpoint is assembled from `a2a.server.routes`: `create_agent_card_routes(card, card_url=...)` + `create_jsonrpc_routes(handler, rpc_url="/", enable_v0_3_compat=...)`, wrapped in a plain `Starlette`. |
+| `a2a.utils.new_agent_text_message(text, ctx, task)` | Gone. Replaced by `a2a.helpers.new_text_message(text, context_id=..., task_id=..., role=Role.ROLE_AGENT)` — the agent role is the default. |
+| `a2a.utils.new_task(message)` | `a2a.helpers.new_task_from_user_message(message)`. (`a2a.helpers.new_task` also exists but takes `(task_id, context_id, state)` — *not* a drop-in.) |
+| `a2a.utils.new_text_artifact` | `a2a.helpers.new_text_artifact`, same keywords. |
+| `a2a.types` pydantic models | Protobuf-generated (`a2a.types.a2a_pb2`). `Message`, `Task`, `Part`, `Role`, `Artifact`, `TaskStatus`, `TaskState`, `AgentCard`, `AgentSkill`, `AgentCapabilities` all still resolve **under the same names**, but the field names are snake_case (`context_id`, `task_id`, `last_chunk`, `message_id`, `artifact_id`) and enums are `TaskState.TASK_STATE_WORKING` / `Role.ROLE_AGENT`. |
+| `a2a.types.TextPart` | Gone — proto `Part` carries `text` directly; build one with `a2a.helpers.new_text_part`. |
+| `DefaultRequestHandler` | Still resolves (now an alias for `DefaultRequestHandlerV2`) but **takes `agent_card` as a required argument**. |
+| `PushNotificationSender.send_notification(task)` | Now `send_notification(task_id, event)` — artifact updates are pushable too. |
+| `EventQueue` | Now an abstract producer-side interface; `EventQueueLegacy` is the concrete one with an inspectable backing queue (used by the contract tests). |
+| `TaskStatusUpdateEvent.final` | **Gone.** The stream ends when the task reaches a terminal `TaskState`; `EventConsumer` derives it, and the v0.3 layer re-derives the wire `final: true` from the same state. |
+| `AgentCard.url` / `AgentCard.protocolVersion` | Replaced by `supported_interfaces: [AgentInterface(url, protocol_binding, protocol_version)]`. The serialiser (`agent_card_to_dict`) still emits the legacy top-level `url`/`protocolVersion`/`preferredTransport`, derived from the first 0.3-compatible interface — so a card that lists **no** 0.3 interface silently drops those fields and breaks every pre-1.0 client. |
+| extras | `starlette` and `sse-starlette` moved behind the `[http-server]` extra. The pin is `a2a-sdk[http-server]==1.1.2`; without the extra the route factories raise `ImportError` at app build. |
 
-`a2a.compat.v0_3` exists but exports nothing useful, so there is no drop-in
-shim.
+Two claims in the earlier reconnaissance were wrong and cost time:
 
-### Why this was dangerous
+- **`a2a.compat.v0_3` is not empty.** Its `__init__` exports nothing, but the
+  submodules are the whole v0.3 compatibility layer, and it is reachable through
+  a supported flag: `create_jsonrpc_routes(..., enable_v0_3_compat=True)`.
+- **1.x renamed the JSON-RPC methods.** `message/send`, `message/stream`,
+  `tasks/get`, `tasks/resubscribe` became `SendMessage`,
+  `SendStreamingMessage`, `GetTask`, `SubscribeToTask`. Without
+  `enable_v0_3_compat` the migration is not "does it still import" but a **wire
+  break**: the Kubently CLI (`kubently-cli/nodejs/src/lib/a2aClient.ts` sends
+  `message/stream`) would get `-32601 Method not found` from a server that looks
+  perfectly healthy. Kubently enables it, and advertises both protocol versions
+  on the agent card because it serves both.
 
-`kubently/modules/a2a/__init__.py` wraps its SDK imports in a bare
-`except Exception` that sets `A2A_AVAILABLE = False`:
+### What the next bump should check
 
-```python
-try:
-    from a2a.server.apps import A2AStarletteApplication
-    ...
-    A2A_AVAILABLE = True
-except Exception as e:
-    A2A_AVAILABLE = False
-    logger.info(f"A2A support disabled at import time: {e}")
-```
-
-An incompatible SDK therefore does **not** crash the API. It starts normally
-with the entire A2A protocol surface missing, announced only by one INFO log
-line. Combined with the old CI (`pytest ... || true`), that bump could have
-merged and deployed with every check green.
-
-`tests/test_a2a_sdk_contract.py` now guards this. Against 1.1.2 all 35 of its
-tests fail, including an explicit assertion that `A2A_AVAILABLE is True`.
-
-### What a migration would involve
-
-1. Replace `A2AStarletteApplication(...).build()` in
-   `kubently/modules/a2a/__init__.py` with the `a2a.server.routes` factories,
-   keeping `get_mount_config()` returning `("/a2a", app)` so `main.py` and its
-   API-key ASGI wrapper are unaffected.
-2. Repoint the `new_*` helpers in `agent_executor.py` at `a2a.helpers`.
-3. Rework `helpers.py` and `agent_executor.py` event construction onto the new
-   `a2a.types` representation.
-4. Re-run `tests/test_a2a_sdk_contract.py` — updating the `SDK_IMPORT_SURFACE`
-   table to the new paths — plus a live check against `docs/TEST_QUERIES.md`,
-   since the contract tests cover shape, not wire behaviour.
-
-### Dead code to resolve first
-
-`kubently/modules/a2a/protocol_bindings/a2a_server/__main__.py` does not import
-even on the **current** pin. It has two independent bugs:
-
-- `from a2a.types import AgentAuthentication` — no such symbol in 0.2.16.
-- `from kubently.protocol_bindings.a2a_server.agent import KubentlyAgent` — the
-  real path is `kubently.modules.a2a.protocol_bindings.a2a_server.agent`.
-
-Nothing imports it; the live server is built by `A2AModule.get_app()` in
-`kubently/modules/a2a/__init__.py`. It should be deleted or repaired before the
-migration, so it does not read as a second entry point. Tracked in #77.
+`tests/test_a2a_sdk_contract.py` pins the import surface, the helper signatures,
+the constructed event shapes and the card; `tests/test_a2a_streaming.py` drives
+the real `A2AModule.get_app()` over `message/stream` and asserts the response is
+a non-empty SSE stream with a terminal event (#65), and that both well-known
+agent-card paths answer. Run both against any proposed `a2a-sdk` version before
+merging it — and note that `A2A_AVAILABLE` no longer swallows failures (#97), so
+a broken bump fails at startup instead of quietly removing `/a2a/`.
 
 ## typescript: held at ^6
 
