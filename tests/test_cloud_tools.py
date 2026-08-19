@@ -115,6 +115,81 @@ class TestCloudToolsRegistration:
         ]
 
 
+class TestCloudToolsGate:
+    """Registration gate (issue #90): cloud tools are offered to the model only
+    when some registered executor advertises a cloud identity, the same rule
+    LOKI_URL / PROMETHEUS_URL apply to their toolsets."""
+
+    @pytest.fixture
+    def redis(self):
+        fakeredis = pytest.importorskip("fakeredis")
+        return fakeredis.FakeAsyncRedis(decode_responses=True)
+
+    async def _report(self, redis, cluster_id, cloud):
+        from kubently.modules.capability import CapabilityModule
+
+        await CapabilityModule(redis).store_capabilities(
+            ExecutorCapabilities(
+                cluster_id=cluster_id, mode="readOnly", allowed_verbs=["get"], cloud=cloud
+            )
+        )
+
+    async def test_off_when_no_executor_reports_cloud(self, redis, monkeypatch):
+        monkeypatch.delenv("KUBENTLY_CLOUD_TOOLS", raising=False)
+        from kubently.modules.a2a.protocol_bindings.a2a_server.cloud_tools import (
+            cloud_guidance,
+            cloud_tools_enabled,
+        )
+
+        await self._report(redis, "kind", None)
+        enabled = await cloud_tools_enabled(redis)
+        assert enabled is False
+        assert cloud_guidance(enabled) == ""
+
+    async def test_on_when_an_executor_reports_cloud(self, redis, monkeypatch):
+        monkeypatch.delenv("KUBENTLY_CLOUD_TOOLS", raising=False)
+        from kubently.modules.a2a.protocol_bindings.a2a_server.cloud_tools import (
+            cloud_guidance,
+            cloud_tools_enabled,
+        )
+
+        await self._report(redis, "kind", None)
+        await self._report(redis, "eks-prod", {"provider": "aws", "identity": "arn:..."})
+        enabled = await cloud_tools_enabled(redis)
+        assert enabled is True
+        assert "query_cloud_metrics" in cloud_guidance(enabled)
+
+    async def test_env_override_still_wins(self, redis, monkeypatch):
+        monkeypatch.setenv("KUBENTLY_CLOUD_TOOLS", "off")
+        from kubently.modules.a2a.protocol_bindings.a2a_server.cloud_tools import (
+            cloud_tools_enabled,
+        )
+
+        await self._report(redis, "eks-prod", {"provider": "aws"})
+        assert await cloud_tools_enabled(redis) is False
+
+    def test_prompt_does_not_hardcode_cloud_guidance(self):
+        """Guidance must arrive through {{cloud_guidance}}, so it disappears
+        with the tools instead of describing tools that are not registered."""
+        repo = os.path.join(os.path.dirname(__file__), "..")
+        for path in (
+            os.path.join(repo, "prompts", "system.prompt.yaml"),
+            os.path.join(repo, "deployment", "helm", "kubently", "prompts", "system.prompt.yaml"),
+        ):
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
+            assert "query_cloud_metrics" not in content, path
+            assert "{{cloud_guidance}}" in content, path
+
+    async def test_off_without_redis(self, monkeypatch):
+        monkeypatch.delenv("KUBENTLY_CLOUD_TOOLS", raising=False)
+        from kubently.modules.a2a.protocol_bindings.a2a_server.cloud_tools import (
+            cloud_tools_enabled,
+        )
+
+        assert await cloud_tools_enabled(None) is False
+
+
 class TestCapabilityCloudPassthrough:
     def test_round_trip_preserves_cloud_section(self):
         cloud = {

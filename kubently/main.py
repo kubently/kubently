@@ -262,11 +262,17 @@ app.include_router(discovery_router, tags=["auth"])
 
 # Dependency injection helpers
 async def verify_api_key(
-    x_api_key: str = Header(..., description="API key for authentication")
+    x_api_key: Optional[str] = Header(None, description="API key for authentication")
 ) -> Tuple[bool, Optional[str]]:
     """Verify API key and return service identity."""
     if not auth_service:
         raise HTTPException(503, "Service not initialized")
+
+    # Missing credentials are an authentication failure, not a malformed
+    # request: a required Header(...) would answer 422 and leak the parameter
+    # name, which is not what docs/AUTH_DISCOVERY.md advertises.
+    if not x_api_key:
+        raise HTTPException(401, "Missing API key", headers={"WWW-Authenticate": "ApiKey"})
 
     result = await auth_service.authenticate(api_key=x_api_key, authorization=None)
     
@@ -602,6 +608,34 @@ async def get_cluster_capabilities(
 # AI/User/A2A Service Endpoints
 
 
+async def require_registered_cluster(cluster_id: str) -> None:
+    """404 unless an executor is registered for `cluster_id`.
+
+    The cluster registry is executor-owned: only an executor token (written by
+    admin registration or the Helm bootstrap) defines a cluster. Callers that
+    merely *target* a cluster — session creation, command execution — are
+    consumers of that registry and must never be able to write to it.
+    """
+    if not redis_client:
+        raise HTTPException(503, "Service not initialized")
+
+    if await redis_client.exists(f"executor:token:{cluster_id}"):
+        return
+
+    valid_clusters = sorted(
+        (key.decode() if isinstance(key, bytes) else key).replace("executor:token:", "")
+        for key in await redis_client.keys("executor:token:*")
+    )
+    error_msg = f"Cluster '{cluster_id}' not found."
+    if valid_clusters:
+        error_msg += f" Available clusters: {', '.join(valid_clusters)}"
+    else:
+        error_msg += " No clusters are currently registered."
+
+    logger.warning(f"Invalid cluster requested: {cluster_id}")
+    raise HTTPException(404, error_msg)
+
+
 @app.post("/debug/session", response_model=SessionResponse, status_code=201)
 async def create_session(
     request: CreateSessionRequest,
@@ -615,9 +649,15 @@ async def create_session(
     Returns:
         201: Session created successfully
         401: Unauthorized
+        404: No executor registered for that cluster
     """
     if not session_module:
         raise HTTPException(503, "Service not initialized")
+
+    # Same validation /debug/execute performs: a session may only target a
+    # cluster that has a registered executor. Without it, session creation
+    # injected arbitrary ids into /debug/clusters (issue #89).
+    await require_registered_cluster(request.cluster_id)
 
     _, extracted_service = auth_info
     service_identity = x_service_identity or extracted_service or "direct"
@@ -1405,6 +1445,11 @@ async def list_clusters(
     """
     List available Kubernetes clusters.
 
+    Registered executors are the only source: `cluster:active:*` and
+    `cluster:session:*` are written by session creation, so including them
+    let any API-key holder inject a phantom cluster into the fleet the agent
+    sees (issue #89).
+
     Returns:
         JSON with list of cluster IDs that can be targeted for debugging
     """
@@ -1412,22 +1457,6 @@ async def list_clusters(
         clusters_set = set()
 
         if redis_client:
-            # Active cluster markers: cluster:active:<id>
-            active_prefix = "cluster:active:"
-            active_keys = await redis_client.keys(f"{active_prefix}*")
-            for key in active_keys:
-                raw = key.decode() if isinstance(key, bytes) else key
-                if raw.startswith(active_prefix):
-                    clusters_set.add(raw[len(active_prefix):])
-
-            # Active sessions per cluster: cluster:session:<id>
-            session_prefix = "cluster:session:"
-            session_keys = await redis_client.keys(f"{session_prefix}*")
-            for key in session_keys:
-                raw = key.decode() if isinstance(key, bytes) else key
-                if raw.startswith(session_prefix):
-                    clusters_set.add(raw[len(session_prefix):])
-
             # Executor tokens: executor:token:<id>
             token_prefix = "executor:token:"
             token_keys = await redis_client.keys(f"{token_prefix}*")

@@ -29,8 +29,17 @@ CLOUD_UNAVAILABLE_MSG = (
 )
 
 
-def cloud_tools_enabled() -> bool:
-    """Whether the cloud telemetry tools should be registered (default ON)."""
+def cloud_tools_configured() -> bool:
+    """Whether this deployment has cloud telemetry switched on at all.
+
+    The configuration-level half of the gate, and the only half that can be
+    answered synchronously. The agent card (kubently/modules/a2a/skills.py) is
+    built once when the A2A app is mounted, before any executor has connected
+    or reported a capability, so it can only assert the operator's intent —
+    asking the fleet there would advertise "no cloud" on every deployment.
+    Tool registration additionally requires a live cloud identity; see
+    cloud_tools_enabled() below.
+    """
     return os.getenv("KUBENTLY_CLOUD_TOOLS", "auto").lower() != "off"
 
 
@@ -159,6 +168,60 @@ def build_changes_request(
 
 
 # --------------------------------------------------------------------------
+# Registration gate (mirrors LOKI_URL / PROMETHEUS_URL): when nothing in the
+# fleet can serve these tools they are not registered and the prompt section
+# below is omitted, so the model is never told about a tool it cannot call.
+# The per-call capability check stays, for mixed fleets where only some
+# executors hold a cloud identity.
+# --------------------------------------------------------------------------
+
+
+async def cloud_tools_enabled(redis_client) -> bool:
+    """Whether the cloud tools should be registered for this agent run.
+
+    Configured on *and* some registered executor advertises a cloud identity.
+    Evaluated at agent initialisation, which is late enough for the fleet's
+    capability reports to be present.
+    """
+    if not cloud_tools_configured():
+        logger.info("Cloud tools disabled via KUBENTLY_CLOUD_TOOLS=off")
+        return False
+    if redis_client is None:
+        return False
+    try:
+        from kubently.modules.capability import CapabilityModule
+
+        reports = await CapabilityModule(redis_client).list_all_capabilities()
+        return any(report.cloud for report in reports)
+    except Exception as e:
+        logger.warning(f"Cloud capability scan failed; cloud tools stay off: {e}")
+        return False
+
+
+# Injected into the system prompt (via the {{cloud_guidance}} variable) only
+# when the tools are registered.
+CLOUD_PROMPT_SECTION = """\
+## Cloud Telemetry
+
+Some clusters' executors hold a read-only cloud identity (AWS or GCP). For those clusters you can use query_cloud_logs, query_cloud_metrics, and get_recent_cloud_changes. The tools tell you when a cluster has no cloud access — do not retry them there; continue with kubectl.
+
+Prefer CLOUD evidence over cluster evidence when the cause likely lives outside the cluster:
+- IAM/permission errors (AccessDenied, 403 from cloud APIs, image pull auth failures against ECR/GCR/AR): check cloud logs and recent IAM changes, not just pod logs.
+- Throttling/quota symptoms (RequestLimitExceeded, 429s, rate exceeded): cloud metrics and API logs show the source.
+- Managed-service failures (RDS/CloudSQL, load balancers, node pools): the service's cloud logs/metrics, not kubectl, hold the answer.
+- Control-plane issues (API server errors, webhook timeouts, authentication failures): EKS control-plane logs / GKE audit logs — kubectl cannot see the control plane's own logs.
+- "It broke suddenly and nothing changed in-cluster": get_recent_cloud_changes correlates CloudTrail/GKE audit events (IAM edits, security-group changes, node-pool operations) with the incident window.
+
+Prefer CLUSTER evidence (kubectl) for anything about workload state: pod status, events, container logs of live pods, manifests, scheduling. Start with kubectl; reach for cloud tools when in-cluster evidence dead-ends or points outward.
+"""
+
+
+def cloud_guidance(enabled: bool) -> str:
+    """The prompt section to inject — empty when the tools are not registered."""
+    return CLOUD_PROMPT_SECTION if enabled else ""
+
+
+# --------------------------------------------------------------------------
 # Tool construction
 # --------------------------------------------------------------------------
 
@@ -172,12 +235,12 @@ def build_cloud_tools(
     """
     Build the three provider-agnostic cloud tools.
 
-    Returns [] when disabled via KUBENTLY_CLOUD_TOOLS=off. Tools are
-    registered whenever enabled, but each checks — per target cluster, per
-    call — that the executor actually reports a cloud identity, because
+    Call only when cloud_tools_enabled() said so. Returns [] when disabled
+    via KUBENTLY_CLOUD_TOOLS=off. Each tool still checks — per target cluster,
+    per call — that the executor actually reports a cloud identity, because
     executors join/leave and identities get granted/revoked at runtime.
     """
-    if not cloud_tools_enabled():
+    if not cloud_tools_configured():
         logger.info("Cloud tools disabled via KUBENTLY_CLOUD_TOOLS=off")
         return []
 

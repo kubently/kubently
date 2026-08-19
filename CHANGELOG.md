@@ -29,6 +29,11 @@
   make the release job green while publishing nothing — the same defect class as
   #98 and #83. The release job keeps failing loudly if a stale version ever
   reaches `main`.
+- **Chart 1.1.1** — the shipped prompt (`prompts/system.prompt.yaml`) no longer
+  hardcodes the "## Cloud Telemetry" section; it arrives through the new
+  `{{cloud_guidance}}` variable only when the cloud tools register (#90). A
+  chart-content change, so it takes the patch bump the new `chart-version` job
+  requires.
 
 ## [Unreleased] - 2026-08-18
 
@@ -389,6 +394,31 @@
   executor Deployment does (`executor.existingSecret` /
   `executor.existingSecretKey`, falling back to the generated secret).
   Regression check: `tests/test_helm_executor_secret.py`
+- **The cluster registry is no longer writable by session creation (#89)** —
+  `POST /debug/session` accepted any `cluster_id`, and `GET /debug/clusters`
+  built its list from `cluster:active:*` / `cluster:session:*` as well as
+  executor tokens, so creating a session was enough to inject an arbitrary
+  name into the fleet the agent sees through `list_clusters` (a stray
+  `namespace` entry is how this was found). Fan-out then wasted a full
+  command timeout per phantom and could push real clusters out of the
+  10-cluster cap. Sessions now validate against a registered executor and
+  404 exactly like `/debug/execute`, and the listing is derived from
+  `executor:token:*` alone — executors define the registry, sessions only
+  consume it. Missing `X-API-Key` also answers `401` (with
+  `WWW-Authenticate`) instead of a `422` that leaked the parameter name
+- **Cloud telemetry tools are no longer registered when nothing can serve
+  them (#90)** — `query_cloud_logs` / `query_cloud_metrics` /
+  `get_recent_cloud_changes` were registered unconditionally, so on a
+  default deployment (no cloud identity anywhere) a metrics question cost a
+  tool call that could only fail, and displaced the honest "I have no
+  metrics source" answer. They now follow the `LOKI_URL` / `PROMETHEUS_URL`
+  rule: registered only when some registered executor advertises a cloud
+  identity, with the prompt's cloud section (`{{cloud_guidance}}`) gated on
+  the same switch. The per-call capability check remains for mixed fleets,
+  and `KUBENTLY_CLOUD_TOOLS=off` still forces them off. The agent card's
+  `cloud-telemetry` skill (#87) keeps the configuration-level gate
+  (`cloud_tools_configured()`), because the card is built when the A2A app is
+  mounted — before any executor has reported a capability
 
 ### Removed
 - **Config knobs that were parsed and never applied (#86)** — `API_DEBUG` and
