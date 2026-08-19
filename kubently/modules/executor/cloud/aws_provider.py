@@ -299,9 +299,7 @@ class AWSProvider(CloudProvider):
             ]
             data = {"log_groups": groups}
             if resp.get("nextToken"):
-                data["_truncation_note"] = (
-                    "More log groups exist; refine with a name prefix."
-                )
+                data["_truncation_note"] = "More log groups exist; refine with a name prefix."
             return data
 
         return self._run("aws.logs.describe_log_groups", params, fn)
@@ -355,18 +353,14 @@ class AWSProvider(CloudProvider):
             cluster = params["cluster_name"]
             log_type = params.get("log_type") or "kube-apiserver"
             if log_type not in EKS_LOG_TYPES:
-                raise ValueError(
-                    f"log_type must be one of {EKS_LOG_TYPES}, got '{log_type}'"
-                )
+                raise ValueError(f"log_type must be one of {EKS_LOG_TYPES}, got '{log_type}'")
 
             # Best-effort: report which control-plane log types are enabled so
             # an empty result is distinguishable from "logging is off".
             enabled_types = None
             try:
                 desc = self._client("eks").describe_cluster(name=cluster)
-                for entry in (
-                    desc.get("cluster", {}).get("logging", {}).get("clusterLogging", [])
-                ):
+                for entry in desc.get("cluster", {}).get("logging", {}).get("clusterLogging", []):
                     if entry.get("enabled"):
                         enabled_types = entry.get("types", [])
                         break
@@ -391,8 +385,7 @@ class AWSProvider(CloudProvider):
             if not queries:
                 # Simplified single-metric form
                 dimensions = [
-                    {"Name": k, "Value": v}
-                    for k, v in (params.get("dimensions") or {}).items()
+                    {"Name": k, "Value": v} for k, v in (params.get("dimensions") or {}).items()
                 ]
                 queries = [
                     {
@@ -418,18 +411,14 @@ class AWSProvider(CloudProvider):
             note = None
             for r in resp.get("MetricDataResults", []):
                 points = list(zip(r.get("Timestamps", []), r.get("Values", [])))
-                points, series_note = cap_list(
-                    points, MAX_METRIC_DATAPOINTS, "datapoints"
-                )
+                points, series_note = cap_list(points, MAX_METRIC_DATAPOINTS, "datapoints")
                 note = note or series_note
                 series.append(
                     {
                         "id": r.get("Id"),
                         "label": r.get("Label"),
                         "status": r.get("StatusCode"),
-                        "datapoints": [
-                            {"timestamp": str(t), "value": v} for t, v in points
-                        ],
+                        "datapoints": [{"timestamp": str(t), "value": v} for t, v in points],
                     }
                 )
             data = {"series": series}

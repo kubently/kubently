@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class DualAuthMiddleware:
     """
     Authentication middleware supporting both API keys and JWT tokens.
-    
+
     This middleware checks for:
     1. JWT in Authorization: Bearer header (for human users)
     2. API key in X-API-Key header (for services/machines)
@@ -26,11 +26,11 @@ class DualAuthMiddleware:
         enhanced_auth_module,
         skip_paths: dict[str, list] | None = None,
         error_format: str = "json",
-        log_attempts: bool = True
+        log_attempts: bool = True,
     ):
         """
         Initialize dual authentication middleware.
-        
+
         Args:
             enhanced_auth_module: EnhancedAuthModule instance with verify_credentials method
             skip_paths: Dict of {path: [methods]} to skip authentication
@@ -57,7 +57,7 @@ class DualAuthMiddleware:
     def extract_credentials(self, request: Request) -> tuple[str | None, str | None]:
         """
         Extract authentication credentials from request.
-        
+
         Returns:
             Tuple of (api_key, bearer_token)
         """
@@ -81,17 +81,11 @@ class DualAuthMiddleware:
         if self.error_format == "jsonrpc":
             return {
                 "jsonrpc": "2.0",
-                "error": {
-                    "code": -32700 if status_code == 401 else -32603,
-                    "message": message
-                },
-                "id": request_id
+                "error": {"code": -32700 if status_code == 401 else -32603, "message": message},
+                "id": request_id,
             }
         else:
-            return {
-                "error": message,
-                "status": status_code
-            }
+            return {"error": message, "status": status_code}
 
     async def __call__(self, request: Request, call_next):
         """Process the request through dual authentication middleware."""
@@ -112,16 +106,14 @@ class DualAuthMiddleware:
             return JSONResponse(
                 status_code=401,
                 content=self.format_error(
-                    401,
-                    "Authentication required: No API key or Bearer token provided"
-                )
+                    401, "Authentication required: No API key or Bearer token provided"
+                ),
             )
 
         # Validate credentials
         try:
             is_valid, identity, auth_method = await self.auth_module.verify_credentials(
-                api_key=api_key,
-                bearer_token=bearer_token
+                api_key=api_key, bearer_token=bearer_token
             )
 
             if not is_valid:
@@ -130,13 +122,11 @@ class DualAuthMiddleware:
 
                 return JSONResponse(
                     status_code=401,
-                    content=self.format_error(401, "Authentication failed: Invalid credentials")
+                    content=self.format_error(401, "Authentication failed: Invalid credentials"),
                 )
 
             if self.log_attempts:
-                logger.info(
-                    f"Request authenticated via {auth_method} for identity: {identity}"
-                )
+                logger.info(f"Request authenticated via {auth_method} for identity: {identity}")
 
             # Store authentication info for downstream use
             request.state.auth_identity = identity
@@ -150,7 +140,7 @@ class DualAuthMiddleware:
             logger.error(f"Error during authentication: {e}")
             return JSONResponse(
                 status_code=500,
-                content=self.format_error(500, "Internal error during authentication")
+                content=self.format_error(500, "Internal error during authentication"),
             )
 
         # Proceed with authenticated request
@@ -159,18 +149,16 @@ class DualAuthMiddleware:
 
 
 def create_dual_auth_middleware(
-    enhanced_auth_module,
-    skip_paths: dict[str, list] | None = None,
-    error_format: str = "json"
+    enhanced_auth_module, skip_paths: dict[str, list] | None = None, error_format: str = "json"
 ) -> DualAuthMiddleware:
     """
     Factory function to create dual authentication middleware.
-    
+
     Args:
         enhanced_auth_module: EnhancedAuthModule instance
         skip_paths: Paths to skip authentication {"/path": ["GET", "POST"]}
         error_format: "json" or "jsonrpc" error format
-    
+
     Returns:
         Configured DualAuthMiddleware instance
     """
@@ -192,5 +180,5 @@ def create_dual_auth_middleware(
     return DualAuthMiddleware(
         enhanced_auth_module=enhanced_auth_module,
         skip_paths=default_skip_paths,
-        error_format=error_format
+        error_format=error_format,
     )

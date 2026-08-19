@@ -77,9 +77,7 @@ class GCPProvider(CloudProvider):
         self._logging_client = None
         self._monitoring_client = None
         self._logging_client_factory = logging_client_factory or self._default_logging
-        self._monitoring_client_factory = (
-            monitoring_client_factory or self._default_monitoring
-        )
+        self._monitoring_client_factory = monitoring_client_factory or self._default_monitoring
         self._metadata_fetcher = metadata_fetcher or self._fetch_metadata
 
         self._handlers: dict[str, Callable[[dict], CloudOperationResult]] = {
@@ -249,7 +247,7 @@ class GCPProvider(CloudProvider):
             start, end = _time_range(params)
             clauses = [_ts_filter(start, end)]
             if params.get("filter"):
-                clauses.append(f'({params["filter"]})')
+                clauses.append(f"({params['filter']})")
             filter_ = " AND ".join(clauses)
             limit = min(int(params.get("limit") or MAX_LOG_EVENTS), MAX_LOG_EVENTS)
             entries, note = self._list_entries(filter_, limit)
@@ -340,13 +338,9 @@ class GCPProvider(CloudProvider):
                 f'logName="projects/{project}/logs/cloudaudit.googleapis.com%2Factivity"',
             ]
             if params.get("cluster_name"):
-                clauses.append(
-                    f'resource.labels.cluster_name="{params["cluster_name"]}"'
-                )
+                clauses.append(f'resource.labels.cluster_name="{params["cluster_name"]}"')
             if params.get("resource_name"):
-                clauses.append(
-                    f'protoPayload.resourceName:"{params["resource_name"]}"'
-                )
+                clauses.append(f'protoPayload.resourceName:"{params["resource_name"]}"')
             filter_ = " AND ".join(clauses)
             limit = min(int(params.get("limit") or MAX_CHANGE_EVENTS), MAX_CHANGE_EVENTS)
             entries, note = self._list_entries(filter_, limit)

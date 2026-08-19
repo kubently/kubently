@@ -50,9 +50,7 @@ class CloudOperationResult:
     def to_dict(self) -> dict[str, Any]:
         out = asdict(self)
         # Drop empty optional fields to keep result payloads small
-        return {k: v for k, v in out.items() if v not in (None, False)} | {
-            "success": self.success
-        }
+        return {k: v for k, v in out.items() if v not in (None, False)} | {"success": self.success}
 
 
 def cap_list(items: list, limit: int, what: str) -> tuple[list, str | None]:
@@ -89,9 +87,7 @@ def cap_payload(result: CloudOperationResult) -> CloudOperationResult:
         f"payload. Use a narrower query (shorter time range, tighter filter, "
         f"fewer fields) to get complete data."
     )
-    result.truncation_note = (
-        f"{result.truncation_note} {note}" if result.truncation_note else note
-    )
+    result.truncation_note = f"{result.truncation_note} {note}" if result.truncation_note else note
     return result
 
 

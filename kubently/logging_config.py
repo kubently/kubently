@@ -26,56 +26,29 @@ def get_logging_config() -> dict[str, Any]:
     return {
         "version": 1,
         "disable_existing_loggers": False,
-        "filters": {
-            "health_check_filter": {
-                "()": HealthCheckFilter
-            }
-        },
+        "filters": {"health_check_filter": {"()": HealthCheckFilter}},
         "formatters": {
-            "default": {
-                "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-            },
-            "access": {
-                "format": "%(message)s"
-            }
+            "default": {"format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"},
+            "access": {"format": "%(message)s"},
         },
         "handlers": {
             "default": {
                 "class": "logging.StreamHandler",
                 "formatter": "default",
-                "stream": "ext://sys.stdout"
+                "stream": "ext://sys.stdout",
             },
             "access": {
                 "class": "logging.StreamHandler",
                 "formatter": "access",
                 "stream": "ext://sys.stdout",
-                "filters": ["health_check_filter"]  # Apply filter to access logs
-            }
+                "filters": ["health_check_filter"],  # Apply filter to access logs
+            },
         },
         "loggers": {
-            "uvicorn": {
-                "handlers": ["default"],
-                "level": "INFO",
-                "propagate": False
-            },
-            "uvicorn.error": {
-                "handlers": ["default"],
-                "level": "INFO",
-                "propagate": False
-            },
-            "uvicorn.access": {
-                "handlers": ["access"],
-                "level": "INFO",
-                "propagate": False
-            },
-            "kubently": {
-                "handlers": ["default"],
-                "level": "INFO",
-                "propagate": False
-            }
+            "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+            "kubently": {"handlers": ["default"], "level": "INFO", "propagate": False},
         },
-        "root": {
-            "level": "INFO",
-            "handlers": ["default"]
-        }
+        "root": {"level": "INFO", "handlers": ["default"]},
     }

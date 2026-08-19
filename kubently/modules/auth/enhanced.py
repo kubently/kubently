@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class EnhancedAuthModule:
     """
     Enhanced authentication supporting both API keys and JWT tokens.
-    
+
     This is a black box that:
     - Accepts any TokenValidator implementation
     - Accepts any AuthModule implementation for API keys
@@ -28,14 +28,11 @@ class EnhancedAuthModule:
     """
 
     def __init__(
-        self,
-        redis_client,
-        base_auth_module: AuthModuleProtocol,
-        token_validator: TokenValidator
+        self, redis_client, base_auth_module: AuthModuleProtocol, token_validator: TokenValidator
     ):
         """
         Initialize with injected dependencies.
-        
+
         Args:
             redis_client: Async Redis client for audit logging
             base_auth_module: Module for API key authentication
@@ -46,24 +43,18 @@ class EnhancedAuthModule:
         self.token_validator = token_validator
 
         # Track authentication methods for metrics
-        self.auth_stats = {
-            "api_key": 0,
-            "jwt": 0,
-            "failed": 0
-        }
+        self.auth_stats = {"api_key": 0, "jwt": 0, "failed": 0}
 
     async def verify_credentials(
-        self,
-        api_key: str | None = None,
-        bearer_token: str | None = None
+        self, api_key: str | None = None, bearer_token: str | None = None
     ) -> tuple[bool, str | None, str | None]:
         """
         Verify either API key or JWT bearer token.
-        
+
         Args:
             api_key: API key from X-API-Key header
             bearer_token: JWT from Authorization: Bearer header
-            
+
         Returns:
             Tuple of (is_valid, identity, auth_method)
             - identity: service name for API key, user email for JWT
@@ -82,8 +73,8 @@ class EnhancedAuthModule:
                     {
                         "user": identity,
                         "sub": claims.get("sub"),
-                        "groups": claims.get("groups", [])
-                    }
+                        "groups": claims.get("groups", []),
+                    },
                 )
 
                 self.auth_stats["jwt"] += 1
@@ -105,11 +96,11 @@ class EnhancedAuthModule:
     async def get_user_permissions(self, identity: str, auth_method: str) -> dict:
         """
         Get permissions for authenticated user/service.
-        
+
         Args:
             identity: User email or service name
             auth_method: "api_key" or "jwt"
-            
+
         Returns:
             Permissions dictionary
         """
@@ -120,23 +111,15 @@ class EnhancedAuthModule:
             return {
                 "clusters": ["*"],  # Access to all clusters for now
                 "operations": ["debug", "execute", "status"],
-                "admin": False
+                "admin": False,
             }
         else:
             # Service/machine permissions
-            return {
-                "clusters": ["*"],
-                "operations": ["*"],
-                "admin": True
-            }
+            return {"clusters": ["*"], "operations": ["*"], "admin": True}
 
     async def _log_auth_event(self, event_type: str, data: dict):
         """Log authentication event for audit."""
-        event = {
-            "type": event_type,
-            "data": data,
-            "timestamp": datetime.now(UTC).isoformat()
-        }
+        event = {"type": event_type, "data": data, "timestamp": datetime.now(UTC).isoformat()}
 
         # Store in Redis for audit trail
         if self.redis:
@@ -145,7 +128,4 @@ class EnhancedAuthModule:
 
     async def get_auth_stats(self) -> dict:
         """Get authentication statistics."""
-        return {
-            "stats": self.auth_stats,
-            "timestamp": datetime.now(UTC).isoformat()
-        }
+        return {"stats": self.auth_stats, "timestamp": datetime.now(UTC).isoformat()}

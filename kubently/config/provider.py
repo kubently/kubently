@@ -1,4 +1,5 @@
 """Configuration provider following Black Box Design principles."""
+
 import os
 import re
 from dataclasses import dataclass
@@ -8,6 +9,7 @@ from typing import Protocol
 @dataclass
 class OIDCConfig:
     """OIDC configuration."""
+
     enabled: bool
     issuer: str | None
     client_id: str
@@ -26,6 +28,7 @@ class OIDCConfig:
 @dataclass
 class AuthConfig:
     """Authentication configuration."""
+
     api_keys_enabled: bool
     oauth_enabled: bool
     api_keys: list[str]
@@ -57,10 +60,12 @@ class EnvConfigProvider:
             issuer=issuer,
             client_id=client_id,
             jwks_uri=os.getenv("OIDC_JWKS_URI") or (f"{issuer}/jwks" if issuer else None),
-            token_endpoint=os.getenv("OIDC_TOKEN_ENDPOINT") or (f"{issuer}/token" if issuer else None),
-            device_endpoint=os.getenv("OIDC_DEVICE_AUTH_ENDPOINT") or (f"{issuer}/device/code" if issuer else None),
+            token_endpoint=os.getenv("OIDC_TOKEN_ENDPOINT")
+            or (f"{issuer}/token" if issuer else None),
+            device_endpoint=os.getenv("OIDC_DEVICE_AUTH_ENDPOINT")
+            or (f"{issuer}/device/code" if issuer else None),
             audience=os.getenv("OIDC_AUDIENCE") or client_id,
-            scopes=os.getenv("OIDC_SCOPES", "openid email profile groups").split()
+            scopes=os.getenv("OIDC_SCOPES", "openid email profile groups").split(),
         )
 
     def get_auth_config(self) -> AuthConfig:
@@ -92,5 +97,5 @@ class EnvConfigProvider:
         return AuthConfig(
             api_keys_enabled=True,  # Required for authentication
             oauth_enabled=oauth_enabled,
-            api_keys=[key.strip() for key in api_keys if key.strip()]
+            api_keys=[key.strip() for key in api_keys if key.strip()],
         )

@@ -103,8 +103,7 @@ def build_logs_request(
             return "aws.logs.describe_log_groups", {"limit": 50}
         return "aws.logs.insights_query", {
             "log_group": log_group,
-            "query": query
-            or "fields @timestamp, @message | sort @timestamp desc | limit 50",
+            "query": query or "fields @timestamp, @message | sort @timestamp desc | limit 50",
             "minutes": minutes,
             "limit": limit,
         }
@@ -332,9 +331,7 @@ def build_cloud_tools(
             "query_cloud_logs",
             cluster_id,
             {"query": query, "minutes": minutes, "log_group": log_group, "limit": limit},
-            lambda provider: build_logs_request(
-                provider, query, minutes, log_group or None, limit
-            ),
+            lambda provider: build_logs_request(provider, query, minutes, log_group or None, limit),
         )
 
     @tool
@@ -414,9 +411,7 @@ def build_cloud_tools(
             "get_recent_cloud_changes",
             cluster_id,
             {"minutes": minutes, "resource_name": resource_name, "limit": limit},
-            lambda provider: build_changes_request(
-                provider, minutes, resource_name or None, limit
-            ),
+            lambda provider: build_changes_request(provider, minutes, resource_name or None, limit),
         )
 
     return [query_cloud_logs, query_cloud_metrics, get_recent_cloud_changes]

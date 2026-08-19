@@ -2,7 +2,7 @@
 """
 Test script for the authentication middleware module.
 
-This demonstrates the black box nature of the middleware - 
+This demonstrates the black box nature of the middleware -
 it can be tested independently without the rest of the system.
 """
 
@@ -13,10 +13,7 @@ from fastapi.testclient import TestClient
 # Mock auth validator for testing
 async def mock_validator(key: str) -> tuple[bool, str | None]:
     """Mock API key validator for testing."""
-    valid_keys = {
-        "test-key-123": "test-service",
-        "admin-key": "admin-service"
-    }
+    valid_keys = {"test-key-123": "test-service", "admin-key": "admin-service"}
     if key in valid_keys:
         return True, valid_keys[key]
     return False, None
@@ -34,7 +31,7 @@ def test_auth_middleware():
         auth_validator=mock_validator,
         skip_paths={"/health": ["GET"], "/": ["GET"]},
         error_format="json",
-        log_attempts=False  # Disable logging for tests
+        log_attempts=False,  # Disable logging for tests
     )
 
     # Register middleware
@@ -101,9 +98,7 @@ def test_jsonrpc_format():
 
     # Create middleware with JSON-RPC format
     auth_middleware = AuthMiddleware(
-        auth_validator=mock_validator,
-        error_format="jsonrpc",
-        log_attempts=False
+        auth_validator=mock_validator, error_format="jsonrpc", log_attempts=False
     )
 
     @app.middleware("http")

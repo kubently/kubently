@@ -120,9 +120,9 @@ def extract_workload_info(obj: dict) -> WorkloadInfo:
         # only trust it when the resource is not Helm-managed.
         info.argocd_app = labels.get(INSTANCE_LABEL)
 
-    containers = (
-        ((obj.get("spec") or {}).get("template") or {}).get("spec", {}).get("containers") or []
-    )
+    containers = ((obj.get("spec") or {}).get("template") or {}).get("spec", {}).get(
+        "containers"
+    ) or []
     info.images = [c.get("image") for c in containers if c.get("image")]
     return info
 
@@ -171,9 +171,9 @@ def replicaset_changes(rs_list_json: str, deployment: str | None = None) -> list
         if deployment and owner != deployment:
             continue
 
-        containers = (
-            ((rs.get("spec") or {}).get("template") or {}).get("spec", {}).get("containers") or []
-        )
+        containers = ((rs.get("spec") or {}).get("template") or {}).get("spec", {}).get(
+            "containers"
+        ) or []
         images = ", ".join(c.get("image", "?") for c in containers)
         replicas = (rs.get("spec") or {}).get("replicas")
         state = "active" if replicas else "scaled to 0"
@@ -299,9 +299,7 @@ def parse_helm_releases(list_json: str) -> list:
     if not isinstance(releases, list):
         return []
     return [
-        (r.get("name"), r.get("namespace"), r.get("updated"))
-        for r in releases
-        if r.get("name")
+        (r.get("name"), r.get("namespace"), r.get("updated")) for r in releases if r.get("name")
     ]
 
 

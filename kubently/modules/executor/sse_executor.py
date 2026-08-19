@@ -33,6 +33,7 @@ except ImportError:
 # Optional import - DynamicCommandWhitelist may not be available in all deployments
 try:
     from kubently.modules.executor.dynamic_whitelist import DynamicCommandWhitelist
+
     WHITELIST_AVAILABLE = True
 except ImportError:
     WHITELIST_AVAILABLE = False
@@ -40,6 +41,7 @@ except ImportError:
 # Optional import - cloud read operations (boto3 / google-cloud SDKs may be absent)
 try:
     from kubently.modules.executor.cloud import CloudOpsManager
+
     CLOUD_AVAILABLE = True
 except ImportError:
     CLOUD_AVAILABLE = False
@@ -78,9 +80,9 @@ class SSEKubentlyExecutor:
 
         # Capability reporting configuration (optional, disabled by default)
         # Enable with KUBENTLY_REPORT_CAPABILITIES=true
-        self.report_capabilities = os.environ.get(
-            "KUBENTLY_REPORT_CAPABILITIES", "false"
-        ).lower() == "true"
+        self.report_capabilities = (
+            os.environ.get("KUBENTLY_REPORT_CAPABILITIES", "false").lower() == "true"
+        )
         self.heartbeat_interval = int(os.environ.get("KUBENTLY_HEARTBEAT_INTERVAL", "300"))
         self.whitelist_config_path = os.environ.get(
             "KUBENTLY_WHITELIST_CONFIG", "/etc/kubently/whitelist.yaml"
@@ -110,9 +112,7 @@ class SSEKubentlyExecutor:
                     mode=cloud_mode,
                     aws_region=os.environ.get("KUBENTLY_CLOUD_AWS_REGION") or None,
                     gcp_project=os.environ.get("KUBENTLY_CLOUD_GCP_PROJECT") or None,
-                    refresh_interval=int(
-                        os.environ.get("KUBENTLY_CLOUD_REFRESH_INTERVAL", "3600")
-                    ),
+                    refresh_interval=int(os.environ.get("KUBENTLY_CLOUD_REFRESH_INTERVAL", "3600")),
                 )
                 logger.info(f"Cloud operations enabled (mode: {cloud_mode})")
             else:
@@ -128,7 +128,9 @@ class SSEKubentlyExecutor:
 
         # Security validation: Warn if using HTTP in production
         if self.api_url.startswith("http://") and self.verify_ssl:
-            logger.warning("⚠️  Using HTTP without TLS - this should only be used for local development!")
+            logger.warning(
+                "⚠️  Using HTTP without TLS - this should only be used for local development!"
+            )
         elif self.api_url.startswith("https://"):
             logger.info("✅ Using HTTPS with TLS encryption")
 
@@ -165,7 +167,9 @@ class SSEKubentlyExecutor:
 
         logger.info(f"SSE executor initialized for cluster: {self.cluster_id}")
         if self.report_capabilities:
-            logger.info(f"Capability reporting enabled (heartbeat every {self.heartbeat_interval}s)")
+            logger.info(
+                f"Capability reporting enabled (heartbeat every {self.heartbeat_interval}s)"
+            )
 
     def run(self) -> None:
         """
@@ -536,14 +540,20 @@ class SSEKubentlyExecutor:
                 self._last_heartbeat = time.time()
             elif response.status_code == 404:
                 # API doesn't have capability endpoint - older version
-                logger.info("Capability endpoint not available (API may be older version), skipping")
+                logger.info(
+                    "Capability endpoint not available (API may be older version), skipping"
+                )
                 # Disable further reporting to avoid repeated 404s
                 self.report_capabilities = False
             else:
-                logger.warning(f"Capability report returned {response.status_code}: {response.text}")
+                logger.warning(
+                    f"Capability report returned {response.status_code}: {response.text}"
+                )
 
         except requests.exceptions.ConnectionError:
-            logger.warning("Could not connect to API for capability reporting, will retry on heartbeat")
+            logger.warning(
+                "Could not connect to API for capability reporting, will retry on heartbeat"
+            )
         except Exception as e:
             logger.warning(f"Failed to report capabilities: {e}")
 

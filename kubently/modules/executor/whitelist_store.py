@@ -49,7 +49,9 @@ class WhitelistStore:
         """Initialize database schema."""
         try:
             self._conn = sqlite3.connect(
-                str(self.db_path), check_same_thread=False, isolation_level=None  # Autocommit mode
+                str(self.db_path),
+                check_same_thread=False,
+                isolation_level=None,  # Autocommit mode
             )
 
             # Enable Write-Ahead Logging for better concurrency
@@ -320,9 +322,7 @@ class WhitelistStore:
             except Exception as e:
                 logger.error(f"Failed to record pattern: {e}")
 
-    def get_command_stats(
-        self, cluster_id: str | None = None, hours: int = 24
-    ) -> dict[str, Any]:
+    def get_command_stats(self, cluster_id: str | None = None, hours: int = 24) -> dict[str, Any]:
         """
         Get command statistics.
 

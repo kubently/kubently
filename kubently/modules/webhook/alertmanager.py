@@ -15,7 +15,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 logger = logging.getLogger(__name__)
 
-MAX_ALERTS_PER_PAYLOAD = 3  # ponytail: cap fan-out per webhook; add Redis-keyed dedup if Slack gets noisy
+MAX_ALERTS_PER_PAYLOAD = (
+    3  # ponytail: cap fan-out per webhook; add Redis-keyed dedup if Slack gets noisy
+)
 
 # asyncio holds only weak references to tasks, so a fire-and-forget task can be
 # garbage-collected mid-flight. A diagnosis runs for minutes; without a strong ref

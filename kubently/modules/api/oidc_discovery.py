@@ -5,7 +5,6 @@ This module provides an endpoint that clients can use to discover
 the OIDC configuration for authentication.
 """
 
-
 from fastapi import APIRouter
 
 from kubently.config.provider import ConfigProvider
@@ -14,10 +13,10 @@ from kubently.config.provider import ConfigProvider
 def create_discovery_router(config_provider: ConfigProvider) -> APIRouter:
     """
     Create OIDC discovery router with injected config provider.
-    
+
     Args:
         config_provider: Configuration provider instance
-        
+
     Returns:
         FastAPI router with discovery endpoints
     """
@@ -27,12 +26,12 @@ def create_discovery_router(config_provider: ConfigProvider) -> APIRouter:
     async def get_auth_config() -> dict:
         """
         Get authentication configuration for clients.
-        
+
         This endpoint tells clients:
         - Whether OAuth is enabled
         - OIDC provider details
         - Supported authentication methods
-        
+
         Returns:
             Authentication configuration dictionary
         """
@@ -45,8 +44,8 @@ def create_discovery_router(config_provider: ConfigProvider) -> APIRouter:
             "authentication_methods": [],
             "api_key": {
                 "header": "X-API-Key",
-                "description": "Static API key for service authentication"
-            }
+                "description": "Static API key for service authentication",
+            },
         }
 
         # Always support API keys
@@ -64,12 +63,12 @@ def create_discovery_router(config_provider: ConfigProvider) -> APIRouter:
                 "token_endpoint": oidc_config.token_endpoint,
                 "grant_types": ["urn:ietf:params:oauth:grant-type:device_code"],
                 "response_types": ["token", "id_token"],
-                "scopes": oidc_config.scopes
+                "scopes": oidc_config.scopes,
             }
         else:
             response["oauth"] = {
                 "enabled": False,
-                "message": "OAuth authentication is not configured for this instance"
+                "message": "OAuth authentication is not configured for this instance",
             }
 
         return response
@@ -78,7 +77,7 @@ def create_discovery_router(config_provider: ConfigProvider) -> APIRouter:
     async def auth_discovery() -> dict:
         """
         Alternative discovery endpoint.
-        
+
         Some clients might look for this instead of .well-known.
         """
         return await get_auth_config()
@@ -87,7 +86,7 @@ def create_discovery_router(config_provider: ConfigProvider) -> APIRouter:
     async def auth_health() -> dict:
         """
         Check authentication system health.
-        
+
         Returns:
             Status of authentication systems
         """
@@ -97,12 +96,9 @@ def create_discovery_router(config_provider: ConfigProvider) -> APIRouter:
         health = {
             "api_key": {
                 "enabled": auth_config.api_keys_enabled,
-                "healthy": True  # API keys are always available
+                "healthy": True,  # API keys are always available
             },
-            "oauth": {
-                "enabled": auth_config.oauth_enabled,
-                "healthy": False
-            }
+            "oauth": {"enabled": auth_config.oauth_enabled, "healthy": False},
         }
 
         # Check OAuth health if enabled

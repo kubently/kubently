@@ -132,9 +132,7 @@ class CapabilityModule:
         """Generate Redis key for cluster capabilities."""
         return f"cluster:{cluster_id}:capabilities"
 
-    async def store_capabilities(
-        self, capabilities: ExecutorCapabilities
-    ) -> bool:
+    async def store_capabilities(self, capabilities: ExecutorCapabilities) -> bool:
         """
         Store executor capabilities in Redis.
 
@@ -150,9 +148,7 @@ class CapabilityModule:
             # Add timestamps
             now = datetime.now(UTC)
             capabilities.reported_at = now.isoformat()
-            capabilities.expires_at = (
-                now + timedelta(seconds=self.default_ttl)
-            ).isoformat()
+            capabilities.expires_at = (now + timedelta(seconds=self.default_ttl)).isoformat()
 
             # Store with TTL
             data = json.dumps(capabilities.to_dict())
@@ -168,9 +164,7 @@ class CapabilityModule:
             logger.error(f"Failed to store capabilities: {e}")
             return False
 
-    async def get_capabilities(
-        self, cluster_id: str
-    ) -> ExecutorCapabilities | None:
+    async def get_capabilities(self, cluster_id: str) -> ExecutorCapabilities | None:
         """
         Retrieve executor capabilities from Redis.
 

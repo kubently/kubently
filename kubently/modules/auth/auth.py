@@ -167,17 +167,18 @@ class AuthModule:
                 identity = identity.decode("utf-8") if isinstance(identity, bytes) else identity
                 await self._log_event(
                     "api_key_verified",
-                    {"service_identity": identity, "dynamic": True,
-                     "timestamp": datetime.now(UTC).isoformat()},
+                    {
+                        "service_identity": identity,
+                        "dynamic": True,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    },
                 )
                 return True, identity
 
         return False, None
 
     async def verify_credentials(
-        self,
-        api_key: str | None = None,
-        bearer_token: str | None = None
+        self, api_key: str | None = None, bearer_token: str | None = None
     ) -> tuple[bool, str | None, str | None]:
         """
         Verify credentials (API key only for base module).

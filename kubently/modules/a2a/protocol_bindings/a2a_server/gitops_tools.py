@@ -83,8 +83,7 @@ class _BaseProvider:
         if response.status_code not in expect:
             raise GitProviderError(
                 redact_secret(
-                    f"Git provider returned HTTP {response.status_code}: "
-                    f"{response.text[:300]}",
+                    f"Git provider returned HTTP {response.status_code}: {response.text[:300]}",
                     self.config.token,
                 )
             )
@@ -150,15 +149,12 @@ class GitHubProvider(_BaseProvider):
     async def create_branch(self, branch: str) -> None:
         ref = await self._request(
             "GET",
-            f"{self.api}/repos/{self.config.repo}/git/ref/"
-            f"heads/{quote(self.config.base_branch)}",
+            f"{self.api}/repos/{self.config.repo}/git/ref/heads/{quote(self.config.base_branch)}",
             expect=(200,),
         )
         base_sha = ((ref or {}).get("object") or {}).get("sha")
         if not base_sha:
-            raise GitProviderError(
-                f"could not resolve base branch '{self.config.base_branch}'"
-            )
+            raise GitProviderError(f"could not resolve base branch '{self.config.base_branch}'")
         await self._request(
             "POST",
             f"{self.api}/repos/{self.config.repo}/git/refs",
@@ -364,9 +360,7 @@ def build_gitops_tools(
             await interceptor.record_tool_result(tool_call_id, None, error_msg)
             return error_msg
         except Exception as e:
-            error_msg = redact_secret(
-                f"Error reading '{path}': {e!s}", config.token
-            )
+            error_msg = redact_secret(f"Error reading '{path}': {e!s}", config.token)
             await interceptor.record_tool_result(tool_call_id, None, error_msg)
             return error_msg
 
@@ -456,9 +450,7 @@ def build_gitops_tools(
                 old_content = await provider.get_file(path.strip())
                 staged[path.strip()] = (old_content, new_content or "")
 
-            changes = {
-                path: count_changed_lines(old, new) for path, (old, new) in staged.items()
-            }
+            changes = {path: count_changed_lines(old, new) for path, (old, new) in staged.items()}
             if all(n == 0 for n in changes.values()):
                 return await _finish(
                     "Error: the proposed content is identical to what is "

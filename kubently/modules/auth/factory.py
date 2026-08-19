@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class AuthFactory:
     """
     Factory for building the authentication stack.
-    
+
     This is the composition root that:
     - Creates all auth components
     - Wires them together via dependency injection
@@ -31,16 +31,15 @@ class AuthFactory:
 
     @staticmethod
     def build(
-        config_provider: ConfigProvider,
-        redis_client: Any | None = None
+        config_provider: ConfigProvider, redis_client: Any | None = None
     ) -> AuthenticationService:
         """
         Build the complete authentication stack.
-        
+
         Args:
             config_provider: Configuration provider
             redis_client: Optional Redis client for audit logging
-            
+
         Returns:
             AuthenticationService facade (hides all implementation details)
         """
@@ -62,7 +61,7 @@ class AuthFactory:
             auth_module = EnhancedAuthModule(
                 redis_client=redis_client,
                 base_auth_module=base_auth,
-                token_validator=token_validator
+                token_validator=token_validator,
             )
         else:
             logger.info("Building authentication stack with API keys only")
@@ -74,16 +73,15 @@ class AuthFactory:
 
     @staticmethod
     def build_for_testing(
-        mock_validator: Any | None = None,
-        mock_auth_module: Any | None = None
+        mock_validator: Any | None = None, mock_auth_module: Any | None = None
     ) -> AuthenticationService:
         """
         Build auth stack for testing with mock dependencies.
-        
+
         Args:
             mock_validator: Mock token validator
             mock_auth_module: Mock auth module
-            
+
         Returns:
             AuthenticationService for testing
         """
@@ -92,15 +90,14 @@ class AuthFactory:
 
         # Create test configuration
         from ...config.provider import EnvConfigProvider
+
         config_provider = EnvConfigProvider()
 
         # Build with optional mock validator
         if mock_validator:
             base_auth = AuthModule(redis_client)
             auth_module = EnhancedAuthModule(
-                redis_client=None,
-                base_auth_module=base_auth,
-                token_validator=mock_validator
+                redis_client=None, base_auth_module=base_auth, token_validator=mock_validator
             )
             return DefaultAuthenticationService(auth_module)
 

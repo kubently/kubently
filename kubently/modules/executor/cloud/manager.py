@@ -45,9 +45,9 @@ class CloudOpsManager:
         self.mode = mode
         self.refresh_interval = max(60, int(refresh_interval))
         self._candidates = (
-            providers if providers is not None else self._build_candidates(
-                mode, aws_region, gcp_project
-            )
+            providers
+            if providers is not None
+            else self._build_candidates(mode, aws_region, gcp_project)
         )
         self._active: CloudProvider | None = None
         self.identity: CloudIdentity | None = None
@@ -85,8 +85,10 @@ class CloudOpsManager:
         Never raises — a pod with no cloud identity simply reports none.
         """
         now = time.time()
-        if not force and self._last_detection and (
-            now - self._last_detection < self.refresh_interval
+        if (
+            not force
+            and self._last_detection
+            and (now - self._last_detection < self.refresh_interval)
         ):
             return self.identity
 
@@ -188,10 +190,6 @@ class CloudOpsManager:
             "provider": self.identity.provider,
             "identity": self.identity.to_dict(),
             "operations": operations,
-            "usable_families": {
-                f: ok for f, ok in sorted(self.usable_families.items())
-            },
-            "checked_at": datetime.fromtimestamp(
-                self._last_detection, tz=UTC
-            ).isoformat(),
+            "usable_families": {f: ok for f, ok in sorted(self.usable_families.items())},
+            "checked_at": datetime.fromtimestamp(self._last_detection, tz=UTC).isoformat(),
         }

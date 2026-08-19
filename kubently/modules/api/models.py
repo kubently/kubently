@@ -67,9 +67,7 @@ class CreateSessionRequest(BaseModel):
         pattern="^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$",
     )
     user_id: str | None = Field(None, description="Optional user/AI identifier")
-    correlation_id: str | None = Field(
-        None, description="Correlation ID for A2A request tracking"
-    )
+    correlation_id: str | None = Field(None, description="Correlation ID for A2A request tracking")
     service_identity: str | None = Field(None, description="Calling service identity for A2A")
     ttl_seconds: int | None = Field(
         default=300, description="Session TTL in seconds", ge=60, le=3600
@@ -81,9 +79,7 @@ class ExecuteCommandRequest(BaseModel):
 
     cluster_id: str = Field(..., description="Target cluster identifier")
     session_id: str | None = Field(None, description="Associated session ID")
-    correlation_id: str | None = Field(
-        None, description="Correlation ID for A2A request tracking"
-    )
+    correlation_id: str | None = Field(None, description="Correlation ID for A2A request tracking")
     command_type: CommandType = Field(
         default=CommandType.GET, description="Type of kubectl command"
     )
@@ -92,7 +88,10 @@ class ExecuteCommandRequest(BaseModel):
     )
     namespace: str | None = Field(default="default", description="Kubernetes namespace")
     timeout_seconds: int | None = Field(default=10, description="Command timeout", ge=1, le=30)
-    extra_args: list[str] | None = Field(None, description="A list of additional, safe arguments to pass to the kubectl command, like ['-o', 'yaml'].")
+    extra_args: list[str] | None = Field(
+        None,
+        description="A list of additional, safe arguments to pass to the kubectl command, like ['-o', 'yaml'].",
+    )
 
     @field_validator("args")
     @classmethod
@@ -113,29 +112,50 @@ class ExecuteCommandRequest(BaseModel):
 
         # Whitelist of safe flags for output formatting and filtering
         safe_flags = {
-            "-o", "--output",  # Output format
-            "-l", "--selector",  # Label selector
+            "-o",
+            "--output",  # Output format
+            "-l",
+            "--selector",  # Label selector
             "--field-selector",  # Field selector
             "--show-labels",  # Show labels
             "--show-kind",  # Show resource kind
             "--no-headers",  # No headers in output
-            "-w", "--watch",  # Watch for changes (though may timeout)
+            "-w",
+            "--watch",  # Watch for changes (though may timeout)
             "--sort-by",  # Sort output
-            "-A", "--all-namespaces",  # All namespaces
+            "-A",
+            "--all-namespaces",  # All namespaces
         }
 
         # Allowed output formats
         allowed_output_formats = {
-            "json", "yaml", "wide", "name", "custom-columns", "custom-columns-file",
-            "go-template", "go-template-file", "jsonpath", "jsonpath-file"
+            "json",
+            "yaml",
+            "wide",
+            "name",
+            "custom-columns",
+            "custom-columns-file",
+            "go-template",
+            "go-template-file",
+            "jsonpath",
+            "jsonpath-file",
         }
 
         # Forbidden flags that could be dangerous
         forbidden_flags = {
-            "--token", "--kubeconfig", "--server", "--insecure",
-            "--username", "--password", "--client-certificate",
-            "--as", "--as-group", "--certificate-authority",
-            "-f", "--filename", "--recursive"
+            "--token",
+            "--kubeconfig",
+            "--server",
+            "--insecure",
+            "--username",
+            "--password",
+            "--client-certificate",
+            "--as",
+            "--as-group",
+            "--certificate-authority",
+            "-f",
+            "--filename",
+            "--recursive",
         }
 
         i = 0
@@ -213,9 +233,7 @@ class HelmCommandRequest(BaseModel):
         None, ge=1, le=100, description="Max revisions (history) or releases (list)"
     )
     timeout_seconds: int | None = Field(default=30, description="Command timeout", ge=1, le=60)
-    correlation_id: str | None = Field(
-        None, description="Correlation ID for A2A request tracking"
-    )
+    correlation_id: str | None = Field(None, description="Correlation ID for A2A request tracking")
 
     @model_validator(mode="after")
     def validate_history_fields(self):
@@ -241,9 +259,7 @@ class ArgoCDQueryRequest(BaseModel):
     """
 
     cluster_id: str = Field(..., description="Target cluster identifier")
-    operation: ArgoCDOperation = Field(
-        ..., description="get_app, list_apps, or revision_metadata"
-    )
+    operation: ArgoCDOperation = Field(..., description="get_app, list_apps, or revision_metadata")
     app_name: str | None = Field(
         None,
         max_length=253,
@@ -263,9 +279,7 @@ class ArgoCDQueryRequest(BaseModel):
         description="Label selector filter for list_apps",
     )
     timeout_seconds: int | None = Field(default=30, description="Query timeout", ge=1, le=60)
-    correlation_id: str | None = Field(
-        None, description="Correlation ID for A2A request tracking"
-    )
+    correlation_id: str | None = Field(None, description="Correlation ID for A2A request tracking")
 
     @model_validator(mode="after")
     def validate_operation_fields(self):
@@ -328,9 +342,7 @@ class LogSearchRequest(BaseModel):
         default=0, ge=0, le=10, description="Context lines kept around each match"
     )
     timeout_seconds: int | None = Field(default=60, description="Search timeout", ge=1, le=120)
-    correlation_id: str | None = Field(
-        None, description="Correlation ID for A2A request tracking"
-    )
+    correlation_id: str | None = Field(None, description="Correlation ID for A2A request tracking")
 
     @field_validator("namespace", "pod_name", "container")
     @classmethod
@@ -390,9 +402,7 @@ class LokiQueryRequest(BaseModel):
         default=LokiQueryDirection.BACKWARD, description="backward (newest first) or forward"
     )
     timeout_seconds: int | None = Field(default=30, description="Query timeout", ge=1, le=60)
-    correlation_id: str | None = Field(
-        None, description="Correlation ID for A2A request tracking"
-    )
+    correlation_id: str | None = Field(None, description="Correlation ID for A2A request tracking")
 
     @field_validator("start", "end")
     @classmethod
@@ -428,9 +438,7 @@ class PrometheusQueryRequest(BaseModel):
     """
 
     cluster_id: str = Field(..., description="Target cluster identifier")
-    query: str = Field(
-        ..., min_length=1, max_length=4000, description="PromQL expression"
-    )
+    query: str = Field(..., min_length=1, max_length=4000, description="PromQL expression")
     query_type: PrometheusQueryType = Field(
         default=PrometheusQueryType.INSTANT, description="instant or range query"
     )
@@ -444,12 +452,12 @@ class PrometheusQueryRequest(BaseModel):
         None, max_length=64, description="Range end (RFC3339 or unix); required for range"
     )
     step: str | None = Field(
-        None, max_length=32, description="Range resolution step (e.g. '30s', '5m'); required for range"
+        None,
+        max_length=32,
+        description="Range resolution step (e.g. '30s', '5m'); required for range",
     )
     timeout_seconds: int | None = Field(default=30, description="Query timeout", ge=1, le=60)
-    correlation_id: str | None = Field(
-        None, description="Correlation ID for A2A request tracking"
-    )
+    correlation_id: str | None = Field(None, description="Correlation ID for A2A request tracking")
 
     @field_validator("time", "start", "end")
     @classmethod

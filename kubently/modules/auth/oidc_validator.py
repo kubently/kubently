@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class OIDCValidator(TokenValidator):
     """
     Validates JWT tokens from OIDC providers.
-    
+
     This class is a black box that:
     - Validates JWT signatures via JWKS
     - Verifies token claims
@@ -33,7 +33,7 @@ class OIDCValidator(TokenValidator):
     def __init__(self, config: OIDCConfig):
         """
         Initialize OIDC validator with injected config.
-        
+
         Args:
             config: OIDC configuration object
         """
@@ -50,7 +50,7 @@ class OIDCValidator(TokenValidator):
                 self.jwks_client = PyJWKClient(
                     self.jwks_uri,
                     cache_keys=True,
-                    lifespan=3600  # Cache keys for 1 hour
+                    lifespan=3600,  # Cache keys for 1 hour
                 )
             except Exception as e:
                 logger.warning(f"Failed to initialize JWKS client: {e}")
@@ -62,10 +62,10 @@ class OIDCValidator(TokenValidator):
     async def validate_jwt_async(self, token: str) -> tuple[bool, dict[str, Any] | None]:
         """
         Validate a JWT token asynchronously.
-        
+
         Args:
             token: JWT token string (with or without Bearer prefix)
-            
+
         Returns:
             Tuple of (is_valid, claims_dict or None)
         """
@@ -104,8 +104,8 @@ class OIDCValidator(TokenValidator):
                         "verify_aud": bool(self.audience),
                         "verify_iss": bool(self.issuer),
                         "verify_exp": True,
-                        "require": ["exp", "iat", "sub"]
-                    }
+                        "require": ["exp", "iat", "sub"],
+                    },
                 )
             else:
                 # No JWKS client - for testing only
@@ -114,7 +114,7 @@ class OIDCValidator(TokenValidator):
                     token,
                     options={"verify_signature": False},
                     audience=self.audience,
-                    issuer=self.issuer
+                    issuer=self.issuer,
                 )
 
             # Cache the valid claims
@@ -141,10 +141,10 @@ class OIDCValidator(TokenValidator):
     def extract_user_info(self, claims: dict[str, Any]) -> dict[str, Any]:
         """
         Extract standardized user information from JWT claims.
-        
+
         Args:
             claims: JWT claims dictionary
-            
+
         Returns:
             User information dictionary
         """
@@ -157,5 +157,5 @@ class OIDCValidator(TokenValidator):
             "iss": claims.get("iss"),
             "aud": claims.get("aud"),
             "exp": claims.get("exp"),
-            "iat": claims.get("iat")
+            "iat": claims.get("iat"),
         }

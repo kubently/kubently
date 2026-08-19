@@ -121,7 +121,7 @@ class KubentlyAgentExecutor(AgentExecutor):
         contextId = context.message.context_id if context.message else None
 
         # Extract cluster ID from A2A metadata extension
-        cluster_id = context.metadata.get('clusterId') if context.metadata else None
+        cluster_id = context.metadata.get("clusterId") if context.metadata else None
 
         # Debug logging to track context ID and cluster
         logger.info("Debug context IDs:")
@@ -180,15 +180,18 @@ class KubentlyAgentExecutor(AgentExecutor):
 
         # Import the interceptor
         from .tool_call_interceptor import get_tool_call_interceptor
+
         interceptor = get_tool_call_interceptor()
 
         try:
-            logger.info(f"Starting agent execution for query: {query[:100]}, cluster_id: {cluster_id}")
+            logger.info(
+                f"Starting agent execution for query: {query[:100]}, cluster_id: {cluster_id}"
+            )
             chunk_count = 0
             async for chunk in self.agent.run(messages, thread_id=contextId, cluster_id=cluster_id):
                 chunk_count += 1
                 # Chunk is a dict, extract content for logging
-                chunk_str = str(chunk)[:100] if chunk else 'EMPTY'
+                chunk_str = str(chunk)[:100] if chunk else "EMPTY"
                 logger.info(f"Received chunk {chunk_count}: {chunk_str}")
                 # Extract content from chunk dict
                 chunk_content = chunk.get("content", "") if isinstance(chunk, dict) else str(chunk)
@@ -213,12 +216,12 @@ class KubentlyAgentExecutor(AgentExecutor):
 
                 # Check for new tool calls periodically
                 from datetime import datetime
+
                 current_time = datetime.now().isoformat()
                 if last_tool_check_time is None or last_tool_check_time < current_time:
                     # Get tool calls since last check
                     tool_calls = await interceptor.get_tool_calls_for_thread(
-                        traceThreadId,
-                        since_timestamp=last_tool_check_time
+                        traceThreadId, since_timestamp=last_tool_check_time
                     )
 
                     # Emit tool call events
@@ -227,9 +230,9 @@ class KubentlyAgentExecutor(AgentExecutor):
                         # Since A2A doesn't have a specific tool call event, we'll use TaskStatusUpdateEvent
                         # with metadata in the message
                         tool_message = f"🔧 Tool Call: {tool_call['tool_name']}({json.dumps(tool_call.get('args', {}), indent=2)})"
-                        if tool_call.get('status') == 'completed' and tool_call.get('result'):
+                        if tool_call.get("status") == "completed" and tool_call.get("result"):
                             tool_message += f"\n✅ Result: {tool_call['result'][:500]}..."
-                        elif tool_call.get('error'):
+                        elif tool_call.get("error"):
                             tool_message += f"\n❌ Error: {tool_call['error']}"
 
                         await event_queue.enqueue_event(
@@ -252,18 +255,19 @@ class KubentlyAgentExecutor(AgentExecutor):
 
             # Send final result
             final_response = "\n".join(full_response)
-            logger.info(f"Agent execution completed. Chunks: {chunk_count}, Response: '{final_response[:200]}'")
+            logger.info(
+                f"Agent execution completed. Chunks: {chunk_count}, Response: '{final_response[:200]}'"
+            )
 
             # Emit any remaining tool calls
             final_tool_calls = await interceptor.get_tool_calls_for_thread(
-                traceThreadId,
-                since_timestamp=last_tool_check_time
+                traceThreadId, since_timestamp=last_tool_check_time
             )
             for tool_call in final_tool_calls:
                 tool_message = f"🔧 Tool Call: {tool_call['tool_name']}({json.dumps(tool_call.get('args', {}), indent=2)})"
-                if tool_call.get('status') == 'completed' and tool_call.get('result'):
+                if tool_call.get("status") == "completed" and tool_call.get("result"):
                     tool_message += f"\n✅ Result: {tool_call['result'][:500]}..."
-                elif tool_call.get('error'):
+                elif tool_call.get("error"):
                     tool_message += f"\n❌ Error: {tool_call['error']}"
 
                 await event_queue.enqueue_event(
@@ -319,6 +323,7 @@ class KubentlyAgentExecutor(AgentExecutor):
     async def _fetch_clusters_list(self) -> list[str] | None:
         # Get API key for internal service-to-service calls using auth module utility
         from kubently.modules.auth import AuthModule
+
         api_key = AuthModule.extract_first_api_key()
 
         candidates = [
@@ -439,6 +444,7 @@ class KubentlyAgentExecutor(AgentExecutor):
 
         # Create a new session
         from kubently.modules.auth import AuthModule
+
         api_key = AuthModule.extract_first_api_key()
         api_url = os.getenv("KUBENTLY_API_URL", "http://localhost:8080")
 
@@ -473,6 +479,7 @@ class KubentlyAgentExecutor(AgentExecutor):
     ) -> dict[str, Any] | None:
         """Execute kubectl command directly via API."""
         from kubently.modules.auth import AuthModule
+
         api_key = AuthModule.extract_first_api_key()
         api_url = os.getenv("KUBENTLY_API_URL", "http://localhost:8080")
 

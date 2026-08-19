@@ -193,9 +193,7 @@ def count_changed_lines(old_content: str | None, new_content: str) -> int:
     return changed
 
 
-def check_size_caps(
-    changes: dict[str, int], max_files: int, max_lines: int
-) -> str | None:
+def check_size_caps(changes: dict[str, int], max_files: int, max_lines: int) -> str | None:
     """Enforce the PR size cap. Returns a refusal message, or None when OK.
 
     changes maps file path -> changed-line count (see count_changed_lines).
@@ -253,7 +251,9 @@ def build_diff_preview(files: dict[str, tuple[str | None, str]], max_chars: int 
             chunks.append(diff)
     text = "\n\n".join(chunks)
     if len(text) > max_chars:
-        text = text[:max_chars] + "\n... (diff truncated in PR body; the commit holds the full change)"
+        text = (
+            text[:max_chars] + "\n... (diff truncated in PR body; the commit holds the full change)"
+        )
     return text
 
 

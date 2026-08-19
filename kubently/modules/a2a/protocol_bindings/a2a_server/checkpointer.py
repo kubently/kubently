@@ -439,9 +439,7 @@ async def create_checkpointer(redis_client: Any) -> BaseCheckpointSaver | None:
 
     if backend == "plain-redis":
         saver = PlainRedisSaver(redis_client, ttl_seconds=_resolve_ttl())
-        logger.info(
-            "Using plain-Redis checkpointer (no RediSearch required, ttl=%s)", saver._ttl
-        )
+        logger.info("Using plain-Redis checkpointer (no RediSearch required, ttl=%s)", saver._ttl)
         return saver
 
     # Default: RediSearch-backed saver, unchanged from previous behavior.

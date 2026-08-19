@@ -71,9 +71,7 @@ class HelmRunner:
             if enabled is not None
             else os.environ.get("HELM_HISTORY_ENABLED", "false").strip().lower() == "true"
         )
-        self.timeout = timeout or int(
-            os.environ.get("HELM_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS))
-        )
+        self.timeout = timeout or int(os.environ.get("HELM_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS)))
         self.max_output_chars = max_output_chars or int(
             os.environ.get("HELM_MAX_OUTPUT_CHARS", str(DEFAULT_MAX_OUTPUT_CHARS))
         )
@@ -109,7 +107,9 @@ class HelmRunner:
                 timeout=self.timeout,
             )
         except subprocess.TimeoutExpired:
-            return self._error(f"helm {subcommand} timed out after {self.timeout}s.", status="TIMEOUT")
+            return self._error(
+                f"helm {subcommand} timed out after {self.timeout}s.", status="TIMEOUT"
+            )
         except Exception as e:
             return self._error(f"helm execution failed: {e}")
 
@@ -138,17 +138,33 @@ class HelmRunner:
             release = request.get("release_name")
             if not release or not _RELEASE_NAME_PATTERN.match(str(release)):
                 return [], f"Invalid or missing release_name '{release}'."
-            max_revisions = self._bounded_int(
-                request.get("max"), DEFAULT_MAX_REVISIONS, upper=50
-            )
-            argv = [self.helm_path, "history", str(release), "-o", "json", "--max", str(max_revisions)]
+            max_revisions = self._bounded_int(request.get("max"), DEFAULT_MAX_REVISIONS, upper=50)
+            argv = [
+                self.helm_path,
+                "history",
+                str(release),
+                "-o",
+                "json",
+                "--max",
+                str(max_revisions),
+            ]
             if namespace:
                 argv.extend(["-n", str(namespace)])
             return argv, None
 
         # subcommand == "list"
         max_releases = self._bounded_int(request.get("max"), DEFAULT_MAX_RELEASES, upper=100)
-        argv = [self.helm_path, "list", "-o", "json", "--max", str(max_releases), "--all", "--date", "--reverse"]
+        argv = [
+            self.helm_path,
+            "list",
+            "-o",
+            "json",
+            "--max",
+            str(max_releases),
+            "--all",
+            "--date",
+            "--reverse",
+        ]
         if namespace:
             argv.extend(["-n", str(namespace)])
         else:
@@ -168,7 +184,7 @@ class HelmRunner:
         if len(output) > self.max_output_chars:
             # Best effort: keep valid context by truncating with a clear note.
             output = output[: self.max_output_chars] + (
-                f'\n[truncated at {self.max_output_chars} chars — '
+                f"\n[truncated at {self.max_output_chars} chars — "
                 "narrow with a namespace or lower max]"
             )
         return output

@@ -265,7 +265,9 @@ class LearningEngine:
     def _extract_namespace_pattern(self, args: list[str]) -> str | None:
         """Extract namespace pattern from command."""
         for i, arg in enumerate(args):
-            if (arg in ["-n", "--namespace"] and i + 1 < len(args)) or arg.startswith("--namespace="):
+            if (arg in ["-n", "--namespace"] and i + 1 < len(args)) or arg.startswith(
+                "--namespace="
+            ):
                 return "<namespace>"
             elif arg == "--all-namespaces":
                 return "*"

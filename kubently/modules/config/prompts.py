@@ -76,7 +76,7 @@ def _candidate_paths(role: str, filename: str) -> list[str]:
 def get_prompt(
     role: str = "a2a",
     default_filename: str = "system.prompt.yaml",
-    variables: dict[str, str] | None = None
+    variables: dict[str, str] | None = None,
 ) -> str:
     """Load and render the system prompt for a role.
 

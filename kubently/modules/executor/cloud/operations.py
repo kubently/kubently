@@ -43,8 +43,7 @@ _SPECS = [
         provider="aws",
         family="logs",
         description=(
-            "Run a CloudWatch Logs Insights query synchronously "
-            "(StartQuery + poll GetQueryResults)"
+            "Run a CloudWatch Logs Insights query synchronously (StartQuery + poll GetQueryResults)"
         ),
         required_permissions=("logs:StartQuery", "logs:GetQueryResults"),
     ),

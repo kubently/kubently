@@ -46,7 +46,9 @@ if A2A_AVAILABLE:
 class A2AModule:
     """A2A server module that runs alongside the main API."""
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 8000, external_url: str = None, redis_client=None):
+    def __init__(
+        self, host: str = "0.0.0.0", port: int = 8000, external_url: str = None, redis_client=None
+    ):
         """Initialize the A2A server."""
         if not A2A_AVAILABLE:
             raise ImportError("A2A dependencies not installed")
@@ -207,10 +209,7 @@ class A2AModule:
 
 # Module interface
 def create_a2a_server(
-    host: str = "0.0.0.0",
-    port: int = 8000,
-    external_url: str = None,
-    redis_client=None
+    host: str = "0.0.0.0", port: int = 8000, external_url: str = None, redis_client=None
 ) -> A2AModule | None:
     """Create A2A server if dependencies are available."""
     if not A2A_AVAILABLE:

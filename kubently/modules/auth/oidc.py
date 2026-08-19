@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class OIDCValidator:
     """
     Validates JWT tokens from OIDC providers.
-    
+
     This class handles:
     - JWKS key fetching and caching
     - JWT signature verification
@@ -35,11 +35,11 @@ class OIDCValidator:
         issuer: str | None = None,
         client_id: str | None = None,
         jwks_uri: str | None = None,
-        audience: str | None = None
+        audience: str | None = None,
     ):
         """
         Initialize OIDC validator.
-        
+
         Args:
             issuer: OIDC issuer URL (e.g., https://auth.example.com)
             client_id: OAuth client ID for this application
@@ -68,7 +68,7 @@ class OIDCValidator:
                 self.jwks_client = PyJWKClient(
                     self.jwks_uri,
                     cache_keys=True,
-                    lifespan=3600  # Cache keys for 1 hour
+                    lifespan=3600,  # Cache keys for 1 hour
                 )
             except Exception as e:
                 logger.warning(f"Failed to initialize JWKS client: {e}")
@@ -80,7 +80,7 @@ class OIDCValidator:
     async def discover_configuration(self) -> dict:
         """
         Discover OIDC configuration from provider.
-        
+
         Returns:
             OpenID Connect discovery document
         """
@@ -97,10 +97,10 @@ class OIDCValidator:
     def validate_jwt(self, token: str) -> tuple[bool, dict | None]:
         """
         Validate a JWT token synchronously.
-        
+
         Args:
             token: JWT token string
-            
+
         Returns:
             Tuple of (is_valid, claims_dict)
         """
@@ -134,8 +134,8 @@ class OIDCValidator:
                         "verify_aud": bool(self.audience),
                         "verify_iss": bool(self.issuer),
                         "verify_exp": True,
-                        "require": ["exp", "iat", "sub"]
-                    }
+                        "require": ["exp", "iat", "sub"],
+                    },
                 )
             else:
                 # No JWKS client - decode without verification (for testing only)
@@ -144,7 +144,7 @@ class OIDCValidator:
                     token,
                     options={"verify_signature": False},
                     audience=self.audience,
-                    issuer=self.issuer
+                    issuer=self.issuer,
                 )
 
             # Cache the valid claims
@@ -171,12 +171,12 @@ class OIDCValidator:
     async def validate_jwt_async(self, token: str) -> tuple[bool, dict | None]:
         """
         Validate a JWT token asynchronously.
-        
+
         This is a wrapper around validate_jwt for consistency with async code.
-        
+
         Args:
             token: JWT token string
-            
+
         Returns:
             Tuple of (is_valid, claims_dict)
         """
@@ -185,10 +185,10 @@ class OIDCValidator:
     def extract_user_info(self, claims: dict) -> dict:
         """
         Extract user information from JWT claims.
-        
+
         Args:
             claims: JWT claims dictionary
-            
+
         Returns:
             User information dictionary
         """
@@ -201,16 +201,16 @@ class OIDCValidator:
             "iss": claims.get("iss"),
             "aud": claims.get("aud"),
             "exp": claims.get("exp"),
-            "iat": claims.get("iat")
+            "iat": claims.get("iat"),
         }
 
     def is_token_expired(self, claims: dict) -> bool:
         """
         Check if token is expired based on claims.
-        
+
         Args:
             claims: JWT claims dictionary
-            
+
         Returns:
             True if expired, False otherwise
         """
@@ -223,10 +223,10 @@ class OIDCValidator:
     def get_token_remaining_time(self, claims: dict) -> int:
         """
         Get remaining valid time for token in seconds.
-        
+
         Args:
             claims: JWT claims dictionary
-            
+
         Returns:
             Seconds until expiration (0 if expired)
         """
@@ -241,7 +241,7 @@ class OIDCValidator:
 class EnhancedAuthModule:
     """
     Enhanced authentication module supporting both API keys and JWT tokens.
-    
+
     This module extends the base AuthModule to support:
     - Legacy API key authentication (for machines/services)
     - JWT/OIDC authentication (for human users)
@@ -251,7 +251,7 @@ class EnhancedAuthModule:
     def __init__(self, redis_client, base_auth_module):
         """
         Initialize enhanced auth module.
-        
+
         Args:
             redis_client: Async Redis client
             base_auth_module: Existing AuthModule instance
@@ -261,24 +261,18 @@ class EnhancedAuthModule:
         self.oidc_validator = OIDCValidator()
 
         # Track authentication methods for metrics
-        self.auth_stats = {
-            "api_key": 0,
-            "jwt": 0,
-            "failed": 0
-        }
+        self.auth_stats = {"api_key": 0, "jwt": 0, "failed": 0}
 
     async def verify_credentials(
-        self,
-        api_key: str | None = None,
-        bearer_token: str | None = None
+        self, api_key: str | None = None, bearer_token: str | None = None
     ) -> tuple[bool, str | None, str | None]:
         """
         Verify either API key or JWT bearer token.
-        
+
         Args:
             api_key: API key from X-API-Key header
             bearer_token: JWT from Authorization: Bearer header
-            
+
         Returns:
             Tuple of (is_valid, identity, auth_method)
             - identity: service name for API key, user email for JWT
@@ -297,8 +291,8 @@ class EnhancedAuthModule:
                     {
                         "user": identity,
                         "sub": user_info.get("sub"),
-                        "groups": user_info.get("groups", [])
-                    }
+                        "groups": user_info.get("groups", []),
+                    },
                 )
 
                 self.auth_stats["jwt"] += 1
@@ -318,11 +312,11 @@ class EnhancedAuthModule:
     async def get_user_permissions(self, identity: str, auth_method: str) -> dict:
         """
         Get permissions for authenticated user/service.
-        
+
         Args:
             identity: User email or service name
             auth_method: "api_key" or "jwt"
-            
+
         Returns:
             Permissions dictionary
         """
@@ -333,23 +327,15 @@ class EnhancedAuthModule:
             return {
                 "clusters": ["*"],  # Access to all clusters for now
                 "operations": ["debug", "execute", "status"],
-                "admin": False
+                "admin": False,
             }
         else:
             # Service/machine permissions
-            return {
-                "clusters": ["*"],
-                "operations": ["*"],
-                "admin": True
-            }
+            return {"clusters": ["*"], "operations": ["*"], "admin": True}
 
     async def _log_auth_event(self, event_type: str, data: dict):
         """Log authentication event for audit."""
-        event = {
-            "type": event_type,
-            "data": data,
-            "timestamp": datetime.now(UTC).isoformat()
-        }
+        event = {"type": event_type, "data": data, "timestamp": datetime.now(UTC).isoformat()}
 
         # Store in Redis for audit trail
         await self.redis.lpush("auth:audit:enhanced", json.dumps(event))
@@ -357,7 +343,4 @@ class EnhancedAuthModule:
 
     async def get_auth_stats(self) -> dict:
         """Get authentication statistics."""
-        return {
-            "stats": self.auth_stats,
-            "timestamp": datetime.now(UTC).isoformat()
-        }
+        return {"stats": self.auth_stats, "timestamp": datetime.now(UTC).isoformat()}
