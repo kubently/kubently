@@ -20,7 +20,12 @@ class TestHelmRunnerAvailability:
         assert result["status"] == "UNAVAILABLE"
         assert "HELM_HISTORY_ENABLED" in result["error"]
 
-    def test_enabled_but_no_binary(self):
+    def test_enabled_but_no_binary(self, monkeypatch):
+        # helm_path=None does not mean "no binary": HelmRunner falls back to
+        # `shutil.which("helm")`, so the missing binary has to be simulated.
+        # Without this the test only passes on machines with no helm installed
+        # and fails on CI runners, which ship one.
+        monkeypatch.setattr("kubently.modules.executor.helm.shutil.which", lambda _: None)
         runner = HelmRunner(enabled=True, helm_path=None)
         assert runner.available is False
 

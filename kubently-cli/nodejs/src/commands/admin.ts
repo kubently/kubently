@@ -133,7 +133,7 @@ async function removeCluster(client: KubentlyAdminClient): Promise<void> {
     
     const { clusterId } = await inquirer.prompt([
       {
-        type: 'list',
+        type: 'select',
         name: 'clusterId',
         message: 'Select cluster to remove:',
         choices: clusters.map(c => ({
@@ -188,7 +188,7 @@ async function viewClusterStatus(client: KubentlyAdminClient): Promise<void> {
     
     const { clusterId } = await inquirer.prompt([
       {
-        type: 'list',
+        type: 'select',
         name: 'clusterId',
         message: 'Select cluster to view status:',
         choices: clusters.map(c => ({
@@ -254,7 +254,7 @@ export async function runAdminMenu(config: Config): Promise<void> {
 
     const { action } = await inquirer.prompt([
       {
-        type: 'list',
+        type: 'select',
         name: 'action',
         message: 'Select an action:',
         choices: [
