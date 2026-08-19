@@ -14,8 +14,7 @@ help:
 	@echo "  make install-all     - Install all dependencies"
 	@echo "  make test           - Run tests"
 	@echo "  make lint           - Run linters"
-	@echo "  make run-local      - Run API server locally"
-	@echo "  make run-a2a        - Run A2A server locally"
+	@echo "  make run-local      - Run API server locally (A2A is mounted at /a2a/)"
 	@echo ""
 	@echo "Docker:"
 	@echo "  make docker-build   - Build Docker image"
@@ -79,9 +78,6 @@ lint:
 
 run-local:
 	cd kubently && python -m api.main
-
-run-a2a:
-	cd kubently/modules/a2a/protocol_bindings/a2a_server && python -m a2a server
 
 # Docker targets
 docker-build:

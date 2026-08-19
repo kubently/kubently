@@ -15,8 +15,7 @@ Kubently (*Kubernetes + Agentically*) enables AI agents to troubleshoot Kubernet
 make install-all
 
 # Run locally
-make run-local      # API server
-make run-a2a        # A2A server
+make run-local      # API server (A2A is mounted at /a2a/)
 
 # Testing
 make test           # Run unit tests
