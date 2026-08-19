@@ -8,6 +8,7 @@ import json
 import time
 from datetime import datetime
 
+import pytest
 import requests
 
 # Configuration
@@ -21,8 +22,32 @@ print("=" * 60)
 print()
 
 
-def test_command_execution(command_type="get", args=["pods", "-A"], expected_latency=200):
-    """Test command execution and measure latency."""
+def _deployment_reachable() -> bool:
+    """API up, key accepted, and the target cluster actually registered."""
+    try:
+        response = requests.get(
+            f"{API_URL}/debug/clusters", headers={"X-API-Key": API_KEY}, timeout=2
+        )
+        return response.status_code == 200 and CLUSTER_ID in response.text
+    except Exception:
+        return False
+
+
+# Without this these "tests" pass on any machine with no Kubently at all: every
+# request raises, the helper swallows it, and nothing is asserted. Skipping is
+# the honest outcome — a green vacuous e2e test is worse than no test.
+requires_deployment = pytest.mark.skipif(
+    not _deployment_reachable(),
+    reason=f"needs a running Kubently API at {API_URL} with cluster '{CLUSTER_ID}' registered",
+)
+
+
+def _execute_command(command_type="get", args=["pods", "-A"], expected_latency=200):
+    """Run one command through /debug/execute; returns (success, latency_ms).
+
+    Named with a leading underscore because it is a helper, not a test: pytest
+    collected it as one and warned that it returned a tuple instead of asserting.
+    """
 
     headers = {"X-API-Key": API_KEY}
 
@@ -71,6 +96,7 @@ def test_command_execution(command_type="get", args=["pods", "-A"], expected_lat
         return False, 0
 
 
+@requires_deployment
 def test_multiple_commands():
     """Test multiple rapid commands to verify instant delivery."""
     print("\n" + "=" * 40)
@@ -89,7 +115,7 @@ def test_multiple_commands():
 
     for cmd_type, args in commands:
         print(f"\nTest {success_count + 1}:")
-        success, latency = test_command_execution(cmd_type, args, expected_latency=100)
+        success, latency = _execute_command(cmd_type, args, expected_latency=100)
         if success:
             success_count += 1
             total_latency += latency
@@ -99,6 +125,9 @@ def test_multiple_commands():
     print("Summary")
     print("=" * 40)
     print(f"✅ Successful commands: {success_count}/{len(commands)}")
+    assert success_count == len(commands), (
+        f"only {success_count}/{len(commands)} commands succeeded"
+    )
     if success_count > 0:
         avg_latency = total_latency / success_count
         print(f"⏱️  Average latency: {avg_latency:.0f}ms")
@@ -111,6 +140,7 @@ def test_multiple_commands():
             print(f"⚠️  Performance needs investigation")
 
 
+@requires_deployment
 def test_pod_distribution():
     """Test that commands work regardless of which pod handles them."""
     print("\n" + "=" * 40)
@@ -122,13 +152,14 @@ def test_pod_distribution():
     latencies = []
     for i in range(6):  # Test 6 times to hit different pods
         print(f"\nRequest {i+1}:")
-        success, latency = test_command_execution(
+        success, latency = _execute_command(
             "get", ["pods", "-n", "default"], expected_latency=150
         )
         if success:
             latencies.append(latency)
         time.sleep(0.2)
 
+    assert len(latencies) == 6, f"only {len(latencies)}/6 requests succeeded across pods"
     if latencies:
         print("\n" + "=" * 40)
         print(f"✅ All {len(latencies)} requests succeeded")
@@ -158,7 +189,7 @@ def main():
     # Test 1: Single command
     print("Test 1: Single Command Execution")
     print("-" * 40)
-    success, latency = test_command_execution()
+    success, latency = _execute_command()
 
     if not success:
         print("\n❌ Basic test failed. Check configuration.")
