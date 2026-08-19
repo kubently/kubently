@@ -432,6 +432,28 @@
   enforce-only — setting it to anything but `true` raises at startup instead
   of silently pretending auth was disabled. Regression check:
   `tests/test_config_provider.py`
+- **A2A `message/stream` no longer answers 200 with an empty body when the
+  agent fails to start (#65).** `message/stream` is served as SSE, so the 200
+  and the `text/event-stream` headers are flushed *before*
+  `KubentlyAgentExecutor.execute()` runs. Everything up to the first
+  `enqueue_event()` — notably `initialize()`, which raises on an unconfigured
+  `LLM_PROVIDER` — was outside any handler, so the client got 200 with zero
+  bytes: no events, no error, nothing. `message/send` reported the identical
+  failure as a JSON-RPC error, which is why only streaming looked broken.
+  `execute()` now publishes the task first and runs the rest under a guard
+  that emits an error artifact plus a terminal `failed` status, so a stream is
+  never left empty. (A `message/send` startup failure now comes back as a task
+  carrying that artifact rather than a JSON-RPC error — the two transports
+  finally agree.)
+
+### Changed
+- **`kind-e2e.sh` streaming smoke now fails on an empty stream.** The check
+  grepped the response for error strings, which an empty response passes —
+  that is how "streaming returns nothing" stayed green. It now asserts a
+  non-empty body containing `data:` SSE frames, and sends
+  `Accept: text/event-stream`. New `tests/test_a2a_streaming.py` asserts the
+  same invariant at unit level against the real
+  `A2AStarletteApplication` + `KubentlyAgentExecutor`.
 
 ## [Unreleased] - 2026-08-16
 

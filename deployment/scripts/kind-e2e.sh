@@ -126,10 +126,18 @@ done
 [ "$ok" = 1 ] || { red "executor did NOT register — kubectl -n $NS logs deploy/kubently-executor"; fail=1; }
 
 step "Smoke: agent LLM round-trip (real tool call through executor)"
-resp=$(curl -s -m 90 -X POST http://localhost:8080/a2a/ \
-  -H "Content-Type: application/json" -H "X-API-Key: test-api-key" \
+resp=$(curl -s -N -m 90 -X POST http://localhost:8080/a2a/ \
+  -H "Content-Type: application/json" -H "Accept: text/event-stream" -H "X-API-Key: test-api-key" \
   -d "{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"message/stream\",\"params\":{\"message\":{\"messageId\":\"smoke\",\"role\":\"user\",\"parts\":[{\"partId\":\"p1\",\"text\":\"In cluster $CLUSTER_ID, list pods in kube-system and report what you see.\"}]}}}")
-if printf '%s' "$resp" | grep -qiE "not_found_error|error code: 4|encountered an error"; then
+# #65: message/stream is SSE, so the 200 + text/event-stream headers are flushed
+# before the agent runs. A failure inside the executor then arrives as a 200 with
+# a ZERO-LENGTH body. This check used to grep $resp for error strings, which an
+# empty response passes — that is how "streaming returns nothing" stayed green.
+if [ -z "$resp" ]; then
+  red "message/stream returned an EMPTY body (200, 0 bytes) — see #65. kubectl -n $NS logs deploy/kubently-api"; fail=1
+elif ! printf '%s' "$resp" | grep -q '^data:'; then
+  red "message/stream returned no SSE data frames. Response:"; printf '%s\n' "$resp" | head -3; fail=1
+elif printf '%s' "$resp" | grep -qiE "not_found_error|error code: 4|encountered an error"; then
   red "agent round-trip FAILED — likely bad ANTHROPIC_MODEL_NAME. Response:"; printf '%s\n' "$resp" | grep -o '"text":"[^"]*"' | head -3; fail=1
 else
   grn "agent round-trip OK"
