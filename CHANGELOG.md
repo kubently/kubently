@@ -3,6 +3,32 @@
 ## [Unreleased] - 2026-08-19
 
 ### Fixed
+- **`deployment/scripts/test_unified_port.py` asserted three URLs the app has
+  never served.** The script exists to prove the single port routes to both the
+  admin API and A2A, and three of its five checks were written against assumed
+  URLs rather than registered routes: the agent card was fetched with `GET
+  /a2a/`, which is the JSON-RPC endpoint and answers GET with 405, and
+  `/a2a/health` and `/a2a/invoke` are routes the A2A sub-app has never
+  registered under either SDK version (both 404). Those three reported failure
+  whether or not A2A was healthy, so the script could not distinguish a broken
+  mount from a working one — a permanently red check nobody reads, the same
+  defect class as a permanently green one. Every URL is now checked against
+  what `kubently/main.py` and `kubently/modules/a2a/__init__.py` actually
+  register. The card check moves to `/a2a/.well-known/agent-card.json` (the
+  current spec path, the a2a-sdk 1.x default since #108) and additionally
+  asserts the legacy `/a2a/.well-known/agent.json` that #108 deliberately keeps
+  serving, so the compatibility promise made to pinned clients has a test.
+  `/a2a/health` is deleted rather than replaced: A2A has no health route, and
+  the card plus JSON-RPC checks already establish that the mount is live.
+  `/a2a/invoke` becomes a JSON-RPC POST to `/a2a/` carrying an unknown method,
+  which walks the full chain — mount, API-key wrapper, JSON-RPC handler — and
+  comes back as HTTP 200 with error code -32601 without spending an LLM
+  round-trip, so the check stays fast and deterministic. The default API key
+  changes from `test-key-1`, attributed by a comment to a `docker-compose.yml`
+  this repo does not contain, to the `test-api-key` that
+  `deployment/scripts/kind-e2e.sh` writes into the `kubently-api-keys` secret;
+  `KUBENTLY_URL` and `KUBENTLY_API_KEY` now override both, so pointing the
+  script at another deployment no longer means editing it.
 - **Helm chart had not published since 2026-08-16 (#100).** `Release Helm Chart`
   failed on nine consecutive pushes to `main`, always the same way: chart-releaser
   creates a GitHub release tagged `kubently-<Chart.yaml version>`, and
