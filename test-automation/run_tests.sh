@@ -237,8 +237,8 @@ pip install -q httpx rich pyyaml python-dotenv a2a-sdk
 
 # Install Gemini if available for analysis
 if [ "$SKIP_ANALYSIS" = false ]; then
-    pip install -q google-generativeai 2>/dev/null || {
-        echo -e "${RED}Error: google-generativeai not installed. Analysis requires this package.${NC}"
+    pip install -q google-genai 2>/dev/null || {
+        echo -e "${RED}Error: google-genai not installed. Analysis requires this package.${NC}"
         exit 1
     }
 fi

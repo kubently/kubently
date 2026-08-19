@@ -12,13 +12,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
-# Try to import Google Gemini
+# Try to import the Google Gen AI SDK. This is `google-genai`, not the retired
+# `google-generativeai` -- the latter is EOL upstream and emits a FutureWarning
+# on import (see https://github.com/google-gemini/deprecated-generative-ai-python).
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types as genai_types
     HAS_GEMINI = True
 except ImportError:
     HAS_GEMINI = False
-    print("Warning: google-generativeai not installed. Run: pip install google-generativeai")
+    print("Warning: google-genai not installed. Run: pip install google-genai")
 
 
 # Model ids are configuration, not constants. They were hardcoded, and
@@ -188,6 +191,7 @@ class GeminiAnalyzer:
         """Initialize Gemini analyzer."""
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         self.initialized = False
+        self.client = None
 
         # The repo's secrets/.env ships a placeholder, and a placeholder key
         # fails as an opaque 400 from the API several minutes into a run.
@@ -208,15 +212,13 @@ class GeminiAnalyzer:
             return
 
         if not HAS_GEMINI:
-            print("Error: google-generativeai package not installed")
+            print("Error: google-genai package not installed")
             return
         
         try:
-            genai.configure(api_key=self.api_key)
-            # Use Gemini 2.5 Pro for deeper analysis with better reasoning
-            self.model = genai.GenerativeModel(ANALYZER_MODEL)
-            # Use Flash for faster RCA-only analysis
-            self.rca_model = genai.GenerativeModel(ANALYZER_RCA_MODEL)
+            # google-genai is client-based: one client, model id passed per call.
+            # There is no module-level configure() and no GenerativeModel object.
+            self.client = genai.Client(api_key=self.api_key)
             self.initialized = True
             print(f"✓ Gemini analyzer initialized ({ANALYZER_MODEL} / {ANALYZER_RCA_MODEL})")
         except Exception as e:
@@ -270,14 +272,15 @@ Respond with ONLY a JSON object in this exact format:
 
         try:
             # Use the faster Flash model for RCA-only
-            response = self.rca_model.generate_content(
-                prompt,
-                generation_config={
-                    "temperature": 0.1,  # Low temperature for consistent evaluation
-                    "top_p": 0.95,
-                    "max_output_tokens": 500,  # Small response needed
-                    "response_mime_type": "application/json"
-                }
+            response = self.client.models.generate_content(
+                model=ANALYZER_RCA_MODEL,
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(
+                    temperature=0.1,  # Low temperature for consistent evaluation
+                    top_p=0.95,
+                    max_output_tokens=500,  # Small response needed
+                    response_mime_type="application/json",
+                ),
             )
 
             response_text = response.text.strip()
@@ -485,7 +488,9 @@ Respond with ONLY a JSON object in this exact format:
         
         try:
             # Call Gemini
-            response = self.model.generate_content(prompt)
+            response = self.client.models.generate_content(
+                model=ANALYZER_MODEL, contents=prompt
+            )
             
             # Extract JSON from response
             response_text = response.text
@@ -845,7 +850,9 @@ Respond with ONLY a JSON object in this exact format:
                 }}
                 """
                 
-                response = self.model.generate_content(aggregate_prompt)
+                response = self.client.models.generate_content(
+                    model=ANALYZER_MODEL, contents=aggregate_prompt
+                )
                 insights = json.loads(response.text)
                 final_result["aggregate_insights"] = insights
             except Exception as e:
