@@ -9,7 +9,6 @@ Can be replaced with any storage backend without affecting other modules.
 """
 
 import os
-from typing import Optional
 
 import redis.asyncio as redis
 
@@ -17,7 +16,7 @@ import redis.asyncio as redis
 class StorageModule:
     """Black box storage abstraction."""
 
-    def __init__(self, connection_url: str = None):
+    def __init__(self, connection_url: str | None = None):
         """Initialize storage with connection URL."""
         self.url = connection_url or os.getenv("REDIS_URL", "redis://localhost:6379/0")
         self._client = None

@@ -197,7 +197,7 @@ class MockOAuthProvider:
 
     def approve_device(self, user_code: str, user_email: str) -> bool:
         """Approve a device authorization request."""
-        for device_code, info in self.device_codes.items():
+        for info in self.device_codes.values():
             if info["user_code"] == user_code and info["status"] == "pending":
                 info["status"] = "approved"
                 info["user"] = user_email
@@ -237,7 +237,7 @@ class MockOAuthProvider:
                 "groups": claims.get("groups", []),
             }
         except jwt.InvalidTokenError as e:
-            raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+            raise HTTPException(status_code=401, detail=f"Invalid token: {e}") from e
 
 
 def create_mock_oauth_app() -> FastAPI:
@@ -276,7 +276,7 @@ def create_mock_oauth_app() -> FastAPI:
         return provider.device_authorization()
 
     @app.get("/device", response_class=HTMLResponse)
-    async def device_verification(user_code: str = None):
+    async def device_verification(user_code: str | None = None):
         """Device verification page."""
         html = f"""
         <html>
@@ -285,7 +285,7 @@ def create_mock_oauth_app() -> FastAPI:
                 <h1>Device Authorization</h1>
                 <form method="post" action="/device/approve">
                     <label>User Code: <input name="user_code" value="{user_code or ""}" /></label><br>
-                    <label>Email: 
+                    <label>Email:
                         <select name="user_email">
                             <option value="test@example.com">test@example.com</option>
                             <option value="admin@example.com">admin@example.com</option>

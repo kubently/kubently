@@ -9,7 +9,9 @@ Can be replaced with different config systems (Consul, etcd, AWS Parameter Store
 """
 
 import os
-from typing import Any, Dict
+from typing import Any
+
+from .prompts import get_prompt
 
 # Configuration Contract: Required and Optional Keys
 # This defines the black box interface - what the config module guarantees to provide
@@ -144,8 +146,5 @@ def get_config() -> ConfigModule:
         _instance = ConfigModule()
     return _instance
 
-
-# Public prompt loader interface
-from .prompts import get_prompt
 
 __all__ = ["ConfigModule", "get_config", "get_prompt"]

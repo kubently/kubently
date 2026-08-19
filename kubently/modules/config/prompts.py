@@ -87,7 +87,6 @@ def get_prompt(
     - /etc/kubently/prompts/<default_filename>
     Fallback to a safe built-in prompt on error.
     """
-    last_error: Exception | None = None
     for path in filter(None, _candidate_paths(role, default_filename)):
         try:
             if not os.path.isfile(path):
@@ -95,8 +94,7 @@ def get_prompt(
             spec = _load_spec(path)
             values = _resolve_values(spec, variables)
             return _render(spec.content, values)
-        except Exception as e:
-            last_error = e
+        except Exception:
             continue
     # Fallback prompt
     return DEFAULT_PROMPT

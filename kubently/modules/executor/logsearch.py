@@ -238,7 +238,7 @@ class LogSearchRunner:
                 matches, self.max_matches_per_container, self.max_total_matches - total_shown
             )
             total_shown += shown
-            section = [f"=== {name} ==="] + kept
+            section = [f"=== {name} ===", *kept]
             if capped:
                 section.append(
                     f"[showing {shown} of {matches} matches in this container — "

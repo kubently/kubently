@@ -13,6 +13,7 @@ All business logic is in the modules, following black box principles.
 import asyncio
 import json
 import logging
+import logging.config as log_config
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -27,6 +28,7 @@ from pydantic import BaseModel, Field, field_validator
 from sse_starlette.sse import EventSourceResponse
 
 from kubently.config.provider import ConfigProvider, EnvConfigProvider
+from kubently.logging_config import get_logging_config
 from kubently.modules.a2a import create_a2a_server
 from kubently.modules.api import (
     ArgoCDQueryRequest,
@@ -56,10 +58,6 @@ from kubently.modules.session import SessionModule
 config = get_config()
 
 # Configure logging with health check suppression
-import logging.config as log_config
-
-from kubently.logging_config import get_logging_config
-
 log_config.dictConfig(get_logging_config())
 logger = logging.getLogger(__name__)
 
@@ -92,12 +90,11 @@ class CreateTokenRequest(BaseModel):
     @classmethod
     def validate_token_format(cls, v: str | None) -> str | None:
         """Validate token is alphanumeric, hyphens, or underscores only."""
-        if v is not None:
-            # Allow alphanumeric, hyphens, underscores (common in tokens)
-            if not all(c.isalnum() or c in "-_" for c in v):
-                raise ValueError(
-                    "Token must contain only alphanumeric characters, hyphens, or underscores"
-                )
+        # Allow alphanumeric, hyphens, underscores (common in tokens)
+        if v is not None and not all(c.isalnum() or c in "-_" for c in v):
+            raise ValueError(
+                "Token must contain only alphanumeric characters, hyphens, or underscores"
+            )
         return v
 
 
@@ -1280,7 +1277,7 @@ async def create_agent_token(
         raise
     except Exception as e:
         logger.error(f"Failed to create token for cluster {cluster_id}: {e}")
-        raise HTTPException(500, "Failed to create token")
+        raise HTTPException(500, "Failed to create token") from e
 
 
 @app.get("/admin/agents")
@@ -1330,7 +1327,7 @@ async def list_agents(
 
     except Exception as e:
         logger.error(f"Failed to list agents: {e}")
-        raise HTTPException(500, "Failed to list agents")
+        raise HTTPException(500, "Failed to list agents") from e
 
 
 @app.get("/admin/agents/{cluster_id}/status")
@@ -1387,7 +1384,7 @@ async def get_agent_status(
         raise
     except Exception as e:
         logger.error(f"Failed to get status for cluster {cluster_id}: {e}")
-        raise HTTPException(500, "Failed to get agent status")
+        raise HTTPException(500, "Failed to get agent status") from e
 
 
 @app.delete("/admin/agents/{cluster_id}/token")
@@ -1432,7 +1429,7 @@ async def revoke_agent_token(
         raise
     except Exception as e:
         logger.error(f"Failed to revoke token for cluster {cluster_id}: {e}")
-        raise HTTPException(500, "Failed to revoke token")
+        raise HTTPException(500, "Failed to revoke token") from e
 
 
 # Cluster Management Endpoints
@@ -1471,7 +1468,7 @@ async def list_clusters(
 
     except Exception as e:
         logger.error(f"Failed to list clusters: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/debug/clusters/{cluster_id}")
@@ -1521,7 +1518,7 @@ async def get_cluster_detail(
         raise
     except Exception as e:
         logger.error(f"Failed to get cluster detail for {cluster_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # Health/Monitoring Endpoints

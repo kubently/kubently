@@ -99,9 +99,10 @@ class ArgoCDRunner:
             )
 
         app_name = request.get("app_name")
-        if operation in ("get_app", "revision_metadata"):
-            if not app_name or not _APP_NAME_PATTERN.match(str(app_name)):
-                return self._error(f"Invalid or missing app_name '{app_name}'.")
+        if operation in ("get_app", "revision_metadata") and (
+            not app_name or not _APP_NAME_PATTERN.match(str(app_name))
+        ):
+            return self._error(f"Invalid or missing app_name '{app_name}'.")
 
         params = {}
         if operation == "get_app":

@@ -284,7 +284,7 @@ class PlainRedisSaver(BaseCheckpointSaver[str]):
             pipe.hgetall(self._blob_key(thread_id, ns, channel, version))
         blobs = await pipe.execute()
         values: dict[str, Any] = {}
-        for (channel, _version), blob in zip(channels, blobs):
+        for (channel, _version), blob in zip(channels, blobs, strict=False):
             if not blob:
                 continue
             blob = {_s(k): _s(v) for k, v in blob.items()}

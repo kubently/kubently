@@ -94,19 +94,19 @@ class WhitelistStore:
             # Create indexes for efficient queries
             cursor.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_command_timestamp 
+                CREATE INDEX IF NOT EXISTS idx_command_timestamp
                 ON command_history(timestamp DESC)
             """
             )
             cursor.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_command_verb 
+                CREATE INDEX IF NOT EXISTS idx_command_verb
                 ON command_history(verb)
             """
             )
             cursor.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_command_allowed 
+                CREATE INDEX IF NOT EXISTS idx_command_allowed
                 ON command_history(allowed)
             """
             )
@@ -157,13 +157,13 @@ class WhitelistStore:
 
             cursor.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_metrics_timestamp 
+                CREATE INDEX IF NOT EXISTS idx_metrics_timestamp
                 ON metrics(timestamp DESC)
             """
             )
             cursor.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_metrics_name 
+                CREATE INDEX IF NOT EXISTS idx_metrics_name
                 ON metrics(metric_name)
             """
             )
@@ -203,7 +203,7 @@ class WhitelistStore:
 
                 cursor.execute(
                     """
-                    INSERT INTO command_history 
+                    INSERT INTO command_history
                     (timestamp, cluster_id, verb, full_command, category, risk_level,
                      allowed, rejection_reason, execution_time_ms, success, error_message)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -256,7 +256,7 @@ class WhitelistStore:
 
                 cursor.execute(
                     """
-                    INSERT INTO config_history 
+                    INSERT INTO config_history
                     (timestamp, config_hash, mode, allowed_verbs, success, error_message)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """,
@@ -298,8 +298,8 @@ class WhitelistStore:
                 # Try to update existing pattern
                 cursor.execute(
                     """
-                    UPDATE learning_patterns 
-                    SET last_seen = ?, 
+                    UPDATE learning_patterns
+                    SET last_seen = ?,
                         occurrence_count = occurrence_count + 1,
                         always_allowed = always_allowed AND ?
                     WHERE pattern = ?
@@ -311,8 +311,8 @@ class WhitelistStore:
                     # Insert new pattern
                     cursor.execute(
                         """
-                        INSERT INTO learning_patterns 
-                        (pattern, verb, first_seen, last_seen, occurrence_count, 
+                        INSERT INTO learning_patterns
+                        (pattern, verb, first_seen, last_seen, occurrence_count,
                          always_allowed, risk_assessment)
                         VALUES (?, ?, ?, ?, 1, ?, ?)
                     """,
@@ -350,7 +350,7 @@ class WhitelistStore:
                 # Total commands
                 cursor.execute(
                     f"""
-                    SELECT COUNT(*) FROM command_history 
+                    SELECT COUNT(*) FROM command_history
                     WHERE {base_where}
                 """,
                     params,
@@ -360,7 +360,7 @@ class WhitelistStore:
                 # Allowed vs blocked
                 cursor.execute(
                     f"""
-                    SELECT allowed, COUNT(*) FROM command_history 
+                    SELECT allowed, COUNT(*) FROM command_history
                     WHERE {base_where}
                     GROUP BY allowed
                 """,
@@ -371,7 +371,7 @@ class WhitelistStore:
                 # Top verbs
                 cursor.execute(
                     f"""
-                    SELECT verb, COUNT(*) as count FROM command_history 
+                    SELECT verb, COUNT(*) as count FROM command_history
                     WHERE {base_where}
                     GROUP BY verb
                     ORDER BY count DESC
@@ -384,7 +384,7 @@ class WhitelistStore:
                 # Risk distribution
                 cursor.execute(
                     f"""
-                    SELECT risk_level, COUNT(*) FROM command_history 
+                    SELECT risk_level, COUNT(*) FROM command_history
                     WHERE {base_where} AND risk_level IS NOT NULL
                     GROUP BY risk_level
                 """,
@@ -395,7 +395,7 @@ class WhitelistStore:
                 # Rejection reasons
                 cursor.execute(
                     f"""
-                    SELECT rejection_reason, COUNT(*) as count FROM command_history 
+                    SELECT rejection_reason, COUNT(*) as count FROM command_history
                     WHERE {base_where} AND allowed = 0 AND rejection_reason IS NOT NULL
                     GROUP BY rejection_reason
                     ORDER BY count DESC
@@ -440,7 +440,7 @@ class WhitelistStore:
 
                 cursor.execute(
                     """
-                    SELECT pattern, verb, occurrence_count, 
+                    SELECT pattern, verb, occurrence_count,
                            first_seen, last_seen, risk_assessment
                     FROM learning_patterns
                     WHERE occurrence_count >= ?
@@ -520,7 +520,7 @@ class WhitelistStore:
                 # Clean command history
                 cursor.execute(
                     """
-                    DELETE FROM command_history 
+                    DELETE FROM command_history
                     WHERE timestamp < ?
                 """,
                     (cutoff,),
@@ -530,7 +530,7 @@ class WhitelistStore:
                 # Clean config history
                 cursor.execute(
                     """
-                    DELETE FROM config_history 
+                    DELETE FROM config_history
                     WHERE timestamp < ?
                 """,
                     (cutoff,),
@@ -540,7 +540,7 @@ class WhitelistStore:
                 # Clean metrics
                 cursor.execute(
                     """
-                    DELETE FROM metrics 
+                    DELETE FROM metrics
                     WHERE timestamp < ?
                 """,
                     (cutoff,),

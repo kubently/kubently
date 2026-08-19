@@ -11,6 +11,7 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime
+from typing import ClassVar
 
 logger = logging.getLogger("kubently-agent.learning-engine")
 
@@ -46,7 +47,7 @@ class LearningEngine:
     """Learns from command patterns to suggest whitelist improvements."""
 
     # Pattern templates for generalization
-    GENERALIZATION_RULES = [
+    GENERALIZATION_RULES: ClassVar[list] = [
         # Resource name patterns
         (re.compile(r"\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b"), "<UUID>"),
         (re.compile(r"\b\d{10,}\b"), "<TIMESTAMP>"),
@@ -173,10 +174,7 @@ class LearningEngine:
         for arg in args[1:]:  # Skip verb
             if arg.startswith("-"):
                 # Extract flag name without value
-                if "=" in arg:
-                    flag = arg.split("=")[0]
-                else:
-                    flag = arg
+                flag = arg.split("=")[0] if "=" in arg else arg
                 flags.add(flag)
 
         return flags

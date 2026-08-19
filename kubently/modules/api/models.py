@@ -8,7 +8,7 @@ components in the Kubently system.
 import json
 import re
 from datetime import datetime, timedelta
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # Enums
 
 
-class ExecutionStatus(str, Enum):
+class ExecutionStatus(StrEnum):
     """Status of command execution."""
 
     PENDING = "pending"
@@ -27,7 +27,7 @@ class ExecutionStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class SessionStatus(str, Enum):
+class SessionStatus(StrEnum):
     """Status of debugging session."""
 
     ACTIVE = "active"
@@ -36,7 +36,7 @@ class SessionStatus(str, Enum):
     ENDED = "ended"
 
 
-class CommandType(str, Enum):
+class CommandType(StrEnum):
     """Types of kubectl commands."""
 
     GET = "get"
@@ -169,20 +169,26 @@ class ExecuteCommandRequest(BaseModel):
             # Check if it's a safe flag
             if arg in safe_flags:
                 # Check if it needs a value (next argument)
-                if arg in ["-o", "--output", "-l", "--selector", "--field-selector", "--sort-by"]:
-                    if i + 1 < len(v):
-                        # Validate output format if it's -o/--output
-                        if arg in ["-o", "--output"]:
-                            output_format = v[i + 1]
-                            # Handle jsonpath and go-template with equals sign
-                            if "=" in output_format:
-                                base_format = output_format.split("=")[0]
-                                if base_format not in allowed_output_formats:
-                                    raise ValueError(f"Invalid output format: {output_format}")
-                            elif output_format not in allowed_output_formats:
+                if arg in [
+                    "-o",
+                    "--output",
+                    "-l",
+                    "--selector",
+                    "--field-selector",
+                    "--sort-by",
+                ] and (i + 1 < len(v)):
+                    # Validate output format if it's -o/--output
+                    if arg in ["-o", "--output"]:
+                        output_format = v[i + 1]
+                        # Handle jsonpath and go-template with equals sign
+                        if "=" in output_format:
+                            base_format = output_format.split("=")[0]
+                            if base_format not in allowed_output_formats:
                                 raise ValueError(f"Invalid output format: {output_format}")
-                        i += 2  # Skip the value
-                        continue
+                        elif output_format not in allowed_output_formats:
+                            raise ValueError(f"Invalid output format: {output_format}")
+                    i += 2  # Skip the value
+                    continue
                 i += 1
                 continue
 
@@ -200,7 +206,7 @@ class ExecuteCommandRequest(BaseModel):
         return v
 
 
-class HelmSubcommand(str, Enum):
+class HelmSubcommand(StrEnum):
     """Read-only helm subcommands (the executor's complete helm surface)."""
 
     HISTORY = "history"
@@ -242,7 +248,7 @@ class HelmCommandRequest(BaseModel):
         return self
 
 
-class ArgoCDOperation(str, Enum):
+class ArgoCDOperation(StrEnum):
     """Read-only ArgoCD API operations (the executor's complete ArgoCD surface)."""
 
     GET_APP = "get_app"
@@ -283,9 +289,11 @@ class ArgoCDQueryRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_operation_fields(self):
-        if self.operation in (ArgoCDOperation.GET_APP, ArgoCDOperation.REVISION_METADATA):
-            if not self.app_name:
-                raise ValueError(f"{self.operation.value} requires app_name")
+        if (
+            self.operation in (ArgoCDOperation.GET_APP, ArgoCDOperation.REVISION_METADATA)
+            and not self.app_name
+        ):
+            raise ValueError(f"{self.operation.value} requires app_name")
         if self.operation == ArgoCDOperation.REVISION_METADATA and not self.revision:
             raise ValueError("revision_metadata requires revision")
         return self
@@ -372,7 +380,7 @@ class LogSearchRequest(BaseModel):
         return self
 
 
-class LokiQueryDirection(str, Enum):
+class LokiQueryDirection(StrEnum):
     """Order of returned log lines."""
 
     BACKWARD = "backward"  # newest first (default)
@@ -414,7 +422,7 @@ class LokiQueryRequest(BaseModel):
         return v
 
 
-class PrometheusQueryType(str, Enum):
+class PrometheusQueryType(StrEnum):
     """Types of Prometheus queries (maps to the two allowed read-only API paths)."""
 
     INSTANT = "instant"
@@ -766,43 +774,36 @@ ClusterID = str
 Token = str
 
 
-# Export all models
+# Export all models. Sorted (ruff RUF022); the grouping comments that used to
+# annotate this list did not survive sorting.
 __all__ = [
-    # Enums
-    "ExecutionStatus",
-    "SessionStatus",
-    "CommandType",
-    # Request models
-    "CreateSessionRequest",
-    "ExecuteCommandRequest",
-    "HelmCommandRequest",
-    "HelmSubcommand",
-    "ArgoCDQueryRequest",
-    "ArgoCDOperation",
-    "LogSearchRequest",
-    "LokiQueryRequest",
-    "LokiQueryDirection",
-    "PrometheusQueryRequest",
-    "PrometheusQueryType",
-    # Response models
-    "SessionResponse",
-    "CommandResponse",
-    "HealthResponse",
-    # Internal models
-    "Command",
-    "CommandResult",
-    "Session",
-    # Agent models
     "AgentCommand",
     "AgentResult",
     "AgentStatus",
-    # Other models
-    "WebhookEvent",
+    "ArgoCDOperation",
+    "ArgoCDQueryRequest",
+    "Command",
+    "CommandResponse",
+    "CommandResult",
+    "CommandType",
+    "CreateSessionRequest",
     "ErrorResponse",
+    "ExecuteCommandRequest",
+    "ExecutionStatus",
+    "HealthResponse",
+    "HelmCommandRequest",
+    "HelmSubcommand",
     "KubentlyConfig",
-    # Validators
+    "KubentlyJSONEncoder",
+    "LogSearchRequest",
+    "LokiQueryDirection",
+    "LokiQueryRequest",
+    "PrometheusQueryRequest",
+    "PrometheusQueryType",
+    "Session",
+    "SessionResponse",
+    "SessionStatus",
+    "WebhookEvent",
     "validate_cluster_id",
     "validate_kubectl_args",
-    # Helpers
-    "KubentlyJSONEncoder",
 ]

@@ -14,7 +14,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from threading import Thread
-from typing import Optional
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +50,11 @@ class A2AModule:
     """A2A server module that runs alongside the main API."""
 
     def __init__(
-        self, host: str = "0.0.0.0", port: int = 8000, external_url: str = None, redis_client=None
+        self,
+        host: str = "0.0.0.0",
+        port: int = 8000,
+        external_url: str | None = None,
+        redis_client=None,
     ):
         """Initialize the A2A server."""
         if not A2A_AVAILABLE:
@@ -209,7 +216,7 @@ class A2AModule:
 
 # Module interface
 def create_a2a_server(
-    host: str = "0.0.0.0", port: int = 8000, external_url: str = None, redis_client=None
+    host: str = "0.0.0.0", port: int = 8000, external_url: str | None = None, redis_client=None
 ) -> A2AModule | None:
     """Create A2A server if dependencies are available."""
     if not A2A_AVAILABLE:

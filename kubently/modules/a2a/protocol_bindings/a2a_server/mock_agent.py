@@ -2,7 +2,7 @@
 
 import logging
 import subprocess
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 class MockKubentlyAgent:
     """Mock agent that directly executes kubectl commands for testing."""
 
-    SUPPORTED_CONTENT_TYPES = ["text/plain"]
+    SUPPORTED_CONTENT_TYPES: ClassVar[list[str]] = ["text/plain"]
 
     def __init__(self):
         """Initialize mock agent."""

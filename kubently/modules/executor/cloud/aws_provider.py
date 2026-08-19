@@ -410,7 +410,7 @@ class AWSProvider(CloudProvider):
             series = []
             note = None
             for r in resp.get("MetricDataResults", []):
-                points = list(zip(r.get("Timestamps", []), r.get("Values", [])))
+                points = list(zip(r.get("Timestamps", []), r.get("Values", []), strict=False))
                 points, series_note = cap_list(points, MAX_METRIC_DATAPOINTS, "datapoints")
                 note = note or series_note
                 series.append(

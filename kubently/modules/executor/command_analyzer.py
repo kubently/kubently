@@ -9,6 +9,7 @@ import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
+from typing import ClassVar
 
 logger = logging.getLogger("kubently-agent.command-analyzer")
 
@@ -55,7 +56,7 @@ class CommandAnalyzer:
     """Analyzes kubectl commands for safety and patterns."""
 
     # Command categorization
-    COMMAND_CATEGORIES = {
+    COMMAND_CATEGORIES: ClassVar[dict] = {
         CommandCategory.READ: {
             "get",
             "describe",
@@ -85,7 +86,7 @@ class CommandAnalyzer:
     }
 
     # Risk assessment rules
-    RISK_RULES = {
+    RISK_RULES: ClassVar[dict] = {
         RiskLevel.SAFE: {
             "verbs": {
                 "get",
@@ -122,7 +123,7 @@ class CommandAnalyzer:
     }
 
     # Resource type patterns
-    RESOURCE_PATTERNS = {
+    RESOURCE_PATTERNS: ClassVar[dict] = {
         "workload": re.compile(
             r"^(deployment|replicaset|statefulset|daemonset|job|cronjob)s?$", re.I
         ),
@@ -136,7 +137,7 @@ class CommandAnalyzer:
     }
 
     # Suspicious patterns
-    SUSPICIOUS_PATTERNS = [
+    SUSPICIOUS_PATTERNS: ClassVar[list] = [
         (re.compile(r"--token[=\s]"), "Direct token usage"),
         (re.compile(r"--kubeconfig[=\s]"), "Custom kubeconfig"),
         (re.compile(r"--insecure"), "Insecure connection"),
@@ -271,7 +272,7 @@ class CommandAnalyzer:
                 continue
 
             # Check if it matches resource patterns
-            for resource_type, pattern in self.RESOURCE_PATTERNS.items():
+            for pattern in self.RESOURCE_PATTERNS.values():
                 if pattern.match(arg):
                     resources.append(arg)
                     break
@@ -365,9 +366,8 @@ class CommandAnalyzer:
             warnings.append("Command targets all namespaces")
 
         # Warn about exec/attach to privileged containers
-        if verb in ["exec", "attach"]:
-            if any("privileged" in arg.lower() for arg in args):
-                warnings.append("Attempting to access privileged container")
+        if verb in ["exec", "attach"] and any("privileged" in arg.lower() for arg in args):
+            warnings.append("Attempting to access privileged container")
 
         return warnings
 
@@ -384,14 +384,16 @@ class CommandAnalyzer:
             suggestions.append(f"Consider using 'describe' or 'logs' instead of '{verb}'")
 
         # Suggest using labels
-        if verb == "get" and len(args) > 2:
-            if not any(arg.startswith("-l") or arg.startswith("--selector") for arg in args):
-                suggestions.append("Consider using label selectors to limit scope")
+        if (
+            verb == "get"
+            and len(args) > 2
+            and not any(arg.startswith(("-l", "--selector")) for arg in args)
+        ):
+            suggestions.append("Consider using label selectors to limit scope")
 
         # Suggest timeout for long-running commands
-        if verb in ["logs", "exec", "port-forward"]:
-            if not any("timeout" in arg for arg in args):
-                suggestions.append("Consider adding a timeout to prevent hanging")
+        if verb in ["logs", "exec", "port-forward"] and not any("timeout" in arg for arg in args):
+            suggestions.append("Consider adding a timeout to prevent hanging")
 
         return suggestions
 

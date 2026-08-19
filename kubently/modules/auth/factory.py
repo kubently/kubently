@@ -73,7 +73,9 @@ class AuthFactory:
 
     @staticmethod
     def build_for_testing(
-        mock_validator: Any | None = None, mock_auth_module: Any | None = None
+        mock_validator: Any | None = None,
+        mock_auth_module: Any | None = None,
+        redis_client: Any | None = None,
     ) -> AuthenticationService:
         """
         Build auth stack for testing with mock dependencies.
@@ -81,6 +83,7 @@ class AuthFactory:
         Args:
             mock_validator: Mock token validator
             mock_auth_module: Mock auth module
+            redis_client: Redis client handed to the base AuthModule
 
         Returns:
             AuthenticationService for testing

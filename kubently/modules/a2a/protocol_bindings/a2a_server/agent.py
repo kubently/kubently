@@ -6,6 +6,7 @@ import uuid
 from collections.abc import AsyncIterable
 from contextvars import ContextVar
 from datetime import UTC, datetime
+from typing import ClassVar
 
 import httpx
 from deepagents import create_deep_agent
@@ -30,7 +31,7 @@ def debug_print(message: str, banner: bool = True):
             print("=" * 80)
 
 
-def structured_log(log_data: dict, thread_id: str = None):
+def structured_log(log_data: dict, thread_id: str | None = None):
     """Log structured data when A2A_SERVER_DEBUG is enabled.
 
     Args:
@@ -226,7 +227,7 @@ def parse_kubectl_command(command: str) -> dict:
 class KubentlyAgent:
     """Kubernetes Debugging Agent - Enhanced with thorough investigation."""
 
-    SUPPORTED_CONTENT_TYPES = ["text/plain", "application/json"]
+    SUPPORTED_CONTENT_TYPES: ClassVar[list[str]] = ["text/plain", "application/json"]
 
     def __init__(self, redis_client=None):
         """Initialize the Kubently agent."""
@@ -647,10 +648,7 @@ class KubentlyAgent:
                 try:
                     # Prepare the API payload
                     # Command is the verb, rest are args
-                    if len(command_parts) > 1:
-                        args = command_parts[1:]
-                    else:
-                        args = []
+                    args = command_parts[1:] if len(command_parts) > 1 else []
 
                     # Fix namespace handling
                     actual_namespace = None
@@ -1679,7 +1677,7 @@ class KubentlyAgent:
                         {"event": "runbooks_injected", "runbooks": injected},
                         thread_id=thread_id,
                     )
-                    messages = [{"role": "user", "content": runbook_context}] + messages
+                    messages = [{"role": "user", "content": runbook_context}, *messages]
                     # Cap the dedup map so long-lived processes don't grow it
                     # unboundedly across threads.
                     if len(self._injected_runbooks) > 1024:
@@ -1716,7 +1714,7 @@ class KubentlyAgent:
                         {"event": "incident_surfaced", "incident_id": past.id, "score": score},
                         thread_id=thread_id,
                     )
-                    messages = [{"role": "user", "content": build_surface_note(past)}] + messages
+                    messages = [{"role": "user", "content": build_surface_note(past)}, *messages]
                     if thread_id:
                         if len(self._surfaced_incidents) > 1024:
                             self._surfaced_incidents.pop(next(iter(self._surfaced_incidents)))
@@ -1737,7 +1735,7 @@ class KubentlyAgent:
                 f"Use this cluster_id in all execute_kubectl calls unless the user explicitly "
                 f"requests a different cluster. Do NOT ask which cluster to use - it has been specified.",
             }
-            messages = [cluster_context] + messages
+            messages = [cluster_context, *messages]
 
         # Convert messages to LangChain format
         lc_messages = []
@@ -1819,11 +1817,14 @@ class KubentlyAgent:
                         for msg in final_messages[-10:]:  # Look at recent messages only
                             if hasattr(msg, "content"):
                                 content = str(msg.content)
-                                if "kubectl" in content and "✅" in content:
-                                    # Extract just the kubectl command that was run
-                                    if "execute_kubectl" in content:
-                                        tool_summary.append("• Executed kubectl commands")
-                                        break
+                                # Extract just the kubectl command that was run
+                                if (
+                                    "kubectl" in content
+                                    and "✅" in content
+                                    and "execute_kubectl" in content
+                                ):
+                                    tool_summary.append("• Executed kubectl commands")
+                                    break
 
                         if tool_summary:
                             response_text += "\n".join(tool_summary)

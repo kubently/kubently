@@ -372,7 +372,7 @@ class SSEKubentlyExecutor:
 
         try:
             # Prepend kubectl to args
-            cmd = ["kubectl"] + args
+            cmd = ["kubectl", *args]
 
             logger.debug(f"Running: {' '.join(cmd)}")
 

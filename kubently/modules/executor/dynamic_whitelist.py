@@ -12,7 +12,7 @@ import threading
 import time
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import yaml
 
@@ -68,7 +68,7 @@ class DynamicCommandWhitelist:
     """Dynamic command whitelist with hot-reloading capability."""
 
     # Immutable security baseline - never allow these patterns
-    IMMUTABLE_FORBIDDEN_PATTERNS = {
+    IMMUTABLE_FORBIDDEN_PATTERNS: ClassVar[set[str]] = {
         # Authentication bypass attempts
         "--token",
         "--kubeconfig",
@@ -104,12 +104,12 @@ class DynamicCommandWhitelist:
     # read-only subcommand (checked in validate_command, immutable). "rollout"
     # covers rollout history/status for change correlation; rollout restart/
     # undo/pause/resume stay blocked in every mode.
-    VERB_ALLOWED_SUBCOMMANDS = {
+    VERB_ALLOWED_SUBCOMMANDS: ClassVar[dict[str, set[str]]] = {
         "rollout": {"history", "status"},
     }
 
     # Default configurations per security mode
-    MODE_DEFAULTS = {
+    MODE_DEFAULTS: ClassVar[dict] = {
         SecurityMode.READ_ONLY: {
             "allowedVerbs": {
                 "get",
@@ -265,10 +265,7 @@ class DynamicCommandWhitelist:
             with open(self.config_path, "rb") as f:
                 content_hash = hashlib.sha256(f.read()).hexdigest()
 
-            if self.config_hash and content_hash == self.config_hash:
-                return False
-
-            return True
+            return not (self.config_hash and content_hash == self.config_hash)
 
         except Exception as e:
             logger.error(f"Error checking config changes: {e}")

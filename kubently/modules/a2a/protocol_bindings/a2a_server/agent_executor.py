@@ -438,9 +438,8 @@ class KubentlyAgentExecutor(AgentExecutor):
     async def _ensure_session(self, cluster_id: str, context_id: str) -> str | None:
         """Ensure a session exists for the given cluster and context."""
         # Check if we already have a session for this cluster in this context
-        if context_id in self._active_sessions:
-            if cluster_id in self._active_sessions[context_id]:
-                return self._active_sessions[context_id][cluster_id]
+        if context_id in self._active_sessions and cluster_id in self._active_sessions[context_id]:
+            return self._active_sessions[context_id][cluster_id]
 
         # Create a new session
         from kubently.modules.auth import AuthModule
