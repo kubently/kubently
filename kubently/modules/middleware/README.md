@@ -19,7 +19,7 @@ middleware = AuthMiddleware(
     header_names=["x-api-key"],
     skip_paths={"/health": ["GET"]},
     error_format="json",
-    log_attempts=True
+    log_attempts=True,
 )
 ```
 
@@ -33,9 +33,7 @@ Creates middleware for API key authentication:
 from kubently.modules.middleware import create_api_key_middleware
 
 middleware = create_api_key_middleware(
-    auth_module=auth_module,
-    skip_paths={"/": ["GET"]},
-    error_format="jsonrpc"
+    auth_module=auth_module, skip_paths={"/": ["GET"]}, error_format="jsonrpc"
 )
 ```
 
@@ -47,9 +45,7 @@ Creates middleware for Bearer token authentication:
 from kubently.modules.middleware import create_bearer_token_middleware
 
 middleware = create_bearer_token_middleware(
-    auth_module=auth_module,
-    skip_paths={"/health": ["GET", "HEAD"]},
-    error_format="json"
+    auth_module=auth_module, skip_paths={"/health": ["GET", "HEAD"]}, error_format="json"
 )
 ```
 
@@ -65,9 +61,9 @@ auth_module = AuthModule(redis_client)
 
 # Create and register middleware
 auth_middleware = create_api_key_middleware(
-    auth_module=auth_module,
-    skip_paths={"/docs": ["GET"], "/health": ["GET"]}
+    auth_module=auth_module, skip_paths={"/docs": ["GET"], "/health": ["GET"]}
 )
+
 
 @app.middleware("http")
 async def add_authentication(request, call_next):

@@ -24,20 +24,22 @@ jobs:
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
+      # Pinned. ruff's formatter output changes between releases (0.16 started
+      # formatting Python blocks inside Markdown, for one), and an unpinned
+      # formatter behind a blocking gate turns an unrelated ruff release into a
+      # red main. Bump deliberately, re-running `ruff format kubently/`.
       - name: Install dependencies
         run: |
-          uv pip install --system ruff
+          uv pip install --system 'ruff==0.16.3'
 
-      # Advisory only: the tree currently has a large pre-existing ruff backlog,
-      # so these report violations without blocking. They use continue-on-error
-      # rather than `|| true` so the step is visibly red instead of faking a pass.
+      # Blocking. The backlog these two steps used to tolerate is cleared (#79),
+      # so a new violation fails the build instead of scrolling past in a step
+      # nobody reads.
       - name: Run ruff check
-        continue-on-error: true
         run: |
           ruff check kubently/
 
       - name: Run ruff format check
-        continue-on-error: true
         run: |
           ruff format --check kubently/
 

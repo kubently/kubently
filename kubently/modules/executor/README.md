@@ -188,11 +188,14 @@ python sse_executor.py
 Create a simple mock API for testing:
 ```python
 from fastapi import FastAPI
+
 app = FastAPI()
+
 
 @app.get("/executor/stream")
 def stream():
     return StreamingResponse(sse_stream(), media_type="text/plain")
+
 
 @app.post("/executor/results")
 def results(data: dict):
