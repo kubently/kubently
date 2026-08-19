@@ -2,18 +2,43 @@
 
 ## 📚 Documentation Structure
 
-### Core Documentation
-
-#### System Overview
+### Getting Started
 - **[README.md](../README.md)** - Project overview, quick start, and feature highlights
-- **[SYSTEM_DESIGN.md](SYSTEM_DESIGN.md)** - Complete system architecture and design philosophy
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Detailed technical architecture and component design
+- **[QUICK_START.md](QUICK_START.md)** - Single-cluster install in about five minutes
+- **[GETTING_STARTED.md](GETTING_STARTED.md)** - Production setup: secrets, ingress, remote executors
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Deployment options, configuration management, hardening, upgrades
+- **[ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md)** - Every variable the API and executor read
 
-#### Operational Guides
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Production deployment, configuration, and operations
-- **[API.md](API.md)** - Complete API reference with endpoints and examples
-- **[MCP.md](MCP.md)** - MCP (Model Context Protocol) server connect guide
+### Architecture
+- **[SYSTEM_DESIGN.md](SYSTEM_DESIGN.md)** - System architecture and design philosophy
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Technical architecture and component design
+- **[SSE_ARCHITECTURE.md](SSE_ARCHITECTURE.md)** - SSE + POST + Redis pub/sub command channel
+
+### Protocols & Integrations
+- **[API.md](API.md)** - REST API reference with endpoints and examples
+- **[TEST_QUERIES.md](TEST_QUERIES.md)** - Exact A2A protocol request examples
+- **[A2A_CONFIGURATION.md](A2A_CONFIGURATION.md)** - A2A server configuration and agent card
+- **[MCP.md](MCP.md)** - Kubently **as** an MCP server (Claude Desktop, Cursor, custom agents)
+- **[MCP_CLIENT_TOOLS.md](MCP_CLIENT_TOOLS.md)** - Kubently **as** an MCP client: mounting external MCP servers, including per-request injection
+- **[AGENTGATEWAY_SETUP.md](AGENTGATEWAY_SETUP.md)** - Running agentgateway in front of Kubently
+
+### Agent Capabilities
+- **[PROMPTS.md](PROMPTS.md)** - How the A2A system prompt is externalized and overridden
+- **[CLOUD_TELEMETRY.md](CLOUD_TELEMETRY.md)** - Read-only CloudWatch / Cloud Logging access via workload identity (default off)
+- **[CLOUD_AUTH.md](CLOUD_AUTH.md)** - How the executor pod obtains a cloud identity for `kubectl`
+- **[GITOPS_REMEDIATION.md](GITOPS_REMEDIATION.md)** - Agent-proposed fix PRs, human-merged (default off)
+
+### Security & Auth
+- **[A2A_AUTHENTICATION.md](A2A_AUTHENTICATION.md)** - Authenticating A2A callers
+- **[AUTH_DISCOVERY.md](AUTH_DISCOVERY.md)** - Auth discovery endpoint and OIDC configuration
+- **[OAUTH_USAGE.md](OAUTH_USAGE.md)** - OAuth/OIDC login flow for the CLI
+- **[TLS_DEPLOYMENT.md](TLS_DEPLOYMENT.md)** - TLS termination patterns
+- **[MULTI_CLUSTER_TLS.md](MULTI_CLUSTER_TLS.md)** - TLS between remote executors and the central API
+
+### Operations & Development
 - **[DEVELOPMENT.md](DEVELOPMENT.md)** - Developer guide, testing, and contribution guidelines
+- **[DOCKER_BUILD_GUIDE.md](DOCKER_BUILD_GUIDE.md)** - Building and publishing images to ghcr.io
+- **[LANGSMITH_TRACING.md](LANGSMITH_TRACING.md)** - Production tracing and observability
 
 ### Module Specifications
 
@@ -26,11 +51,19 @@ Located in `docs/modules/`:
 5. **[05-agent.md](modules/05-agent.md)** - Agent module specification
 6. **[06-models.md](modules/06-models.md)** - Data models and primitives specification
 7. **[07-deployment.md](modules/07-deployment.md)** - Deployment automation specification
+8. **[08-cli.md](modules/08-cli.md)** - CLI specification
 
 ### Component Documentation
 
-- **[kubently/agent/README.md](../kubently/agent/README.md)** - Agent deployment and operation guide
 - **[deployment/README.md](../deployment/README.md)** - Deployment directory structure and usage
+- **[deployment/helm/kubently/values.yaml](../deployment/helm/kubently/values.yaml)** - The chart's annotated defaults; the source of truth for every Helm setting
+- **[CLAUDE.md](../CLAUDE.md)** - Development guidelines and repository conventions
+
+### Planning Notes
+
+`docs/plans/` and **[RESUME_PUNCHLIST.md](RESUME_PUNCHLIST.md)** hold
+forward-looking planning material. They describe intent, not shipped behaviour
+— check the code or the guides above before relying on anything in them.
 
 ## 📖 Reading Order
 
@@ -99,6 +132,4 @@ When updating documentation:
 
 ---
 
-*Last Updated: 2024*
-*Documentation Version: 1.0.0*
-*For Kubently Version: 1.0.0*
+*Chart version: see `deployment/helm/kubently/Chart.yaml`*

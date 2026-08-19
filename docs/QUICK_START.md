@@ -9,6 +9,10 @@ Get Kubently running locally in 5 minutes. For production deployment with extern
 - Node.js 18+ (for CLI)
 - LLM API key (Anthropic, OpenAI, or Google)
 
+The fastest path is `kubently install`, which does everything below for you
+(see the README). The steps here are the manual equivalent, for when you want
+to see or customise each piece.
+
 ## Install & Deploy
 
 ```bash
@@ -39,8 +43,11 @@ kubectl create secret generic kubently-api-keys -n kubently \
   --from-literal=keys="admin:${ADMIN_KEY}"
 echo $ADMIN_KEY > ~/kubently-admin-key.txt
 
-# Deploy (API + executor in same cluster)
+# Deploy (API + executor in same cluster — one chart, all components on)
+# LLM_PROVIDER is required: the agent has no default provider.
 helm install kubently ./deployment/helm/kubently -n kubently \
+  --set api.existingSecret=kubently-api-keys \
+  --set api.env.LLM_PROVIDER=anthropic-claude \
   --set executor.enabled=true \
   --set executor.clusterId=local \
   --set executor.apiUrl=http://kubently-api:8080 \
@@ -50,10 +57,43 @@ helm install kubently ./deployment/helm/kubently -n kubently \
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kubently -n kubently --timeout=120s
 ```
 
+## How the Executor Gets Authenticated
+
+The API only accepts an executor whose token matches Redis key
+`executor:token:{cluster_id}`. In this single-cluster layout you get that for
+free: because `api.enabled` and `executor.enabled` are on in the *same* release
+and the token came from `--set executor.token=...`, the API Deployment's
+`sync-executor-tokens` init container writes the key into Redis before the API
+starts.
+
+Two cases where that does **not** happen, and you must register the token
+yourself through the admin API:
+
+- **A remote executor** installed as its own release (`api.enabled=false`) —
+  there is no API pod in that release to run the init container. This is the
+  normal multi-cluster case; see
+  [GETTING_STARTED.md - Step 5](GETTING_STARTED.md#step-5-register-and-deploy-executors).
+- **Rotating a token on an existing release**, where `helm upgrade` may not
+  restart the API pod and so never re-runs the init container.
+
+```bash
+kubectl port-forward -n kubently svc/kubently-api 8080:8080 &
+
+curl -X POST http://localhost:8080/admin/agents/local/token \
+  -H "X-API-Key: $(cat ~/kubently-admin-key.txt)" \
+  -H 'Content-Type: application/json' \
+  -d "{\"token\": \"${EXECUTOR_TOKEN}\"}"
+```
+
+The endpoint returns 409 if a token already exists for that cluster id; delete
+it first (`DELETE /admin/agents/local/token`) to replace it. Custom tokens must
+be 32-128 characters of letters, digits, hyphens or underscores — the
+`openssl rand -hex 32` value above qualifies.
+
 ## Configure CLI
 
 ```bash
-# Port-forward API
+# Port-forward API (skip if you already started one above)
 kubectl port-forward -n kubently svc/kubently-api 8080:8080 &
 
 # Set environment variables

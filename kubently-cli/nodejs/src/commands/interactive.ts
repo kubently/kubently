@@ -30,7 +30,7 @@ export async function runInteractiveMode(config: Config): Promise<void> {
     // Get user's choice
     const { mode } = await inquirer.prompt([
       {
-        type: 'list',
+        type: 'select',
         name: 'mode',
         message: 'Select operation mode:',
         choices: [

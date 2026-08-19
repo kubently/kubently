@@ -35,7 +35,7 @@ async function selectCluster(client: KubentlyAdminClient): Promise<string | null
     
     const { clusterId } = await inquirer.prompt([
       {
-        type: 'list',
+        type: 'select',
         name: 'clusterId',
         message: 'Select a cluster:',
         choices,

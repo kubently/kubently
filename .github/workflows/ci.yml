@@ -9,56 +9,104 @@ on:
 jobs:
   lint:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-      
+        uses: actions/checkout@v7
+
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      
+
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-      
+
       - name: Install dependencies
         run: |
           uv pip install --system ruff
-      
+
+      # Advisory only: the tree currently has a large pre-existing ruff backlog,
+      # so these report violations without blocking. They use continue-on-error
+      # rather than `|| true` so the step is visibly red instead of faking a pass.
       - name: Run ruff check
+        continue-on-error: true
         run: |
-          ruff check kubently/ || true
-      
+          ruff check kubently/
+
       - name: Run ruff format check
+        continue-on-error: true
         run: |
-          ruff format --check kubently/ || true
+          ruff format --check kubently/
 
   test:
     runs-on: ubuntu-latest
-    needs: lint
-    
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-      
+        uses: actions/checkout@v7
+
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      
+
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-      
+
+      # The a2a/cloud/test extras are required, not optional: without them the
+      # a2a-sdk contract tests, the fakeredis-backed checkpointer tests and the
+      # boto3 cloud-provider tests silently skip or error, which is how a
+      # dependency bump can break the A2A protocol surface with CI still green.
       - name: Install dependencies
         run: |
-          uv pip install --system -e .
-          uv pip install --system pytest pytest-cov pytest-asyncio
-      
+          uv pip install --system -e ".[dev,test,a2a,cloud]"
+
+      # Blocking. This is the gate that makes a dependency bump reviewable:
+      # tests/ holds the real suite (the pytest testpaths root), and it must pass.
       - name: Run tests
         run: |
-          cd kubently && python -m pytest tests/ -v || true
+          python -m pytest tests/ -v
+
+      - name: Run legacy module tests
+        run: |
+          python -m pytest kubently/tests/ -v --no-cov
+
+  cli:
+    name: Node CLI
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: kubently-cli/nodejs
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: kubently-cli/nodejs/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Type-checking is the main guard on the CLI's dependency surface: the
+      # published packages ship their own types, so a breaking major (chalk,
+      # commander, inquirer, ora, uuid, js-yaml) shows up here as a compile error.
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npm test
+
+      - name: Lint
+        continue-on-error: true
+        run: npm run lint
