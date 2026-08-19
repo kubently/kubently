@@ -220,6 +220,25 @@
   parsing, window filtering, truncation) and `tests/test_change_runners.py`
   (helm/argocd runner allowlists and caps, rollout whitelist rule)
 
+### Fixed
+- **Cross-request tool-call attribution race (#63)** — `KubentlyAgent` is one
+  shared instance serving every A2A request, and the tool-call thread id was
+  stored on it (`self._current_thread_id`), so two concurrent turns raced:
+  request A's tool call could be recorded under request B's thread id and
+  streamed into **B's** SSE as a `🔧 Tool Call` event carrying A's command
+  args and kubectl output. The id now lives in a module-level `ContextVar`
+  (`agent.current_thread_id`), which is per-task and inherited by the tasks the
+  agent graph spawns — the same mechanism
+  `kubently.modules.auth.context.current_api_key` already uses. New
+  `tests/test_tool_call_thread_isolation.py` runs two deterministically
+  interleaved in-flight turns and asserts each records under its own id
+- **PostHog client leaked on the degraded telemetry path (#64)** —
+  `_posthog_llm_callbacks()` constructed the `Posthog` client (background flush
+  thread + connection pool) before importing
+  `posthog.ai.langchain.CallbackHandler`, so a partial/older SDK left an idle
+  client that was never used or shut down. Both imports now happen before the
+  client is built. New `tests/test_posthog_callbacks.py`
+
 ## [Unreleased] - 2026-08-16
 
 ### Added

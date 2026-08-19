@@ -50,7 +50,7 @@ def test_agent_records_under_namespaced_id():
     """The recording side still namespaces (the other half of the contract)."""
     assert "thread_id = _namespaced_thread_id(thread_id)" in AGENT_SRC
     idx_ns = AGENT_SRC.index("thread_id = _namespaced_thread_id(thread_id)")
-    idx_store = AGENT_SRC.index("self._current_thread_id = thread_id", idx_ns)
+    idx_store = AGENT_SRC.index("current_thread_id.set(thread_id)", idx_ns)
     assert idx_store > idx_ns, "namespacing must happen before the id is stored"
 
 
