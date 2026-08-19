@@ -1,5 +1,35 @@
 # Changelog
 
+## [Unreleased] - 2026-08-19
+
+### Fixed
+- **Helm chart had not published since 2026-08-16 (#100).** `Release Helm Chart`
+  failed on nine consecutive pushes to `main`, always the same way: chart-releaser
+  creates a GitHub release tagged `kubently-<Chart.yaml version>`, and
+  `deployment/helm/kubently/Chart.yaml` was still pinned at `version: 1.0.5` —
+  the tag released on 2026-08-16 — so every run died with
+  `tag_name: already_exists`. Because a release workflow does not gate merges and
+  never shows on a PR, this was invisible for three days while the dashboard's
+  generated install command kept serving 1.0.5, including to users hitting the
+  `executor.existingSecret` API-startup bug (#85) whose fix (#95) was merged but
+  unpublishable. The chart version is now `1.1.0`: `version` is the chart's own
+  packaging version and has been bumped once per chart-touching change since
+  1.0.0, while `appVersion` tracks the application and is unrelated (images are
+  pinned by `image.tag`, not by `appVersion`), so only `version` moves here. It
+  is a minor rather than a patch bump because the chart has gained templates and
+  values keys since 1.0.5 — scheduled-check CronJobs, runbook ingestion, the
+  Prometheus / log-search / cloud-telemetry / MCP-client / GitOps toolsets —
+  not just fixes.
+- **A chart change without a version bump now fails its own PR.** New
+  `scripts/check-chart-version.sh`, wired into `ci.yml` as the `chart-version`
+  job on pull requests: if the PR touches `deployment/helm/kubently/**` it must
+  also raise `version:` in `Chart.yaml`, to a version no `kubently-*` tag has
+  already claimed. The failure message names the old and new versions and says
+  what to do. Deliberately *not* fixed with `cr --skip-existing`, which would
+  make the release job green while publishing nothing — the same defect class as
+  #98 and #83. The release job keeps failing loudly if a stale version ever
+  reaches `main`.
+
 ## [Unreleased] - 2026-08-18
 
 ### Fixed
