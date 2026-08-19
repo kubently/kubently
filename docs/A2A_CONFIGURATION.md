@@ -158,7 +158,9 @@ See `docs/TEST_QUERIES.md` for complete examples and message formats.
 
 Check the agent card endpoint:
 ```bash
-curl http://localhost:8080/a2a/.well-known/agent.json | jq .
+# `/.well-known/agent-card.json` is the current spec path; Kubently also
+# serves the pre-1.0 `/.well-known/agent.json` for older clients.
+curl http://localhost:8080/a2a/.well-known/agent-card.json | jq .
 ```
 
 Expected response:

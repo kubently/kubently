@@ -6,10 +6,10 @@ import traceback
 from typing import Any, override
 
 import httpx
+from a2a.helpers import new_task_from_user_message, new_text_artifact, new_text_message
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import TaskArtifactUpdateEvent, TaskState, TaskStatus, TaskStatusUpdateEvent
-from a2a.utils import new_agent_text_message, new_task, new_text_artifact
 
 # Always use real agent when LLM is configured
 from kubently.modules.a2a.protocol_bindings.a2a_server.agent import KubentlyAgent
@@ -66,7 +66,7 @@ class KubentlyAgentExecutor(AgentExecutor):
 
         task = context.current_task
         if not task:
-            task = new_task(context.message)
+            task = new_task_from_user_message(context.message)
             await event_queue.enqueue_event(task)
 
         try:
@@ -82,9 +82,9 @@ class KubentlyAgentExecutor(AgentExecutor):
             await event_queue.enqueue_event(
                 TaskArtifactUpdateEvent(
                     append=False,
-                    contextId=task.contextId,
-                    taskId=task.id,
-                    lastChunk=True,
+                    context_id=task.context_id,
+                    task_id=task.id,
+                    last_chunk=True,
                     artifact=new_text_artifact(
                         name="debug_result",
                         description="Kubernetes debugging analysis and findings",
@@ -95,12 +95,13 @@ class KubentlyAgentExecutor(AgentExecutor):
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     status=TaskStatus(
-                        state=TaskState.failed,
-                        message=new_agent_text_message(message, task.contextId, task.id),
+                        state=TaskState.TASK_STATE_FAILED,
+                        message=new_text_message(
+                            message, context_id=task.context_id, task_id=task.id
+                        ),
                     ),
-                    final=True,
-                    contextId=task.contextId,
-                    taskId=task.id,
+                    context_id=task.context_id,
+                    task_id=task.id,
                 )
             )
         except Exception:
@@ -127,7 +128,7 @@ class KubentlyAgentExecutor(AgentExecutor):
         logger.info("Debug context IDs:")
         logger.info(f"  - context.context_id: {context.context_id}")
         logger.info(f"  - context.message.context_id: {contextId}")
-        logger.info(f"  - task.contextId: {task.contextId if task else None}")
+        logger.info(f"  - task.context_id: {task.context_id if task else None}")
         logger.info(f"  - cluster_id (from metadata): {cluster_id}")
 
         logger.info(f"Using contextId: {contextId}, cluster_id: {cluster_id}")
@@ -151,9 +152,9 @@ class KubentlyAgentExecutor(AgentExecutor):
             await event_queue.enqueue_event(
                 TaskArtifactUpdateEvent(
                     append=False,
-                    contextId=task.contextId,
-                    taskId=task.id,
-                    lastChunk=True,
+                    context_id=task.context_id,
+                    task_id=task.id,
+                    last_chunk=True,
                     artifact=new_text_artifact(
                         name="debug_result",
                         description="Kubernetes debugging analysis and findings",
@@ -163,10 +164,9 @@ class KubentlyAgentExecutor(AgentExecutor):
             )
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
-                    status=TaskStatus(state=TaskState.completed),
-                    final=True,
-                    contextId=task.contextId,
-                    taskId=task.id,
+                    status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
+                    context_id=task.context_id,
+                    task_id=task.id,
                 )
             )
             return
@@ -201,16 +201,15 @@ class KubentlyAgentExecutor(AgentExecutor):
                 await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
-                            state=TaskState.working,
-                            message=new_agent_text_message(
+                            state=TaskState.TASK_STATE_WORKING,
+                            message=new_text_message(
                                 chunk_content,
-                                task.contextId,
-                                task.id,
+                                context_id=task.context_id,
+                                task_id=task.id,
                             ),
                         ),
-                        final=False,
-                        contextId=task.contextId,
-                        taskId=task.id,
+                        context_id=task.context_id,
+                        task_id=task.id,
                     )
                 )
 
@@ -238,16 +237,15 @@ class KubentlyAgentExecutor(AgentExecutor):
                         await event_queue.enqueue_event(
                             TaskStatusUpdateEvent(
                                 status=TaskStatus(
-                                    state=TaskState.working,
-                                    message=new_agent_text_message(
+                                    state=TaskState.TASK_STATE_WORKING,
+                                    message=new_text_message(
                                         tool_message,
-                                        task.contextId,
-                                        task.id,
+                                        context_id=task.context_id,
+                                        task_id=task.id,
                                     ),
                                 ),
-                                final=False,
-                                contextId=task.contextId,
-                                taskId=task.id,
+                                context_id=task.context_id,
+                                task_id=task.id,
                             )
                         )
 
@@ -273,16 +271,15 @@ class KubentlyAgentExecutor(AgentExecutor):
                 await event_queue.enqueue_event(
                     TaskStatusUpdateEvent(
                         status=TaskStatus(
-                            state=TaskState.working,
-                            message=new_agent_text_message(
+                            state=TaskState.TASK_STATE_WORKING,
+                            message=new_text_message(
                                 tool_message,
-                                task.contextId,
-                                task.id,
+                                context_id=task.context_id,
+                                task_id=task.id,
                             ),
                         ),
-                        final=False,
-                        contextId=task.contextId,
-                        taskId=task.id,
+                        context_id=task.context_id,
+                        task_id=task.id,
                     )
                 )
         except Exception as e:
@@ -292,9 +289,9 @@ class KubentlyAgentExecutor(AgentExecutor):
         await event_queue.enqueue_event(
             TaskArtifactUpdateEvent(
                 append=False,
-                contextId=task.contextId,
-                taskId=task.id,
-                lastChunk=True,
+                context_id=task.context_id,
+                task_id=task.id,
+                last_chunk=True,
                 artifact=new_text_artifact(
                     name="debug_result",
                     description="Kubernetes debugging analysis and findings",
@@ -303,13 +300,15 @@ class KubentlyAgentExecutor(AgentExecutor):
             )
         )
 
-        # Mark task as complete
+        # Mark task as complete. a2a-sdk 1.x dropped TaskStatusUpdateEvent.final:
+        # the stream ends when a terminal TaskState is emitted, and the v0.3
+        # compatibility layer re-derives `final: true` from that for old clients.
+        # So a terminal state here is the only thing keeping clients from hanging.
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
-                status=TaskStatus(state=TaskState.completed),
-                final=True,
-                contextId=task.contextId,
-                taskId=task.id,
+                status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
+                context_id=task.context_id,
+                task_id=task.id,
             )
         )
 

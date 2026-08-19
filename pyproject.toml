@@ -85,15 +85,14 @@ cloud = [
 a2a = [
     # A2A Protocol and LangGraph Dependencies
     "a2a-python==0.0.1",
-    # HELD at 0.2.x. dependabot proposes 1.1.2, but a2a-sdk 1.x is a rewrite,
-    # not a version bump: a2a.server.apps is gone, the new_agent_text_message /
-    # new_task / new_text_artifact helpers moved from a2a.utils to a2a.helpers,
-    # and a2a.types is now protobuf-generated (no Message/Task/Part/Role).
-    # kubently/modules/a2a/ needs migrating first — and note that module swallows
-    # SDK ImportErrors into A2A_AVAILABLE = False, so an unguarded bump would
-    # silently disable A2A rather than fail. tests/test_a2a_sdk_contract.py now
-    # catches that. See docs/DEPENDENCY_UPGRADES.md.
-    "a2a-sdk==0.2.16",
+    # 1.x is a package rewrite, migrated in #76: a2a.server.apps is gone
+    # (routes are assembled from a2a.server.routes), the new_* helpers live in
+    # a2a.helpers, and a2a.types is protobuf-generated. The [http-server] extra
+    # is required, not optional — starlette and sse-starlette moved behind it in
+    # 1.x, and without them the JSON-RPC/SSE routes raise ImportError at build.
+    # See docs/DEPENDENCY_UPGRADES.md; tests/test_a2a_sdk_contract.py pins the
+    # surface so the next bump fails loudly instead of disabling A2A.
+    "a2a-sdk[http-server]==1.1.2",
     "pydantic>=2.0.0",
     "uvicorn>=0.24.0",
     "starlette>=0.49.1",  # CVE fixes: PYSEC-2026-161/248/249, CVE-2025-62727, CVE-2026-48817/48818

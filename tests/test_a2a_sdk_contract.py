@@ -16,6 +16,13 @@ with the entire A2A protocol surface missing (issue #97). A2A is now gated on
 ``KUBENTLY_A2A`` and an unimportable SDK raises ``A2AUnavailableError``; the
 tests at the bottom of this file are what keep that from regressing.
 
+Pinned against **a2a-sdk 1.x** since #76. The 1.x surface differs from 0.2.x in
+ways this file has to encode: ``a2a.server.apps`` is gone (routes come from
+``a2a.server.routes``), the ``new_*`` helpers moved to ``a2a.helpers`` with new
+signatures, ``a2a.types`` is protobuf-generated (snake_case fields, ``TaskState``
+enum members, no ``TextPart``), and ``TaskStatusUpdateEvent`` has no ``final``
+flag — terminality is carried by the task state.
+
 Contracts under guard:
 - Every module path and symbol the codebase imports from ``a2a`` still resolves.
 - ``A2A_AVAILABLE`` is True, i.e. the SDK did not silently disable A2A.
@@ -47,8 +54,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 # (module path, symbol) for every name the codebase imports from the SDK.
 # Sourced by grepping `from a2a...` across kubently/.
 SDK_IMPORT_SURFACE = [
-    ("a2a.server.apps", "A2AStarletteApplication"),
     ("a2a.server.request_handlers", "DefaultRequestHandler"),
+    ("a2a.server.routes", "create_agent_card_routes"),
+    ("a2a.server.routes", "create_jsonrpc_routes"),
     ("a2a.server.tasks", "InMemoryTaskStore"),
     ("a2a.server.tasks", "PushNotificationSender"),
     ("a2a.server.agent_execution", "AgentExecutor"),
@@ -56,6 +64,7 @@ SDK_IMPORT_SURFACE = [
     ("a2a.server.events.event_queue", "EventQueue"),
     ("a2a.types", "AgentCapabilities"),
     ("a2a.types", "AgentCard"),
+    ("a2a.types", "AgentInterface"),
     ("a2a.types", "AgentSkill"),
     ("a2a.types", "Artifact"),
     ("a2a.types", "Message"),
@@ -66,10 +75,14 @@ SDK_IMPORT_SURFACE = [
     ("a2a.types", "TaskState"),
     ("a2a.types", "TaskStatus"),
     ("a2a.types", "TaskStatusUpdateEvent"),
-    ("a2a.types", "TextPart"),
-    ("a2a.utils", "new_agent_text_message"),
-    ("a2a.utils", "new_task"),
-    ("a2a.utils", "new_text_artifact"),
+    ("a2a.utils.constants", "AGENT_CARD_WELL_KNOWN_PATH"),
+    ("a2a.utils.constants", "PROTOCOL_VERSION_0_3"),
+    ("a2a.utils.constants", "PROTOCOL_VERSION_CURRENT"),
+    ("a2a.utils.constants", "TransportProtocol"),
+    ("a2a.helpers", "new_task_from_user_message"),
+    ("a2a.helpers", "new_text_artifact"),
+    ("a2a.helpers", "new_text_message"),
+    ("a2a.helpers", "new_text_part"),
 ]
 
 
@@ -77,9 +90,9 @@ SDK_IMPORT_SURFACE = [
 def test_sdk_symbol_still_exists(module_path, symbol):
     """Every symbol the bindings import must still resolve in the installed SDK.
 
-    A bump that relocates one of these (a2a-sdk 1.x moves the ``new_*`` helpers
-    to ``a2a.helpers`` and deletes ``a2a.server.apps`` outright) fails here with
-    the exact missing name rather than surfacing as a silent runtime downgrade.
+    A bump that relocates one of these (1.x moved the ``new_*`` helpers to
+    ``a2a.helpers`` and deleted ``a2a.server.apps`` outright) fails here with the
+    exact missing name rather than surfacing as a silent runtime downgrade.
     """
     try:
         module = importlib.import_module(module_path)
@@ -123,16 +136,23 @@ def test_agent_executor_module_imports():
 
 
 def test_sdk_helper_signatures_are_stable():
-    """The ``new_*`` helpers are called positionally, so argument order matters."""
+    """The ``new_*`` helpers are called by keyword, so the names matter."""
     import inspect
 
-    from a2a.utils import new_agent_text_message, new_task, new_text_artifact
+    from a2a.helpers import new_task_from_user_message, new_text_artifact, new_text_message
 
-    # agent_executor.py calls new_agent_text_message(text, contextId, taskId)
-    params = list(inspect.signature(new_agent_text_message).parameters)
-    assert params[:3] == ["text", "context_id", "task_id"], (
-        f"new_agent_text_message signature changed to {params}; agent_executor.py "
-        f"passes these three positionally."
+    # agent_executor.py calls new_text_message(text, context_id=..., task_id=...).
+    # 1.x replaced new_agent_text_message with this; the agent role is the default,
+    # so a change of default would silently relabel every streamed chunk as a user
+    # message.
+    params = inspect.signature(new_text_message).parameters
+    assert next(iter(params)) == "text"
+    assert {"context_id", "task_id", "role"} <= set(params)
+    from a2a.types import Role
+
+    assert params["role"].default == Role.ROLE_AGENT, (
+        "new_text_message no longer defaults to the agent role; agent_executor.py "
+        "relies on that default for every streamed chunk."
     )
 
     # agent_executor.py calls new_text_artifact(name=..., description=..., text=...)
@@ -141,8 +161,8 @@ def test_sdk_helper_signatures_are_stable():
         f"new_text_artifact no longer accepts name/text/description: {params}"
     )
 
-    # agent_executor.py calls new_task(context.message)
-    assert len(inspect.signature(new_task).parameters) >= 1
+    # agent_executor.py calls new_task_from_user_message(context.message)
+    assert len(inspect.signature(new_task_from_user_message).parameters) == 1
 
 
 # =============================================================================
@@ -150,19 +170,44 @@ def test_sdk_helper_signatures_are_stable():
 # =============================================================================
 
 
+def _stream_ending_states():
+    """The states a2a-sdk 1.x treats as ending a stream.
+
+    ``TaskStatusUpdateEvent.final`` no longer exists. ``EventConsumer`` stops
+    consuming when the task reaches one of these instead, and the v0.3
+    compatibility layer re-derives the wire-level ``final: true`` from (a subset
+    of) the same set. So a terminal task state *is* the "stream is over" signal
+    now, and asserting on it is the 1.x equivalent of asserting ``final``.
+
+    Mirrors ``a2a.server.events.event_consumer``; imported lazily so this module
+    still collects when the SDK is missing.
+    """
+    from a2a.types import TaskState
+
+    return {
+        TaskState.TASK_STATE_COMPLETED,
+        TaskState.TASK_STATE_CANCELED,
+        TaskState.TASK_STATE_FAILED,
+        TaskState.TASK_STATE_REJECTED,
+        TaskState.TASK_STATE_UNSPECIFIED,
+        TaskState.TASK_STATE_INPUT_REQUIRED,
+    }
+
+
 def _make_task():
-    """Build a minimal but valid SDK Task, the way new_task() would."""
-    from a2a.types import Message, Part, Role, Task, TaskState, TaskStatus, TextPart
+    """Build a minimal but valid SDK Task, the way new_task_from_user_message() would."""
+    from a2a.helpers import new_text_part
+    from a2a.types import Message, Role, Task, TaskState, TaskStatus
 
     return Task(
         id="task-1",
-        contextId="ctx-1",
-        status=TaskStatus(state=TaskState.submitted),
+        context_id="ctx-1",
+        status=TaskStatus(state=TaskState.TASK_STATE_SUBMITTED),
         history=[
             Message(
-                messageId="msg-1",
-                role=Role.user,
-                parts=[Part(root=TextPart(text="why is my pod crashlooping?"))],
+                message_id="msg-1",
+                role=Role.ROLE_USER,
+                parts=[new_text_part("why is my pod crashlooping?")],
             )
         ],
     )
@@ -182,12 +227,14 @@ class TestUpdateTaskWithAgentResponse:
             task, {"content": "pod is OOMKilled", "require_user_input": False}
         )
 
-        assert task.status.state == TaskState.completed
-        assert task.status.message is None
+        assert task.status.state == TaskState.TASK_STATE_COMPLETED
+        # Protobuf messages have no None: "no status message" is the field being
+        # unset, which is what the 1.x port asserts instead of `is None`.
+        assert not task.status.HasField("message")
         assert len(task.artifacts) == 1
-        assert task.artifacts[0].parts[0].root.text == "pod is OOMKilled"
+        assert task.artifacts[0].parts[0].text == "pod is OOMKilled"
         # timestamp must be set for the protocol to order events
-        assert task.status.timestamp
+        assert task.status.HasField("timestamp")
 
     def test_input_required_response_sets_message_and_history(self):
         from a2a.types import Role, TaskState
@@ -201,13 +248,13 @@ class TestUpdateTaskWithAgentResponse:
             task, {"content": "which namespace?", "require_user_input": True}
         )
 
-        assert task.status.state == TaskState.input_required
-        assert task.status.message is not None
-        assert task.status.message.role == Role.agent
-        assert task.status.message.parts[0].root.text == "which namespace?"
+        assert task.status.state == TaskState.TASK_STATE_INPUT_REQUIRED
+        assert task.status.HasField("message")
+        assert task.status.message.role == Role.ROLE_AGENT
+        assert task.status.message.parts[0].text == "which namespace?"
         # the clarifying question must land in history, or the next turn loses it
         assert len(task.history) == history_before + 1
-        assert task.artifacts is None or task.artifacts == []
+        assert not task.artifacts
 
 
 class TestProcessStreamingAgentResponse:
@@ -225,9 +272,11 @@ class TestProcessStreamingAgentResponse:
         )
 
         assert artifact_event is None, "intermediate chunks must not emit artifacts"
-        assert status_event.status.state == TaskState.working
-        assert status_event.final is False
-        assert status_event.status.message.parts[0].root.text == "checking pods..."
+        assert status_event.status.state == TaskState.TASK_STATE_WORKING
+        # 1.x dropped TaskStatusUpdateEvent.final; a non-terminal state is what
+        # keeps the stream open, so that is what gets asserted.
+        assert status_event.status.state not in _stream_ending_states()
+        assert status_event.status.message.parts[0].text == "checking pods..."
 
     def test_completed_chunk_emits_final_artifact(self):
         from a2a.types import TaskState
@@ -242,14 +291,16 @@ class TestProcessStreamingAgentResponse:
         )
 
         assert artifact_event is not None
-        assert artifact_event.taskId == task.id
-        assert artifact_event.contextId == task.contextId
-        assert artifact_event.lastChunk is True
+        assert artifact_event.task_id == task.id
+        assert artifact_event.context_id == task.context_id
+        assert artifact_event.last_chunk is True
         assert artifact_event.append is False
-        assert artifact_event.artifact.parts[0].root.text == "done: OOMKilled"
+        assert artifact_event.artifact.parts[0].text == "done: OOMKilled"
 
-        assert status_event.status.state == TaskState.completed
-        assert status_event.final is True, "completed stream must set final=True or clients hang"
+        assert status_event.status.state == TaskState.TASK_STATE_COMPLETED
+        assert status_event.status.state in _stream_ending_states(), (
+            "completed stream must reach a terminal state or clients hang"
+        )
 
     def test_input_required_chunk_ends_stream_without_artifact(self):
         from a2a.types import TaskState
@@ -263,8 +314,8 @@ class TestProcessStreamingAgentResponse:
         )
 
         assert artifact_event is None
-        assert status_event.status.state == TaskState.input_required
-        assert status_event.final is True
+        assert status_event.status.state == TaskState.TASK_STATE_INPUT_REQUIRED
+        assert status_event.status.state in _stream_ending_states()
 
 
 # =============================================================================
@@ -276,21 +327,43 @@ class TestAgentCardContract:
     """The agent card is the A2A discovery document — it must build and serialise."""
 
     def test_agent_card_builds_and_serialises(self):
+        from a2a.server.request_handlers.response_helpers import agent_card_to_dict
+        from a2a.utils.constants import (
+            PROTOCOL_VERSION_0_3,
+            PROTOCOL_VERSION_CURRENT,
+            TransportProtocol,
+        )
         from kubently.modules.a2a import A2AModule
 
         module = A2AModule(host="127.0.0.1", port=8000, external_url="https://example.test/a2a/")
         card = module.get_agent_card()
 
         assert card.name == "Kubently Kubernetes Debugger"
-        assert card.url == "https://example.test/a2a/"
         assert card.capabilities.streaming is True
 
-        # The card is served as JSON over /.well-known — round-tripping it is the
-        # real contract, and pydantic model changes in the SDK break it here.
-        payload = card.model_dump(mode="json", exclude_none=True)
+        # 1.x moved the endpoint off the card and onto per-transport interfaces.
+        # Both protocol versions must be advertised because both are served
+        # (get_app() enables the SDK's v0.3 compatibility on the same endpoint).
+        interfaces = {i.protocol_version: i for i in card.supported_interfaces}
+        assert set(interfaces) == {PROTOCOL_VERSION_CURRENT, PROTOCOL_VERSION_0_3}
+        for interface in interfaces.values():
+            assert interface.url == "https://example.test/a2a/"
+            assert interface.protocol_binding == TransportProtocol.JSONRPC
+
+        # The card is served as JSON over /.well-known — round-tripping it through
+        # the SDK's own serialiser is the real contract.
+        payload = agent_card_to_dict(card)
         assert payload["name"] == "Kubently Kubernetes Debugger"
         assert "text/plain" in payload["defaultInputModes"]
         assert [s["id"] for s in payload["skills"]] == [s.id for s in card.skills]
+
+        # ...and the published JSON must still carry the pre-1.x top-level fields,
+        # which the SDK derives from the 0.3 interface. Existing clients (the
+        # Kubently CLI included) read `url`; dropping it breaks discovery for
+        # every one of them.
+        assert payload["url"] == "https://example.test/a2a/"
+        assert payload["protocolVersion"] == PROTOCOL_VERSION_0_3
+        assert payload["preferredTransport"] == TransportProtocol.JSONRPC
 
     def test_advertised_skills_follow_the_toolset_gating(self):
         """Skills are configuration-dependent, so assert the gates — not a count.
@@ -361,24 +434,44 @@ class _StubAgent:
 
 def _make_request_context(text: str, metadata: dict | None = None):
     """Build a RequestContext the way DefaultRequestHandler does for a new task."""
+    from a2a.helpers import new_text_part
     from a2a.server.agent_execution import RequestContext
-    from a2a.types import Message, MessageSendParams, Part, Role, TextPart
+    from a2a.server.context import ServerCallContext
+    from a2a.types import Message, Role, SendMessageRequest
+    from google.protobuf.json_format import ParseDict
 
     message = Message(
-        messageId="msg-1",
-        role=Role.user,
-        parts=[Part(root=TextPart(text=text))],
-        contextId="ctx-1",
+        message_id="msg-1",
+        role=Role.ROLE_USER,
+        parts=[new_text_part(text)],
+        context_id="ctx-1",
     )
-    context = RequestContext(
-        request=MessageSendParams(message=message),
+    request = SendMessageRequest(message=message)
+    if metadata is not None:
+        # metadata carries the clusterId A2A extension the executor reads. In 1.x
+        # it hangs off SendMessageRequest rather than MessageSendParams; the v0.3
+        # compatibility layer copies `params.metadata` into it, so the CLI's
+        # clusterId still lands here.
+        ParseDict(metadata, request.metadata)
+    return RequestContext(
+        call_context=ServerCallContext(),
+        request=request,
         task_id="task-1",
         context_id="ctx-1",
     )
-    if metadata is not None:
-        # metadata carries the clusterId A2A extension the executor reads
-        context._params.metadata = metadata
-    return context
+
+
+def _event_queue():
+    """A queue the test can drain.
+
+    1.x made ``EventQueue`` an abstract producer-side interface owned by the
+    request handler; ``EventQueueLegacy`` is the concrete implementation that
+    still exposes an inspectable backing queue, which is what these tests need
+    to look at the emitted event sequence directly.
+    """
+    from a2a.server.events.event_queue import EventQueueLegacy
+
+    return EventQueueLegacy()
 
 
 async def _drain(event_queue):
@@ -397,7 +490,6 @@ class TestAgentExecutorEventSequence:
 
     @pytest.mark.asyncio
     async def test_execute_emits_task_then_stream_then_final_artifact(self):
-        from a2a.server.events.event_queue import EventQueue
         from a2a.types import (
             Task,
             TaskArtifactUpdateEvent,
@@ -415,7 +507,7 @@ class TestAgentExecutorEventSequence:
         executor._initialized = True
 
         context = _make_request_context("summarise cluster health")
-        event_queue = EventQueue()
+        event_queue = _event_queue()
 
         await executor.execute(context, event_queue)
         events = await _drain(event_queue)
@@ -423,32 +515,34 @@ class TestAgentExecutorEventSequence:
         # 1. the new Task must be published first, or the client has nothing to attach to
         assert isinstance(events[0], Task), f"first event was {type(events[0]).__name__}"
 
-        # 2. every streamed chunk reaches the client as a non-final working update
+        # 2. every streamed chunk reaches the client as a non-terminal working update
         working = [
             e
             for e in events
-            if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.working
+            if isinstance(e, TaskStatusUpdateEvent)
+            and e.status.state == TaskState.TASK_STATE_WORKING
         ]
-        streamed = [e.status.message.parts[0].root.text for e in working]
+        streamed = [e.status.message.parts[0].text for e in working]
         assert "looking at pods" in streamed
         assert "found it" in streamed
-        assert all(e.final is False for e in working)
+        assert all(e.status.state not in _stream_ending_states() for e in working)
 
         # 3. exactly one final artifact carrying the joined response
         artifacts = [e for e in events if isinstance(e, TaskArtifactUpdateEvent)]
         assert len(artifacts) == 1
-        assert artifacts[0].lastChunk is True
-        assert artifacts[0].artifact.parts[0].root.text == "looking at pods\nfound it"
+        assert artifacts[0].last_chunk is True
+        assert artifacts[0].artifact.parts[0].text == "looking at pods\nfound it"
 
-        # 4. the stream terminates with final=True/completed, or clients hang forever
+        # 4. the stream terminates on a terminal state, or clients hang forever.
+        #    (1.x has no `final` flag; the state is the signal — see
+        #    _stream_ending_states.)
         assert isinstance(events[-1], TaskStatusUpdateEvent)
-        assert events[-1].status.state == TaskState.completed
-        assert events[-1].final is True
+        assert events[-1].status.state == TaskState.TASK_STATE_COMPLETED
+        assert events[-1].status.state in _stream_ending_states()
 
     @pytest.mark.asyncio
     async def test_cluster_id_from_metadata_reaches_the_agent(self):
         """clusterId arrives as an A2A metadata extension and must be forwarded."""
-        from a2a.server.events.event_queue import EventQueue
         from kubently.modules.a2a.protocol_bindings.a2a_server.agent_executor import (
             KubentlyAgentExecutor,
         )
@@ -460,7 +554,7 @@ class TestAgentExecutorEventSequence:
         executor._initialized = True
 
         context = _make_request_context("summarise cluster health", metadata={"clusterId": "prod"})
-        await executor.execute(context, EventQueue())
+        await executor.execute(context, _event_queue())
 
         assert executor.agent.received["cluster_id"] == "prod"
         assert executor.agent.received["thread_id"] == "ctx-1"
@@ -475,7 +569,6 @@ class TestAgentExecutorEventSequence:
         Without this the client sees a half-open stream and waits forever, which
         is a worse failure mode than an error message.
         """
-        from a2a.server.events.event_queue import EventQueue
         from a2a.types import TaskArtifactUpdateEvent, TaskState, TaskStatusUpdateEvent
         from kubently.modules.a2a.protocol_bindings.a2a_server.agent_executor import (
             KubentlyAgentExecutor,
@@ -492,17 +585,17 @@ class TestAgentExecutorEventSequence:
         executor._active_sessions = {}
         executor._initialized = True
 
-        event_queue = EventQueue()
+        event_queue = _event_queue()
         await executor.execute(_make_request_context("summarise cluster health"), event_queue)
         events = await _drain(event_queue)
 
         artifacts = [e for e in events if isinstance(e, TaskArtifactUpdateEvent)]
         assert len(artifacts) == 1
-        assert "llm unreachable" in artifacts[0].artifact.parts[0].root.text
+        assert "llm unreachable" in artifacts[0].artifact.parts[0].text
 
         assert isinstance(events[-1], TaskStatusUpdateEvent)
-        assert events[-1].status.state == TaskState.completed
-        assert events[-1].final is True
+        assert events[-1].status.state == TaskState.TASK_STATE_COMPLETED
+        assert events[-1].status.state in _stream_ending_states()
 
 
 # =============================================================================
@@ -597,7 +690,7 @@ class TestA2AAvailabilityIsFatal:
 
         monkeypatch.setattr(a2a_module, "A2A_AVAILABLE", False)
         monkeypatch.setattr(
-            a2a_module, "A2A_IMPORT_ERROR", ImportError("no module named 'a2a.server.apps'")
+            a2a_module, "A2A_IMPORT_ERROR", ImportError("no module named 'a2a.server.routes'")
         )
 
         monkeypatch.setenv("KUBENTLY_A2A", "off")

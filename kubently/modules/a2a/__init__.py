@@ -18,13 +18,19 @@ from threading import Thread
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from fastapi import FastAPI
+    from starlette.applications import Starlette as StarletteApp
 
 logger = logging.getLogger(__name__)
 
 # Environment switch that decides whether this deployment expects A2A. Whether a
 # module imported is NOT that decision (issue #97).
 A2A_ENABLED_ENV = "KUBENTLY_A2A"
+
+# The agent card path a2a-sdk 0.2.x served. The current spec (and the 1.x
+# default, `a2a.utils.constants.AGENT_CARD_WELL_KNOWN_PATH`) is
+# `/.well-known/agent-card.json`, but the card is a public contract: clients
+# pinned to the old path must not stop discovering Kubently, so both are served.
+LEGACY_AGENT_CARD_PATH = "/.well-known/agent.json"
 
 _OFF_VALUES = {"off", "false", "0", "no"}
 
@@ -57,10 +63,25 @@ A2A_IMPORT_ERROR: BaseException | None = None
 # Heavy dependencies (LangChain, LLMs, etc.) will be imported lazily inside get_app().
 try:
     import uvicorn
-    from a2a.server.apps import A2AStarletteApplication
     from a2a.server.request_handlers import DefaultRequestHandler
+    from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
     from a2a.server.tasks import InMemoryTaskStore, PushNotificationSender
-    from a2a.types import AgentCapabilities, AgentCard, AgentSkill, Task
+    from a2a.types import (
+        AgentCapabilities,
+        AgentCard,
+        AgentInterface,
+        AgentSkill,
+        Task,
+        TaskArtifactUpdateEvent,
+        TaskStatusUpdateEvent,
+    )
+    from a2a.utils.constants import (
+        AGENT_CARD_WELL_KNOWN_PATH,
+        PROTOCOL_VERSION_0_3,
+        PROTOCOL_VERSION_CURRENT,
+        TransportProtocol,
+    )
+    from starlette.applications import Starlette
 
     A2A_AVAILABLE = True
 except Exception as e:  # Broad catch: the log level and fatality are decided below.
@@ -84,9 +105,15 @@ if A2A_AVAILABLE:
     class SimplePushNotificationSender(PushNotificationSender):
         """Simple push notification sender."""
 
-        async def send_notification(self, task: Task) -> None:
-            """Log notifications for debugging."""
-            logger.debug(f"Push notification for task {task.id}: {task.status.state}")
+        async def send_notification(
+            self, task_id: str, event: Task | TaskStatusUpdateEvent | TaskArtifactUpdateEvent
+        ) -> None:
+            """Log notifications for debugging.
+
+            a2a-sdk 1.x passes the task id alongside the event rather than a
+            whole ``Task``, because artifact updates are pushable too (#76).
+            """
+            logger.debug(f"Push notification for task {task_id}: {type(event).__name__}")
 
 
 class A2AModule:
@@ -122,7 +149,7 @@ class A2AModule:
         self.redis_client = redis_client
         self.server = None
         self.thread = None
-        self._app = None  # Cache for FastAPI sub-application
+        self._app = None  # Cache for the A2A ASGI sub-application
 
     def _lazy_imports(self):
         """Import heavy A2A bindings lazily to reduce startup memory/fragility."""
@@ -137,7 +164,7 @@ class A2AModule:
         # Lazy import to access SUPPORTED_CONTENT_TYPES only when needed
         from .protocol_bindings.a2a_server.agent import KubentlyAgent
 
-        capabilities = AgentCapabilities(streaming=True, pushNotifications=False)
+        capabilities = AgentCapabilities(streaming=True, push_notifications=False)
 
         # Skills come from the same configuration gating that registers tools, so
         # the card cannot advertise a toolset this deployment does not have (or
@@ -157,15 +184,34 @@ class A2AModule:
                 "and GitOps fix proposals. The `skills` list is what this deployment "
                 "actually has enabled."
             ),
-            url=self.external_url,
+            # 1.x replaced the card's single `url` + `protocolVersion` pair with a
+            # list of interfaces. Both are advertised because both are served:
+            # get_app() enables the SDK's v0.3 compatibility on the same endpoint,
+            # so `message/stream` and `SendStreamingMessage` both work. Listing
+            # 0.3 also keeps the legacy top-level `url`/`protocolVersion`/
+            # `preferredTransport` fields in the published JSON (the SDK derives
+            # them from the first 0.3-compatible interface), which is what every
+            # existing client — the Kubently CLI included — reads.
+            supported_interfaces=[
+                AgentInterface(
+                    url=self.external_url,
+                    protocol_binding=TransportProtocol.JSONRPC,
+                    protocol_version=PROTOCOL_VERSION_CURRENT,
+                ),
+                AgentInterface(
+                    url=self.external_url,
+                    protocol_binding=TransportProtocol.JSONRPC,
+                    protocol_version=PROTOCOL_VERSION_0_3,
+                ),
+            ],
             version="1.0.0",
-            defaultInputModes=KubentlyAgent.SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=KubentlyAgent.SUPPORTED_CONTENT_TYPES,
+            default_input_modes=KubentlyAgent.SUPPORTED_CONTENT_TYPES,
+            default_output_modes=KubentlyAgent.SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=skills,
         )
 
-    def get_mount_config(self) -> tuple[str, FastAPI]:
+    def get_mount_config(self) -> tuple[str, StarletteApp]:
         """
         Get the mount configuration for integrating A2A into the main API.
 
@@ -173,7 +219,7 @@ class A2AModule:
         keeping the orchestration layer (main.py) from knowing implementation details.
 
         Returns:
-            Tuple of (mount_path, fastapi_app) ready to use with app.mount()
+            Tuple of (mount_path, asgi_app) ready to use with app.mount()
 
         Example:
             >>> a2a_server = create_a2a_server(...)
@@ -183,7 +229,7 @@ class A2AModule:
         return ("/a2a", self.get_app())
 
     def get_app(self):
-        """Get FastAPI sub-application for mounting under main API."""
+        """Get the A2A ASGI sub-application for mounting under the main API."""
         if self._app is None:
             # Lazily import heavy executor only when constructing the app
             KubentlyAgentExecutor = self._lazy_imports()
@@ -196,22 +242,40 @@ class A2AModule:
             # Log executor creation
             logger.info(f"Created KubentlyAgentExecutor: {agent_executor}")
 
+            agent_card = self.get_agent_card()
+
             # Use DefaultRequestHandler for now
             request_handler = DefaultRequestHandler(
                 agent_executor=agent_executor,
                 task_store=InMemoryTaskStore(),
+                agent_card=agent_card,
                 push_sender=SimplePushNotificationSender(),
             )
 
             logger.info(f"Created DefaultRequestHandler with executor: {request_handler}")
 
-            # Create A2A application
-            a2a_app = A2AStarletteApplication(
-                agent_card=self.get_agent_card(), http_handler=request_handler
+            # Build and cache the A2A ASGI app.
+            #
+            # a2a-sdk 1.x deleted A2AStarletteApplication; the routes are now
+            # assembled directly (#76). The composition below is what that class
+            # used to do, with two deliberate choices:
+            #
+            # * enable_v0_3_compat=True — 1.x renamed the JSON-RPC methods
+            #   (`message/stream` -> `SendStreamingMessage`). The Kubently CLI and
+            #   every other deployed A2A client speak the 0.3 names, so the
+            #   endpoint serves both. Without it those clients get -32601 Method
+            #   not found from a server that otherwise looks perfectly healthy.
+            # * the card is served at both well-known paths — the 1.x default
+            #   `/.well-known/agent-card.json` (the current A2A spec) and the
+            #   `/.well-known/agent.json` that 0.2.x served and existing clients,
+            #   docs and probes still request.
+            self._app = Starlette(
+                routes=[
+                    *create_agent_card_routes(agent_card, card_url=AGENT_CARD_WELL_KNOWN_PATH),
+                    *create_agent_card_routes(agent_card, card_url=LEGACY_AGENT_CARD_PATH),
+                    *create_jsonrpc_routes(request_handler, rpc_url="/", enable_v0_3_compat=True),
+                ]
             )
-
-            # Build and cache the FastAPI app
-            self._app = a2a_app.build()
 
             # NOTE: Auth is intentionally NOT added here. add_middleware() on this built
             # sub-app does not reliably run once it is mounted under the main app (Starlette
@@ -228,7 +292,7 @@ class A2AModule:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-        # Get the FastAPI app (creates it if needed)
+        # Get the A2A app (creates it if needed)
         app = self.get_app()
 
         # Configure uvicorn
