@@ -246,12 +246,11 @@ Notes:
 - **Cluster id** falls back to the release namespace when `executor.clusterId`
   is left empty.
 - **`executor.existingSecret` and `api.enabled` together**: the API's
-  `sync-executor-tokens` init container reads the chart-created
-  `<release>-executor-token` secret by name and does not follow
-  `executor.existingSecret`. In a co-located release that sets
-  `existingSecret`, that secret does not exist and the API pod will not start.
-  On an executor-only release (`api.enabled=false`, as above) there is no init
-  container, so `existingSecret` is the right choice there.
+  `sync-executor-tokens` init container follows `executor.existingSecret` /
+  `executor.existingSecretKey`, falling back to the chart-created
+  `<release>-executor-token` secret, so a co-located release can reference a
+  pre-created secret. On an executor-only release (`api.enabled=false`, as
+  above) there is no init container at all.
 - **TLS**: `KUBENTLY_SSL_VERIFY` / `KUBENTLY_CA_CERT` cover private CAs — see
   [MULTI_CLUSTER_TLS.md](MULTI_CLUSTER_TLS.md).
 

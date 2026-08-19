@@ -50,7 +50,7 @@ in-code default is `kubently-redis-master`.
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
 | `API_KEYS` | - | Yes | Valid API keys, comma- **or** newline-separated. Both `service:key` and bare `key` forms are accepted. Startup fails with a clear error if unset — there is no default |
-| `REQUIRE_AUTH` | `true` | No | Parsed into the auth config but not currently consulted by any request path; authentication is always enforced |
+| `REQUIRE_AUTH` | `true` | No | Enforce-only. Authentication is unconditional — every request path depends on an auth dependency — so this cannot turn auth off. Setting it to anything but `true` fails startup rather than silently implying auth was disabled |
 
 **There is no `AGENT_TOKEN_<ID>` / `EXECUTOR_TOKEN_<ID>` environment variable.**
 Executor tokens live in Redis under `executor:token:{cluster_id}` and are
