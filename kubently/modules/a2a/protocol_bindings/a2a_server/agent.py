@@ -4,6 +4,7 @@ import logging
 import os
 import uuid
 from collections.abc import AsyncIterable
+from contextvars import ContextVar
 from datetime import UTC, datetime
 
 import httpx
@@ -49,6 +50,15 @@ def structured_log(log_data: dict, thread_id: str = None):
 
 
 _POSTHOG_CLIENT = None  # module-level singleton, see _posthog_llm_callbacks
+
+# The tool-call thread id is REQUEST scoped, not agent scoped: KubentlyAgent is a
+# single shared instance serving every A2A request, so keeping it on `self` lets
+# two concurrent turns race — request A's tool call gets recorded under request
+# B's thread id and is streamed into B's SSE, leaking A's command args and
+# kubectl output. A ContextVar is per-task and is inherited by the tasks the
+# graph spawns, the same pattern kubently.modules.auth.context uses for the
+# caller's API key.
+current_thread_id: ContextVar[str | None] = ContextVar("current_thread_id", default=None)
 
 
 def _user_message_text(messages: list[dict]) -> str:
@@ -108,13 +118,19 @@ def _posthog_llm_callbacks():
     if not key:
         return []
 
+    # Import BOTH pieces before constructing anything: the client owns a
+    # background flush thread and a connection pool, so building it first and
+    # then bailing on a missing CallbackHandler (older/partial SDK) leaks an
+    # idle client that nothing will ever use or shut down.
+    try:
+        from posthog import Posthog
+        from posthog.ai.langchain import CallbackHandler
+    except Exception as e:  # SDK missing/too old — never fail the agent for telemetry
+        logger.warning(f"PostHog LLM observability requested but unavailable: {e}")
+        return []
+
     global _POSTHOG_CLIENT
     if _POSTHOG_CLIENT is None:
-        try:
-            from posthog import Posthog
-        except Exception as e:  # SDK missing/too old — never fail the agent for telemetry
-            logger.warning(f"PostHog LLM observability requested but unavailable: {e}")
-            return []
         # Singleton: the client owns a background flush thread and connection
         # pool, and initialize() runs per agent construction — a client per call
         # would leak both.
@@ -122,11 +138,6 @@ def _posthog_llm_callbacks():
             key, host=os.getenv("POSTHOG_HOST", "https://us.i.posthog.com")
         )
 
-    try:
-        from posthog.ai.langchain import CallbackHandler
-    except Exception as e:
-        logger.warning(f"PostHog LangChain callback unavailable: {e}")
-        return []
     return [CallbackHandler(client=_POSTHOG_CLIENT)]
 
 
@@ -231,7 +242,6 @@ class KubentlyAgent:
         # Investigation tracking
         self.investigation_steps = []
         self.min_investigation_steps = 4  # Minimum steps for thoroughness
-        self._current_thread_id = None
 
     async def track_investigation_step(self, command: str, purpose: str, findings: str):
         """Track each investigation step for thoroughness."""
@@ -247,7 +257,7 @@ class KubentlyAgent:
             "investigation_step": len(self.investigation_steps),
             "command": command,
             "purpose": purpose
-        }, thread_id=self._current_thread_id)
+        }, thread_id=current_thread_id.get())
 
     def should_continue_investigation(self, steps_taken: int) -> bool:
         """Encourage continued investigation."""
@@ -444,7 +454,7 @@ class KubentlyAgent:
             tool_call_id = await interceptor.record_tool_call(
                 tool_name="list_clusters",
                 args={},
-                thread_id=getattr(self, '_current_thread_id', None)
+                thread_id=current_thread_id.get()
             )
 
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -575,7 +585,7 @@ class KubentlyAgent:
                     "extra_args": extra_args,
                     "parsed": cmd_info
                 },
-                thread_id=getattr(self, '_current_thread_id', None)
+                thread_id=current_thread_id.get()
             )
 
             # Track investigation step
@@ -706,7 +716,7 @@ class KubentlyAgent:
             tool_call_id = await interceptor.record_tool_call(
                 tool_name="execute_kubectl_multi",
                 args={"cluster_ids": cluster_ids, "command": command, "namespace": namespace},
-                thread_id=getattr(self, "_current_thread_id", None),
+                thread_id=current_thread_id.get(),
             )
             try:
                 output = await run_fleet_command(
@@ -790,7 +800,7 @@ class KubentlyAgent:
                     "resource_type": resource_type,
                     "window": window,
                 },
-                thread_id=getattr(self, "_current_thread_id", None),
+                thread_id=current_thread_id.get(),
             )
 
             try:
@@ -996,7 +1006,7 @@ class KubentlyAgent:
                     "namespace": namespace,
                     "window": window,
                 },
-                thread_id=getattr(self, "_current_thread_id", None),
+                thread_id=current_thread_id.get(),
             )
 
             try:
@@ -1158,7 +1168,7 @@ class KubentlyAgent:
                     "previous": previous,
                     "context_lines": context_lines,
                 },
-                thread_id=getattr(self, "_current_thread_id", None),
+                thread_id=current_thread_id.get(),
             )
             payload = build_log_search_payload(
                 namespace=namespace,
@@ -1239,7 +1249,7 @@ class KubentlyAgent:
                 tool_call_id = await interceptor.record_tool_call(
                     tool_name="search_past_incidents",
                     args={"query": query, "cluster_id": cluster_id, "limit": limit},
-                    thread_id=getattr(self, "_current_thread_id", None),
+                    thread_id=current_thread_id.get(),
                 )
                 try:
                     # Same per-caller namespace derivation as conversation
@@ -1317,7 +1327,7 @@ class KubentlyAgent:
                         "limit": limit,
                         "direction": direction,
                     },
-                    thread_id=getattr(self, "_current_thread_id", None),
+                    thread_id=current_thread_id.get(),
                 )
                 payload = build_loki_payload(
                     query, start=start, end=end, limit=limit, direction=direction
@@ -1343,7 +1353,7 @@ class KubentlyAgent:
                 api_url,
                 api_key,
                 interceptor,
-                lambda: getattr(self, "_current_thread_id", None),
+                lambda: current_thread_id.get(),
             )
         )
 
@@ -1417,7 +1427,7 @@ class KubentlyAgent:
                         "step": step,
                         "time": time,
                     },
-                    thread_id=getattr(self, "_current_thread_id", None),
+                    thread_id=current_thread_id.get(),
                 )
 
                 payload = build_prometheus_payload(
@@ -1472,7 +1482,7 @@ class KubentlyAgent:
         self.tools.extend(
             build_gitops_tools(
                 interceptor,
-                lambda: getattr(self, "_current_thread_id", None),
+                lambda: current_thread_id.get(),
             )
         )
 
@@ -1490,7 +1500,7 @@ class KubentlyAgent:
             mcp_tools = await build_mcp_tools(
                 static_mcp_specs,
                 interceptor,
-                lambda: getattr(self, "_current_thread_id", None),
+                lambda: current_thread_id.get(),
             )
             self.tools.extend(mcp_tools)
             logger.info(
@@ -1532,8 +1542,8 @@ class KubentlyAgent:
         # tenants. Falls back to the raw id for unauthenticated/local invocation.
         thread_id = _namespaced_thread_id(thread_id)
 
-        # Store thread ID for tool call tracking
-        self._current_thread_id = thread_id
+        # Store thread ID for tool call tracking (per-request, see current_thread_id)
+        current_thread_id.set(thread_id)
 
         # This turn's user text: matched against runbooks and past incidents,
         # and kept as the "query" on any incident record this turn produces.
@@ -1562,7 +1572,7 @@ class KubentlyAgent:
             request_tools = await build_mcp_tools(
                 specs,
                 get_tool_call_interceptor(),
-                lambda: getattr(self, "_current_thread_id", None),
+                lambda: current_thread_id.get(),
             )
             if request_tools:
                 from deepagents import create_deep_agent
