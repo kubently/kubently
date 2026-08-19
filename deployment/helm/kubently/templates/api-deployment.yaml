@@ -98,8 +98,8 @@ spec:
         - name: EXECUTOR_TOKEN
           valueFrom:
             secretKeyRef:
-              name: {{ include "kubently.fullname" . }}-executor-token
-              key: token
+              name: {{ .Values.executor.existingSecret | default (printf "%s-executor-token" (include "kubently.fullname" .)) }}
+              key: {{ .Values.executor.existingSecretKey | default "token" }}
         - name: CLUSTER_ID
           value: {{ .Values.executor.clusterId | default .Release.Namespace }}
         {{- end }}

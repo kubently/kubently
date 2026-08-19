@@ -349,6 +349,29 @@
   `posthog.ai.langchain.CallbackHandler`, so a partial/older SDK left an idle
   client that was never used or shut down. Both imports now happen before the
   client is built. New `tests/test_posthog_callbacks.py`
+- **Helm: API init container ignored `executor.existingSecret` (#85)** — in a
+  co-located release (`api.enabled` + `executor.enabled`) that referenced a
+  pre-created executor-token secret, the `sync-executor-tokens` init container
+  still pointed at the chart-generated `<release>-executor-token`, which that
+  configuration never renders. The API pod stuck in
+  `CreateContainerConfigError`, and token rotation via `existingSecret` was
+  impossible. The init container now resolves the secret the same way the
+  executor Deployment does (`executor.existingSecret` /
+  `executor.existingSecretKey`, falling back to the generated secret).
+  Regression check: `tests/test_helm_executor_secret.py`
+
+### Removed
+- **Config knobs that were parsed and never applied (#86)** — `API_DEBUG` and
+  `CORS_ORIGINS` reached only `EnvConfigProvider.get_api_config()`, which had
+  no callers, and no `CORSMiddleware` is registered anywhere; `APIConfig` and
+  `get_api_config()` are gone rather than wired up, because honouring a
+  `CORS_ORIGINS` default of `*` would newly expose the API to every browser
+  origin. `AuthConfig.require_auth` is likewise removed: authentication is
+  unconditional (every route depends on `verify_api_key` /
+  `verify_dual_auth` / `verify_executor_auth`), so `REQUIRE_AUTH` is now
+  enforce-only — setting it to anything but `true` raises at startup instead
+  of silently pretending auth was disabled. Regression check:
+  `tests/test_config_provider.py`
 
 ## [Unreleased] - 2026-08-16
 
