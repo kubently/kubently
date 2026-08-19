@@ -2,8 +2,10 @@
 """Unit tests for the deployment verification webhook."""
 
 import asyncio
+import json
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import FastAPI
@@ -26,6 +28,7 @@ from kubently.modules.webhook.verify_deployment import (
     format_slack_message,
     parse_request,
     parse_watch_output,
+    scope_warnings,
 )
 
 # --- trigger parsing --------------------------------------------------------
@@ -212,6 +215,117 @@ def test_build_query_unsettled_rollout_changes_the_brief():
     q = build_query(_req(), SETTLE_TIMEOUT, "1 of 3 available")
     assert "did NOT settle" in q
     assert "1 of 3 available" in q
+
+
+# --- warning scoping (issue #88) --------------------------------------------
+#
+# A pre-existing, unrelated cluster warning must never fail a healthy rollout.
+# The case from the field: a kind cluster with no metrics-server, whose HPA —
+# named after the deployment, so name-prefix matching alone does not exclude it
+# — had been firing FailedGetResourceMetric 281 times for over an hour.
+
+ROLLOUT_START = datetime(2026, 8, 18, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def _event(kind, name, reason, type_="Warning", first=None, last=None, count=1, ns="kubently"):
+    return {
+        "type": type_,
+        "reason": reason,
+        "message": f"{reason} on {name}",
+        "count": count,
+        "firstTimestamp": (first or ROLLOUT_START).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "lastTimestamp": (last or first or ROLLOUT_START).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "involvedObject": {"kind": kind, "name": name, "namespace": ns},
+    }
+
+
+def _events(*items):
+    return json.dumps({"items": list(items)})
+
+
+def test_chronic_unrelated_warning_is_not_grounds_for_fail():
+    """The exact reported regression: HPA metrics warning predating the rollout."""
+    req = _req(workload="kubently-api", namespace="kubently")
+    hpa = _event(
+        "HorizontalPodAutoscaler",
+        "kubently-api",
+        "FailedGetResourceMetric",
+        first=ROLLOUT_START - timedelta(hours=1),
+        last=ROLLOUT_START + timedelta(minutes=2),  # still repeating right now
+        count=281,
+    )
+    caused, pre_existing = scope_warnings(_events(hpa), req, ROLLOUT_START)
+
+    assert caused == [], "a pre-existing, unrelated warning must not count as rollout damage"
+    assert len(pre_existing) == 1 and "FailedGetResourceMetric" in pre_existing[0]
+
+    brief = build_query(req, SETTLE_COMPLETE, "rolled out", ROLLOUT_START, (caused, pre_existing))
+    assert "Caused by this rollout: none" in brief
+    assert "FailedGetResourceMetric" in brief  # kept as context, not hidden
+    assert "do NOT let it change the verdict" in brief
+
+
+def test_real_rollout_warning_still_counts():
+    """Scoping must not become a blanket downgrade: real failures still surface."""
+    req = _req(workload="api", namespace="kubently")
+    pod = _event(
+        "Pod",
+        "api-7d9f-abcde",
+        "BackOff",
+        first=ROLLOUT_START + timedelta(seconds=30),
+        count=4,
+    )
+    caused, pre_existing = scope_warnings(_events(pod), req, ROLLOUT_START)
+    assert len(caused) == 1 and "BackOff" in caused[0]
+    assert pre_existing == []
+    assert "Caused by this rollout: none" not in build_query(
+        req, SETTLE_COMPLETE, "rolled out", ROLLOUT_START, (caused, pre_existing)
+    )
+
+
+def test_scoping_excludes_other_namespaces_other_workloads_and_normal_events():
+    req = _req(workload="api", namespace="kubently")
+    caused, pre_existing = scope_warnings(
+        _events(
+            _event("Pod", "api-7d9f-abcde", "BackOff", first=ROLLOUT_START, ns="other"),
+            _event("Pod", "unrelated-1", "Unhealthy", first=ROLLOUT_START),
+            _event("Pod", "api-7d9f-abcde", "Pulled", type_="Normal", first=ROLLOUT_START),
+        ),
+        req,
+        ROLLOUT_START,
+    )
+    assert caused == []
+    assert len(pre_existing) == 2  # both warnings kept as context; Normal ignored
+
+
+def test_replicaset_warning_from_this_rollout_counts():
+    req = _req(workload="api", namespace="kubently")
+    caused, _ = scope_warnings(
+        _events(
+            _event(
+                "ReplicaSet",
+                "api-7d9f",
+                "FailedCreate",
+                first=ROLLOUT_START + timedelta(seconds=5),
+            )
+        ),
+        req,
+        ROLLOUT_START,
+    )
+    assert len(caused) == 1
+
+
+def test_scope_warnings_tolerates_garbage():
+    assert scope_warnings("", _req(), ROLLOUT_START) == ([], [])
+    assert scope_warnings("not json", _req(), ROLLOUT_START) == ([], [])
+    assert scope_warnings('{"items": null}', _req(), ROLLOUT_START) == ([], [])
+
+
+def test_build_query_states_the_rollout_start_when_events_are_unavailable(monkeypatch):
+    """Even without the pre-scoped lists, the brief must anchor 'since the rollout'."""
+    q = build_query(_req(), SETTLE_COMPLETE, "rolled out", ROLLOUT_START, None)
+    assert "2026-08-18 12:00:00" in q
+    assert "do NOT let it change the verdict" in q
 
 
 def test_agent_pass_cannot_overrule_unsettled_rollout(monkeypatch):

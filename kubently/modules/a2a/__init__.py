@@ -53,7 +53,18 @@ class A2AModule:
 
         self.host = host
         self.port = port
-        self.external_url = external_url or f"http://{host}:{port}/"
+        if not external_url:
+            # `host` is a bind address: 0.0.0.0 means "every interface", and a
+            # card advertising it is worse than no card, because the client
+            # believes discovery succeeded and then cannot dial it.
+            logger.warning(
+                "A2A_EXTERNAL_URL is not set - the agent card will advertise a "
+                "locally-derived URL that remote clients cannot reach. Set it to "
+                "the externally reachable A2A endpoint (including the /a2a/ path)."
+            )
+            reachable_host = "localhost" if host in ("0.0.0.0", "::", "") else host
+            external_url = f"http://{reachable_host}:{port}/a2a/"
+        self.external_url = external_url
         self.redis_client = redis_client
         self.server = None
         self.thread = None
@@ -74,31 +85,30 @@ class A2AModule:
 
         capabilities = AgentCapabilities(streaming=True, pushNotifications=False)
 
-        skill = AgentSkill(
-            id="kubernetes-debug",
-            name="Kubernetes Debugging",
-            description=(
-                "Execute read-only kubectl commands across registered clusters. "
-                "Troubleshoot pods, services, deployments, and other resources."
-            ),
-            tags=["kubernetes", "k8s", "debugging", "kubectl", "troubleshooting"],
-            examples=[
-                "Show me all failing pods",
-                "Get logs for nginx deployment",
-                "Debug crashlooping pod",
-                "List services in namespace",
-            ],
-        )
+        # Skills come from the same configuration gating that registers tools, so
+        # the card cannot advertise a toolset this deployment does not have (or
+        # hide one it does).
+        from .skills import build_skills
+
+        skills = [
+            AgentSkill(**skill) for skill in build_skills(has_redis=self.redis_client is not None)
+        ]
 
         return AgentCard(
             name="Kubently Kubernetes Debugger",
-            description="AI agent for debugging Kubernetes clusters through kubectl commands",
+            description=(
+                "AI agent for investigating Kubernetes clusters: read-only kubectl "
+                "across a registered fleet, pod and Loki log search, Prometheus "
+                "metrics, change correlation, cloud telemetry, past-incident recall "
+                "and GitOps fix proposals. The `skills` list is what this deployment "
+                "actually has enabled."
+            ),
             url=self.external_url,
             version="1.0.0",
             defaultInputModes=KubentlyAgent.SUPPORTED_CONTENT_TYPES,
             defaultOutputModes=KubentlyAgent.SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
-            skills=[skill],
+            skills=skills,
         )
 
     def get_mount_config(self) -> tuple[str, "FastAPI"]:

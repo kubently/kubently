@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased] - 2026-08-18
+
+### Fixed
+- **A2A agent card advertised a stale, kubectl-only agent and a bind address**
+  (#87). Skills are now derived from the same configuration gating that decides
+  tool registration (`kubently/modules/a2a/skills.py`), so the card gains a
+  skill when a toolset is switched on and loses it when off: fleet fan-out, pod
+  and Loki log search, change correlation, Prometheus metrics, cloud telemetry,
+  past-incident recall, GitOps PR proposals and external MCP tools are all
+  advertised now, and the top-level description no longer claims kubectl is all
+  there is. `url` no longer falls back to `http://0.0.0.0:8080/` — the config
+  lookup used a `dict.get()` default against a key that is always present (set
+  to `None`), so `A2A_EXTERNAL_URL` being unset published the listen address;
+  the fallback is now a reachable localhost URL including the `/a2a/` path and
+  logs a warning telling the operator to set `A2A_EXTERNAL_URL`. A test asserts
+  every registered `@tool` is claimed by a skill, so the next track cannot ship
+  without updating the advertisement.
+- **Deployment verification failed healthy rollouts on pre-existing cluster
+  warnings** (#88). Warning events are now classified before the agent sees
+  them — by namespace, by the workload's own ownership chain (Deployment /
+  StatefulSet / DaemonSet / ReplicaSet / Pod, so a same-named HPA or Service no
+  longer matches), and by *first-seen* rather than last-seen time against the
+  moment verification started. Only warnings caused by the rollout under test
+  are grounds for FAIL; pre-existing ones (a chronic `FailedGetResourceMetric`
+  from a missing metrics-server, say) are handed to the agent as context with
+  an explicit instruction not to let them change the verdict. Real rollout
+  warnings still fail the deploy, and the settle-watch override is unchanged.
+
 ## [Unreleased] - 2026-08-17
 
 ### Changed

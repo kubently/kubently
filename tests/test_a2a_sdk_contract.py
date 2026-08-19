@@ -281,15 +281,52 @@ class TestAgentCardContract:
         assert card.name == "Kubently Kubernetes Debugger"
         assert card.url == "https://example.test/a2a/"
         assert card.capabilities.streaming is True
-        assert len(card.skills) == 1
-        assert card.skills[0].id == "kubernetes-debug"
 
         # The card is served as JSON over /.well-known — round-tripping it is the
         # real contract, and pydantic model changes in the SDK break it here.
         payload = card.model_dump(mode="json", exclude_none=True)
         assert payload["name"] == "Kubently Kubernetes Debugger"
-        assert payload["skills"][0]["id"] == "kubernetes-debug"
         assert "text/plain" in payload["defaultInputModes"]
+        assert [s["id"] for s in payload["skills"]] == [s.id for s in card.skills]
+
+    def test_advertised_skills_follow_the_toolset_gating(self):
+        """Skills are configuration-dependent, so assert the gates — not a count.
+
+        A hardcoded number is the stale assumption issue #87 removed: it says
+        nothing about whether the card matches the tools this deployment
+        registers, and it breaks every time a toolset is added.
+        """
+        from kubently.modules.a2a import A2AModule
+        from kubently.modules.a2a.protocol_bindings.a2a_server.cloud_tools import (
+            cloud_tools_enabled,
+        )
+        from kubently.modules.a2a.protocol_bindings.a2a_server.gitops import gitops_tools_enabled
+        from kubently.modules.a2a.protocol_bindings.a2a_server.logsearch import loki_tool_enabled
+        from kubently.modules.a2a.protocol_bindings.a2a_server.mcp_client import mcp_client_enabled
+        from kubently.modules.a2a.protocol_bindings.a2a_server.prometheus import (
+            prometheus_tool_enabled,
+        )
+
+        # redis_client is None here, so the incident store cannot be built and
+        # agent.py would not register search_past_incidents.
+        card = A2AModule(
+            host="127.0.0.1", port=8000, external_url="https://example.test/a2a/"
+        ).get_agent_card()
+        ids = {skill.id for skill in card.skills}
+
+        # Toolsets agent.py registers unconditionally.
+        assert {"kubernetes-debug", "fleet-query", "pod-log-search", "change-correlation"} <= ids
+
+        # Optional toolsets appear exactly when their tools would register.
+        assert ("prometheus-metrics" in ids) is prometheus_tool_enabled()
+        assert ("loki-log-search" in ids) is loki_tool_enabled()
+        assert ("cloud-telemetry" in ids) is cloud_tools_enabled()
+        assert ("gitops-remediation" in ids) is gitops_tools_enabled()
+        assert ("external-mcp-tools" in ids) is mcp_client_enabled()
+        assert "incident-history" not in ids
+
+        for skill in card.skills:
+            assert skill.name and skill.description and skill.tags
 
 
 # =============================================================================
