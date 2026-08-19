@@ -189,6 +189,27 @@ echo -e "${GREEN}=== Kubently Test Automation ===${NC}"
 echo -e "${BLUE}Command: ${COMMAND}${NC}"
 echo ""
 
+# Fail fast on a missing/placeholder grader key. This used to be checked only
+# AFTER every scenario had run, so a full suite would complete and then throw
+# the results away. secrets/.env ships a "your-...-here" placeholder, so an
+# unset-looking key and a useless key are both worth catching here.
+if [ "$SKIP_ANALYSIS" = false ]; then
+    if [ -z "$GOOGLE_API_KEY" ]; then
+        echo -e "${RED}Error: GOOGLE_API_KEY not set, and analysis is enabled.${NC}"
+        echo "The scenario analyzer grades runs with Gemini and needs its own key."
+        echo "Either: export GOOGLE_API_KEY=your_real_key"
+        echo "    or: $0 test-only --api-key ...   (runs scenarios, skips grading)"
+        exit 1
+    fi
+    case "$GOOGLE_API_KEY" in
+        your-*|*-here)
+            echo -e "${RED}Error: GOOGLE_API_KEY is a placeholder value.${NC}"
+            echo "Set a real key, or use 'test-only' to skip analysis."
+            exit 1
+            ;;
+    esac
+fi
+
 # Check Python version
 PYTHON_CMD=""
 if command -v python3 &> /dev/null; then
