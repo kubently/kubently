@@ -153,7 +153,7 @@ ingress:
   enabled: true
   className: nginx
   hosts:
-    - host: api.kubently.com
+    - host: api.kubently.example.com
       paths:
         - path: /
           pathType: Prefix

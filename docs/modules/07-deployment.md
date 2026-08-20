@@ -267,10 +267,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - api.kubently.com
+    - api.kubently.example.com
     secretName: kubently-api-tls
   rules:
-  - host: api.kubently.com
+  - host: api.kubently.example.com
     http:
       paths:
       - path: /
@@ -352,7 +352,7 @@ spec:
         image: kubently/agent:latest
         env:
         - name: KUBENTLY_API_URL
-          value: "https://api.kubently.com"
+          value: "https://api.kubently.example.com"
         - name: CLUSTER_ID
           valueFrom:
             fieldRef:
@@ -498,14 +498,14 @@ ingress:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
   hosts:
-    - host: api.kubently.com
+    - host: api.kubently.example.com
       paths:
         - path: /
           pathType: Prefix
   tls:
     - secretName: kubently-tls
       hosts:
-        - api.kubently.com
+        - api.kubently.example.com
 
 resources:
   api:

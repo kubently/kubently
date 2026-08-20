@@ -169,7 +169,7 @@ kubently debug
 
 # OAuth login
 kubently login
-> Visit: https://auth.kubently.com/device
+> Visit: https://auth.kubently.example.com/device
 > Enter code: ABCD-1234
 > ✓ Authentication successful!
 ```

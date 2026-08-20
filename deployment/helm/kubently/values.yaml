@@ -623,7 +623,7 @@ ingress:
   # tls:
   #   - secretName: kubently-api-tls  # You must create this secret
   #     hosts:
-  #       - api.kubently.com
+  #       - api.kubently.example.com
 
 # Autoscaling Configuration
 autoscaling:
