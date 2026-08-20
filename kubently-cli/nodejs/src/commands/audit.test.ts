@@ -7,7 +7,7 @@
  * arguments containing commas and quotes, and the JSON must round-trip.
  */
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 import { toCsv, parseSince } from './audit.js';
 import { AuditEntry } from '../lib/adminClient.js';
 
@@ -71,22 +71,31 @@ describe('JSON export', () => {
 });
 
 describe('--since parsing', () => {
-  it('accepts relative offsets', () => {
-    const before = Date.now();
-    const parsed = Date.parse(parseSince('2h'));
+  // The clock is frozen rather than sampled. These assertions are about
+  // arithmetic, not timing, and racing a live `Date.now()` made them flaky:
+  // wall-clock time can step backwards on a CI runner under NTP, which is how
+  // `ago('30s')` came back as 29999 and failed `>= 30000`.
+  const NOW = Date.parse('2026-08-20T12:00:00.000Z');
 
-    expect(before - parsed).toBeGreaterThanOrEqual(2 * 3600 * 1000);
-    expect(before - parsed).toBeLessThan(2 * 3600 * 1000 + 5000);
+  beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('accepts relative offsets', () => {
+    expect(parseSince('2h')).toBe('2026-08-20T10:00:00.000Z');
   });
 
   it('accepts every supported unit', () => {
-    // `now` is sampled after each call: sampling it once up front makes the
-    // offset come out a millisecond short and the test flaky.
-    const ago = (spec: string) => Date.now() - Date.parse(parseSince(spec));
+    const ago = (spec: string) => NOW - Date.parse(parseSince(spec));
 
-    expect(ago('30s')).toBeGreaterThanOrEqual(30 * 1000);
-    expect(ago('30m')).toBeGreaterThanOrEqual(30 * 60 * 1000);
-    expect(ago('7d')).toBeGreaterThanOrEqual(7 * 86400 * 1000);
+    expect(ago('30s')).toBe(30 * 1000);
+    expect(ago('30m')).toBe(30 * 60 * 1000);
+    expect(ago('2h')).toBe(2 * 3600 * 1000);
+    expect(ago('7d')).toBe(7 * 86400 * 1000);
   });
 
   it('passes absolute times through as ISO 8601', () => {
