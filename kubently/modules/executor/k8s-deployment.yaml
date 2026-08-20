@@ -81,7 +81,7 @@ spec:
         imagePullPolicy: Always
         env:
         - name: KUBENTLY_API_URL
-          value: "https://api.kubently.com"  # HTTPS by default
+          value: "https://api.kubently.example.com"  # HTTPS by default
         - name: CLUSTER_ID
           value: "production-cluster-1"      # Change to your cluster ID
         - name: KUBENTLY_TOKEN

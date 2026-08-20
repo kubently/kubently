@@ -343,10 +343,10 @@ For multiple domains in external mode:
 ```yaml
 tls:
   external:
-    domain: "api.kubently.com"
+    domain: "api.kubently.example.com"
     additionalDomains:
-      - "api-backup.kubently.com"
-      - "*.kubently.com"
+      - "api-backup.kubently.example.com"
+      - "*.kubently.example.com"
 ```
 
 ### Certificate Pinning

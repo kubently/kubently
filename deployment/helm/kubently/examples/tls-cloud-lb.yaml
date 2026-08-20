@@ -24,7 +24,7 @@
 
 # Step 1: Create ACM certificate (via AWS Console or CLI)
 aws acm request-certificate \
-  --domain-name api.kubently.com \
+  --domain-name api.kubently.example.com \
   --validation-method DNS \
   --region us-east-1
 
@@ -57,7 +57,7 @@ ingress:
     alb.ingress.kubernetes.io/actions.ssl-redirect: '{"Type": "redirect", "RedirectConfig": {"Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301"}}'
 
   hosts:
-    - host: api.kubently.com
+    - host: api.kubently.example.com
       paths:
         - path: /
           pathType: Prefix
@@ -130,7 +130,7 @@ ingress:
     networking.gke.io/v1beta1.FrontendConfig: kubently-frontend-config
 
   hosts:
-    - host: api.kubently.com
+    - host: api.kubently.example.com
       paths:
         - path: /*  # GCP uses /* for all paths
           pathType: ImplementationSpecific
@@ -147,7 +147,7 @@ metadata:
   namespace: kubently
 spec:
   domains:
-    - api.kubently.com
+    - api.kubently.example.com
 
 ---
 # Create FrontendConfig for HTTPS redirect
@@ -175,7 +175,7 @@ spec:
 #    # Wait for Status: Active
 #
 # 5. Access your API:
-#    curl https://api.kubently.com/health
+#    curl https://api.kubently.example.com/health
 
 # Troubleshooting:
 # - AWS: Check ALB target groups have healthy targets

@@ -485,7 +485,7 @@ spec:
         image: kubently/agent:latest
         env:
         - name: KUBENTLY_API_URL
-          value: "https://api.kubently.com"
+          value: "https://api.kubently.example.com"
         - name: CLUSTER_ID
           value: "production-cluster-1"
         - name: KUBENTLY_TOKEN

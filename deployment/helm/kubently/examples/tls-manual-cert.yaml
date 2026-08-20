@@ -48,7 +48,7 @@ ingress:
     nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
 
   hosts:
-    - host: api.kubently.com  # CHANGE THIS to match your certificate CN
+    - host: api.kubently.example.com  # CHANGE THIS to match your certificate CN
       paths:
         - path: /
           pathType: Prefix
@@ -57,7 +57,7 @@ ingress:
   tls:
     - secretName: kubently-api-tls
       hosts:
-        - api.kubently.com  # CHANGE THIS to match your certificate CN
+        - api.kubently.example.com  # CHANGE THIS to match your certificate CN
 
 redis:
   enabled: true
@@ -82,7 +82,7 @@ executor:
 #    helm install kubently ./deployment/helm/kubently -f prod-values.yaml
 #
 # 4. Access your API:
-#    curl https://api.kubently.com/health
+#    curl https://api.kubently.example.com/health
 
 # Certificate renewal:
 # When your certificate expires, update the secret:

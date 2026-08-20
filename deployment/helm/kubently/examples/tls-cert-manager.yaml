@@ -49,7 +49,7 @@ ingress:
     nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
 
   hosts:
-    - host: api.kubently.com  # CHANGE THIS to your domain
+    - host: api.kubently.example.com  # CHANGE THIS to your domain
       paths:
         - path: /
           pathType: Prefix
@@ -58,7 +58,7 @@ ingress:
   tls:
     - secretName: kubently-api-tls
       hosts:
-        - api.kubently.com  # CHANGE THIS to your domain
+        - api.kubently.example.com  # CHANGE THIS to your domain
 
 redis:
   enabled: true
@@ -85,4 +85,4 @@ executor:
 # 5. Wait for READY=True (usually 1-2 minutes)
 #
 # 6. Access your API:
-#    curl https://api.kubently.com/health
+#    curl https://api.kubently.example.com/health

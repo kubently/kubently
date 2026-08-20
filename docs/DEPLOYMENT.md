@@ -524,7 +524,7 @@ kubectl create secret tls kubently-api-tls \
 #   tls:
 #     - secretName: kubently-api-tls
 #       hosts:
-#         - api.kubently.com
+#         - api.kubently.example.com
 ```
 
 ## Monitoring Setup
