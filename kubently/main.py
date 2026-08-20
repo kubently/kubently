@@ -849,7 +849,12 @@ async def execute_command(
         command_id=command["id"],
         session_id=request.session_id,
         cluster_id=request.cluster_id,
-        status=result.get("status", ExecutionStatus.SUCCESS),
+        # CommandResult carries `success: bool` and has no `status` field, so
+        # `result.get("status", …)` always fell through to the default and every
+        # command — including one an executor's read-only RBAC refused — was
+        # reported as a success. RBAC denial is the *expected* failure here, so
+        # that default mislabelled precisely the case callers most need to see.
+        status=ExecutionStatus.SUCCESS if result.get("success") else ExecutionStatus.FAILURE,
         correlation_id=x_correlation_id or request.correlation_id,
         output=result.get("output"),
         error=result.get("error"),
