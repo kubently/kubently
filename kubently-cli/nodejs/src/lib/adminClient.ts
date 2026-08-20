@@ -36,6 +36,34 @@ export interface ClusterListItem {
   lastSeen?: string;
 }
 
+export interface AuditEntry {
+  timestamp: string | null;
+  type: string;
+  service_identity: string | null;
+  cluster_id: string | null;
+  session_id: string | null;
+  command_id: string | null;
+  command: string | null;
+  outcome: string | null;
+  error: string | null;
+  correlation_id: string | null;
+}
+
+export interface AuditResponse {
+  entries: AuditEntry[];
+  count: number;
+  service_identity: string;
+}
+
+export interface AuditQuery {
+  event_type?: string;
+  cluster_id?: string;
+  session_id?: string;
+  since?: string;
+  until?: string;
+  limit?: number;
+}
+
 export interface CommandResult {
   success: boolean;
   output?: string;
@@ -113,6 +141,20 @@ export class KubentlyAdminClient {
       cluster_id: clusterId,
       args,
     });
+    return response.data;
+  }
+
+  /**
+   * Read the audit trail. The API scopes the result to this key's own
+   * identity; there is no parameter that widens it.
+   */
+  async getAudit(params: AuditQuery = {}): Promise<AuditResponse> {
+    // Undefined filters are dropped rather than sent as empty strings, which
+    // the API would treat as a filter matching nothing.
+    const query = Object.fromEntries(
+      Object.entries(params).filter(([, value]) => value !== undefined && value !== '')
+    );
+    const response = await this.client.get('/audit', { params: query });
     return response.data;
   }
 

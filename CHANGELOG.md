@@ -2,7 +2,69 @@
 
 ## [Unreleased] - 2026-08-19
 
+### Added
+- **`kubently audit`: the command audit trail is readable at last (#55).**
+  Kubently executes kubectl against production clusters on an LLM's initiative,
+  and until now the only way to ask what it had run was to open `redis-cli` and
+  read a list by hand. There is now a `kubently audit` subcommand, a read-only
+  `GET /audit` endpoint behind API-key auth, and `docs/AUDIT.md`.
+
+  The issue described the trail as already being recorded and merely
+  unsurfaced. **It was not.** `auth:audit` held authentication events only —
+  `api_key_verified`, `executor_token_created`, `executor_token_revoked` — and
+  nothing anywhere recorded a command. (`SessionModule._publish_event`, which
+  would have written `session:events`, has no callers either.) So surfacing the
+  list would have shipped a `kubently audit` that could show an operator every
+  time a key authenticated and not one command it ran. `/debug/execute` now
+  records a `command_executed` entry — cluster, session, kubectl argv,
+  timestamp, outcome — into the same `auth:audit` list, written after the
+  result is known so the outcome is real.
+
+  **Command output is deliberately not recorded.** The trail says what ran and
+  how it ended, not what came back; errors are kept but truncated to 200
+  characters. Recording kubectl output would put pod logs and ConfigMap
+  contents into a long-retained list readable by every holder of the issuing
+  API key.
+
+  **Reads are scoped by service identity and fail closed.** A caller sees the
+  entries their own identity produced and nothing else: no parameter widens it,
+  no admin identity bypasses it, and naming another identity's cluster or
+  session returns an empty list rather than their commands. Entries carrying no
+  identity are dropped from every read rather than shared with everybody, so a
+  future event type that forgets to stamp an identity becomes invisible instead
+  of becoming public. A key with no service identity (a bare `key` rather than
+  `service:key` in `API_KEYS`) has no scope to filter on and is refused with
+  403 instead of being quietly shown everything.
+
+  Identity scoping is the strongest guarantee available here, and it is worth
+  being precise about what it is not: Kubently has no tenant→cluster ownership
+  model — every valid API key may target every registered cluster — so the
+  trail can answer "the commands you ran" but not "everything that happened to
+  your cluster". `docs/AUDIT.md` says so plainly rather than implying an
+  isolation the authorization layer does not provide.
+
+  Retention is documented from a running deployment rather than asserted:
+  `auth:audit` is capped at the most recent 10,000 events by `LTRIM` and has no
+  TTL (`TTL auth:audit` → `-1`). The doc also records the part that bites — the
+  list is shared with one `api_key_verified` event per authenticated request,
+  so commands are a minority of it and a busy deployment evicts them well
+  before 10,000 commands have run — and that redis-stack's default persistence
+  is `save 3600 1 300 100 60 10000` with `appendonly no`, meaning an ungraceful
+  pod kill can lose everything since the last snapshot.
+
 ### Fixed
+- **A failed kubectl command was recorded as a successful one.** `/debug/execute`
+  derived its status from `result.get("status", ExecutionStatus.SUCCESS)`, but
+  executors post a `CommandResult`, whose model has no `status` field at all —
+  so the lookup always missed and always defaulted to `SUCCESS`. A `kubectl get
+  secrets` that came back `Error from server (Forbidden)` was reported as
+  having succeeded. The new audit entry derives its outcome from `success`, the
+  field that actually exists, so the trail records denials as failures; found by
+  running a real session against a real executor rather than by reading the
+  model. The same defect still affects the `status` field of the
+  `CommandResponse` returned to callers, which is left alone here as a
+  pre-existing bug outside this change's blast radius.
+
 - **`deployment/scripts/test_unified_port.py` asserted three URLs the app has
   never served.** The script exists to prove the single port routes to both the
   admin API and A2A, and three of its five checks were written against assumed

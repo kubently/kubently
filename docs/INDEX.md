@@ -34,6 +34,7 @@
 - **[OAUTH_USAGE.md](OAUTH_USAGE.md)** - OAuth/OIDC login flow for the CLI
 - **[TLS_DEPLOYMENT.md](TLS_DEPLOYMENT.md)** - TLS termination patterns
 - **[MULTI_CLUSTER_TLS.md](MULTI_CLUSTER_TLS.md)** - TLS between remote executors and the central API
+- **[AUDIT.md](AUDIT.md)** - The command audit trail: `kubently audit`, the read API, scoping and retention
 
 ### Operations & Development
 - **[DEVELOPMENT.md](DEVELOPMENT.md)** - Developer guide, testing, and contribution guidelines

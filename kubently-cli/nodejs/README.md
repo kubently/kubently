@@ -17,6 +17,14 @@ A modern, beautiful Node.js/TypeScript implementation of the Kubently CLI - your
 - **Cluster Management**: Add, list, status check, and remove clusters
 - **Token Generation**: Automatic agent token creation and management
 
+### 📜 Audit Trail
+- **`kubently audit`**: See what the agent actually ran — cluster, time, command, outcome
+- **Filters**: By cluster, debug session, and time range (`--since 2h`)
+- **Export**: `--output json` / `--output csv` for compliance evidence
+- **Scoped**: You read the commands your own API key ran, and nothing else
+
+See [docs/AUDIT.md](../../docs/AUDIT.md) for scoping and retention.
+
 ### 🐛 A2A Debug Mode
 - **Interactive Terminal**: Real-time chat interface with the Kubently agent
 - **Natural Language**: Ask questions in plain English
@@ -133,6 +141,7 @@ nodejs-cli/
 │   │   ├── init.ts        # Configuration setup
 │   │   ├── cluster.ts     # Cluster management
 │   │   ├── exec.ts        # Command execution
+│   │   ├── audit.ts       # Audit trail listing and export
 │   │   └── debug.ts       # A2A debug session
 │   └── lib/              # Core libraries
 │       ├── config.ts      # Configuration management

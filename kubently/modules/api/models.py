@@ -524,6 +524,36 @@ class CommandResponse(BaseModel):
     executed_at: datetime | None = Field(None, description="When command was executed")
 
 
+class AuditEntry(BaseModel):
+    """One entry from the audit trail.
+
+    Flat on purpose: `kubently audit --output csv` writes these fields as
+    columns, and a nested shape would force the CLI to invent a flattening
+    rule the API does not define.
+    """
+
+    timestamp: str | None = Field(None, description="When the event was recorded (ISO 8601)")
+    type: str = Field(..., description="Event type, e.g. command_executed")
+    service_identity: str | None = Field(None, description="Identity the entry belongs to")
+    cluster_id: str | None = Field(None, description="Cluster the command targeted")
+    session_id: str | None = Field(None, description="Debug session, if the command had one")
+    command_id: str | None = Field(None, description="Unique command ID")
+    command: str | None = Field(None, description="kubectl arguments that were run")
+    outcome: str | None = Field(None, description="success, failure, or timeout")
+    error: str | None = Field(None, description="Truncated error message, if the command failed")
+    correlation_id: str | None = Field(None, description="Correlation ID for A2A tracing")
+
+
+class AuditResponse(BaseModel):
+    """Response listing audit entries, newest first."""
+
+    entries: list[AuditEntry]
+    count: int
+    # Echoed back so an exported file is self-describing about whose trail it
+    # is -- an audit export with no subject on it is not evidence of much.
+    service_identity: str
+
+
 class HealthResponse(BaseModel):
     """Health check response."""
 

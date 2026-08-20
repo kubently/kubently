@@ -274,6 +274,12 @@ Redis keys used:
 - `agent:token:{cluster_id}`: Dynamic agent tokens
 - `auth:audit`: Security event audit log with correlation IDs
 
+`auth:audit` is shared with the command audit trail: the audit module writes
+`command_executed` entries to the same list, and `GET /audit` reads both back
+scoped to the caller's service identity. The list is capped at the most recent
+10,000 events by `LTRIM` and carries no TTL. See **[AUDIT.md](../AUDIT.md)**
+for the read path, the scoping rule and the retention/durability details.
+
 ## Security Requirements
 
 1. **Constant-time comparison**: Use `secrets.compare_digest()` for all token comparisons
