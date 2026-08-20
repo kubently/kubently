@@ -287,6 +287,69 @@ Authorization: Bearer <api-key>
 
 ---
 
+### Audit Trail
+
+#### GET /audit
+
+Read the command audit trail. **Read-only** -- no method other than `GET` is
+routed at this path, and nothing on it writes, deletes or alters retention.
+
+The response contains only entries produced by the calling key's own service
+identity. There is no parameter that widens that scope and no admin identity
+that bypasses it; requesting a cluster another identity used returns an empty
+list. A key configured without a service identity (a bare `key` rather than
+`service:key` in `API_KEYS`) has no scope to read and receives `403`.
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `event_type` | string | all | Filter to one event type, e.g. `command_executed` |
+| `cluster_id` | string | all | Only entries targeting this cluster |
+| `session_id` | string | all | Only entries from this debug session |
+| `since` | string | unbounded | ISO 8601; only entries at or after this time |
+| `until` | string | unbounded | ISO 8601; only entries at or before this time |
+| `limit` | integer | 100 | Maximum entries to return (1-1000) |
+
+**Response (200 OK):**
+
+```json
+{
+  "entries": [
+    {
+      "timestamp": "2026-08-20T19:25:51.952254+00:00",
+      "type": "command_executed",
+      "service_identity": "team-a",
+      "cluster_id": "prod-a",
+      "session_id": "ba9feb75-1699-4c9b-8d69-67640639c351",
+      "command_id": "23a4976c-fc89-4957-9c9c-339ddaa4aa4b",
+      "command": "get secrets -n default",
+      "outcome": "failure",
+      "error": "Error from server (Forbidden): secrets is forbidden",
+      "correlation_id": null
+    }
+  ],
+  "count": 1,
+  "service_identity": "team-a"
+}
+```
+
+Command output is never included -- the trail records what ran and how it
+ended, not what came back.
+
+**Errors:**
+
+| Status | Meaning |
+| --- | --- |
+| 400 | `since` or `until` is not valid ISO 8601 |
+| 401 | Missing or invalid API key |
+| 403 | API key has no service identity, so its scope cannot be determined |
+
+See **[AUDIT.md](AUDIT.md)** for the `kubently audit` CLI, export formats and
+retention behaviour.
+
+---
+
 ### Agent Endpoints
 
 #### GET /agent/status

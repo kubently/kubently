@@ -8,6 +8,7 @@ import { installCommand } from './commands/install.js';
 import { mcpCommand } from './commands/mcp.js';
 import { clusterCommands } from './commands/cluster.js';
 import { debugCommand } from './commands/debug.js';
+import { auditCommand } from './commands/audit.js';
 import { createLoginCommand } from './commands/login.js';
 import { Config } from './lib/config.js';
 import { runInteractiveMode } from './commands/interactive.js';
@@ -49,7 +50,15 @@ program
   .hook('preAction', (thisCommand) => {
     // Show banner for main commands (not subcommands).
     // Never for `mcp`: an MCP client owns stdout — any stray output corrupts the JSON-RPC stream.
-    if (thisCommand.name() === 'kubently' && process.argv.length > 2 && process.argv[2] !== 'mcp') {
+    // Never for `audit` either: its whole purpose is emitting a record, and
+    // `kubently audit --output json > trail.json` produced a file starting with
+    // ASCII art, which no JSON parser accepts.
+    const stdoutIsData = ['mcp', 'audit'];
+    if (
+      thisCommand.name() === 'kubently' &&
+      process.argv.length > 2 &&
+      !stdoutIsData.includes(process.argv[2])
+    ) {
       showBanner();
     }
     
@@ -80,6 +89,7 @@ program.addCommand(initCommand(config));
 program.addCommand(createLoginCommand());
 program.addCommand(clusterCommands(config));
 program.addCommand(debugCommand(config));
+program.addCommand(auditCommand(config));
 
 // Admin command - direct access to admin operations
 program

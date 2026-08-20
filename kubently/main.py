@@ -22,7 +22,7 @@ from typing import Any
 
 import redis.asyncio as redis
 import uvicorn
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from sse_starlette.sse import EventSourceResponse
@@ -32,6 +32,7 @@ from kubently.logging_config import get_logging_config
 from kubently.modules.a2a import a2a_enabled, create_a2a_server
 from kubently.modules.api import (
     ArgoCDQueryRequest,
+    AuditResponse,
     CommandResponse,
     CommandResult,
     CreateSessionRequest,
@@ -45,6 +46,7 @@ from kubently.modules.api import (
     SessionStatus,
 )
 from kubently.modules.api.oidc_discovery import create_discovery_router
+from kubently.modules.audit import AuditModule
 from kubently.modules.auth.factory import AuthFactory
 from kubently.modules.auth.service import AuthenticationService
 from kubently.modules.capability import CapabilityModule, ExecutorCapabilities
@@ -69,6 +71,7 @@ auth_service: AuthenticationService | None = None
 session_module: SessionModule | None = None
 queue_module: QueueModule | None = None
 capability_module: CapabilityModule | None = None
+audit_module: AuditModule | None = None
 redis_client: redis.Redis | None = None
 a2a_server = None  # A2A server instance
 a2a_app = None  # A2A FastAPI sub-application
@@ -122,6 +125,7 @@ async def lifespan(app: FastAPI):
     Manage application lifecycle - initialize and cleanup resources.
     """
     global auth_service, session_module, queue_module, capability_module, redis_client, a2a_server
+    global audit_module
 
     # Startup
     logger.info("Starting Kubently API  ...")
@@ -139,6 +143,7 @@ async def lifespan(app: FastAPI):
     capability_module = CapabilityModule(
         redis_client, default_ttl=config.get("capability_ttl", 3600)
     )
+    audit_module = AuditModule(redis_client)
 
     # Mount A2A server (core functionality)
     # Get external URL for A2A (for agent card)
@@ -796,6 +801,39 @@ async def execute_command(
     if result and result.get("success") and not request.session_id:
         await redis_client.expire(cluster_active_key, 60)
     # === END OPTIONAL ===
+
+    # Record what ran, where, and how it ended -- but never the output. This is
+    # the only writer of `command_executed` entries; `GET /audit` reads them
+    # back. Recording happens after the result (or the timeout) is known so the
+    # entry carries a real outcome, and never raises: an audit write must not
+    # be able to fail a command that already executed against the cluster.
+    _, caller_identity = auth_info
+    if audit_module:
+        # Outcome comes from `success`, not from `status`. The executor posts a
+        # CommandResult, whose model has no `status` field at all -- so the
+        # `result.get("status", SUCCESS)` used for the HTTP response below
+        # always falls through to "success", and a kubectl call that came back
+        # Forbidden would be filed as a successful one. An audit trail that
+        # records every denied command as succeeded is worse than no trail.
+        if not result:
+            outcome = str(ExecutionStatus.TIMEOUT)
+            error = "Command execution timeout"
+        else:
+            outcome = str(
+                ExecutionStatus.SUCCESS if result.get("success") else ExecutionStatus.FAILURE
+            )
+            error = result.get("error")
+
+        await audit_module.record_command(
+            service_identity=caller_identity,
+            cluster_id=request.cluster_id,
+            command_id=command["id"],
+            args=kubectl_args,
+            session_id=request.session_id,
+            outcome=outcome,
+            error=error,
+            correlation_id=x_correlation_id or request.correlation_id,
+        )
 
     if not result:
         return CommandResponse(
@@ -1531,6 +1569,68 @@ async def get_cluster_detail(
 
 
 # Health/Monitoring Endpoints
+
+
+def _parse_audit_time(value: str | None, field: str) -> datetime | None:
+    """Parse an ISO 8601 query parameter, defaulting a naive value to UTC."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(400, f"Invalid {field}: expected ISO 8601, got '{value}'") from None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+@app.get("/audit", response_model=AuditResponse)
+async def get_audit(
+    event_type: str | None = Query(None, description="Only this event type, e.g. command_executed"),
+    cluster_id: str | None = Query(None, description="Only entries targeting this cluster"),
+    session_id: str | None = Query(None, description="Only entries from this debug session"),
+    since: str | None = Query(None, description="Only entries at or after this ISO 8601 time"),
+    until: str | None = Query(None, description="Only entries at or before this ISO 8601 time"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum entries to return"),
+    auth_info: tuple[bool, str | None] = Depends(verify_api_key),
+):
+    """
+    Read the command audit trail. Read-only.
+
+    This endpoint never writes: it issues a single LRANGE and returns what it
+    finds. There is deliberately no companion POST/PUT/DELETE, and no way to
+    reach the list's TTL or trim behaviour from here -- retention is a property
+    of the deployment (see docs/AUDIT.md), not something a caller may adjust.
+
+    **Scope.** The response contains only entries stamped with the caller's own
+    service identity. There is no parameter that widens that, and no admin
+    identity that bypasses it. A caller who asks for a cluster only somebody
+    else has touched gets an empty list, not somebody else's commands.
+
+    Because scoping keys off the identity, an API key configured without one
+    (a bare `key` rather than `service:key` in API_KEYS) has no scope to read
+    and is refused, rather than being quietly shown everything.
+    """
+    if not audit_module:
+        raise HTTPException(503, "Service not initialized")
+
+    _, identity = auth_info
+    if not identity:
+        raise HTTPException(
+            403,
+            "This API key has no service identity, so its audit scope cannot be "
+            "determined. Configure the key as 'service-name:key' in API_KEYS.",
+        )
+
+    entries = await audit_module.query(
+        identity=identity,
+        event_type=event_type,
+        cluster_id=cluster_id,
+        session_id=session_id,
+        since=_parse_audit_time(since, "since"),
+        until=_parse_audit_time(until, "until"),
+        limit=limit,
+    )
+
+    return AuditResponse(entries=entries, count=len(entries), service_identity=identity)
 
 
 @app.get("/healthz")

@@ -12,6 +12,8 @@ All logic is delegated to appropriate modules.
 from .models import (
     ArgoCDOperation,
     ArgoCDQueryRequest,
+    AuditEntry,
+    AuditResponse,
     CommandResponse,
     CommandResult,
     CreateSessionRequest,
@@ -31,6 +33,8 @@ from .models import (
 __all__ = [
     "ArgoCDOperation",
     "ArgoCDQueryRequest",
+    "AuditEntry",
+    "AuditResponse",
     "CommandResponse",
     "CommandResult",
     "CreateSessionRequest",

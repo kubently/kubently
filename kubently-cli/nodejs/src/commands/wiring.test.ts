@@ -27,6 +27,7 @@ import { initCommand } from './init.js';
 import { installCommand } from './install.js';
 import { clusterCommands } from './cluster.js';
 import { debugCommand } from './debug.js';
+import { auditCommand } from './audit.js';
 import { execCommand } from './exec.js';
 import { createLoginCommand } from './login.js';
 import { Config } from '../lib/config.js';
@@ -45,6 +46,7 @@ describe('command factories', () => {
     ['install', () => installCommand(config)],
     ['cluster', () => clusterCommands(config)],
     ['debug', () => debugCommand(config)],
+    ['audit', () => auditCommand(config)],
     ['exec', () => execCommand(config)],
     ['login', () => createLoginCommand()],
   ];
@@ -93,8 +95,37 @@ describe('root program wiring', () => {
     program.addCommand(mcpCommand(config));
     program.addCommand(initCommand(config));
     program.addCommand(clusterCommands(config));
+    program.addCommand(auditCommand(config));
 
-    expect(program.commands.map((c) => c.name()).sort()).toEqual(['cluster', 'init', 'mcp']);
+    expect(program.commands.map((c) => c.name()).sort()).toEqual([
+      'audit',
+      'cluster',
+      'init',
+      'mcp',
+    ]);
+  });
+
+  it('parses the audit filter flags into the keys the handler reads', () => {
+    // The action reads opts.cluster / opts.session / opts.since / opts.limit /
+    // opts.output. A rename in commander's derivation turns each into
+    // undefined, which silently drops the filter and exports the wrong scope.
+    const cmd = auditCommand(config);
+    cmd.action(() => {});
+    cmd.parse(
+      ['--cluster', 'prod-a', '--session', 's1', '--since', '2h', '--limit', '5', '--output', 'csv'],
+      { from: 'user' }
+    );
+
+    const opts = cmd.opts();
+    expect(opts.cluster).toBe('prod-a');
+    expect(opts.session).toBe('s1');
+    expect(opts.since).toBe('2h');
+    expect(opts.limit).toBe('5');
+    expect(opts.output).toBe('csv');
+  });
+
+  it('defaults audit output to the human-readable table', () => {
+    expect(auditCommand(config).opts().output).toBe('table');
   });
 
   it('maps --a2a-path to opts.a2aPath and defaults --debug to false', () => {
