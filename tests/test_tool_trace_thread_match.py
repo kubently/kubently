@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Tool-call tracing: the recording side and the query side must agree.
 
-The agent records tool calls under the caller-namespaced thread id; the A2A
-executor queries the interceptor for them to emit "🔧 Tool Call" stream events,
-which test-automation parses. The interceptor matches thread_id by EXACT
-equality, so if one side namespaces and the other doesn't, the lookup silently
-returns [] — no error, just permanently missing tool visibility.
+Tool calls are recorded under the CALLER-NAMESPACED thread id. The interceptor
+matches thread_id by EXACT equality, so if the side that records and the side
+that queries disagree, the lookup silently returns [] — no error, just
+permanently missing tool visibility. That regression shipped once (the agent
+namespaced, the A2A executor still queried the raw contextId).
 
-That regression shipped once (agent namespaced, executor still queried the raw
-contextId). These tests pin both halves.
+Since #115 both halves live in `agent.run()`: it namespaces the id, stores it
+on `current_thread_id` for the tools to record under, and drains the
+interceptor with that same variable as the graph streams. So the guard is now
+that the query keeps using that variable — an executor that starts polling the
+interceptor again on its own is how the two sides drift apart a second time.
 """
 
 import re
@@ -24,26 +27,32 @@ AGENT_SRC = (A2A / "agent.py").read_text()
 EXECUTOR_SRC = (A2A / "agent_executor.py").read_text()
 
 
-def test_executor_queries_with_namespaced_thread_id():
+def test_the_query_uses_the_same_variable_the_recording_side_was_given():
     """Every get_tool_calls_for_thread call must use the namespaced id, never
     the raw client-supplied contextId."""
     calls = re.findall(
-        r"get_tool_calls_for_thread\(\s*([A-Za-z_][A-Za-z0-9_]*)", EXECUTOR_SRC
+        r"get_tool_calls_for_thread\(\s*([A-Za-z_][A-Za-z0-9_]*)", AGENT_SRC
     )
-    assert calls, "expected interceptor queries in agent_executor"
+    assert calls, "expected interceptor queries in agent.run()"
     for arg in calls:
-        assert arg != "contextId", (
-            "agent_executor queries the interceptor with the raw contextId, but the "
-            "agent records under the namespaced thread id — tool call events will "
-            "silently never be emitted"
+        assert arg == "thread_id", (
+            f"the interceptor is queried with {arg!r}, but tool calls are recorded "
+            "under `thread_id` (the namespaced one) — the lookup will silently "
+            "return [] and tool visibility disappears"
         )
-        assert arg == "traceThreadId", f"unexpected thread id argument: {arg}"
 
 
-def test_executor_derives_trace_id_from_the_same_helper():
-    """Both sides must derive the namespace from one function, so they can't drift."""
-    assert "_namespaced_thread_id" in EXECUTOR_SRC
-    assert "traceThreadId = _namespaced_thread_id(contextId)" in EXECUTOR_SRC
+def test_the_executor_does_not_poll_the_interceptor_behind_the_agents_back():
+    """A second query site is how the two halves drifted apart the first time.
+
+    The executor renders what `agent.run()` yields; it must not go looking for
+    tool calls itself, which would need its own copy of the namespacing rule
+    (and would reintroduce tool calls arriving after the answer, #115)."""
+    assert "get_tool_calls_for_thread" not in EXECUTOR_SRC
+    assert "🔧 Tool Call:" not in EXECUTOR_SRC, (
+        "the executor is formatting tool calls again; the text lives in agent.py "
+        "next to the structured event so the two cannot disagree"
+    )
 
 
 def test_agent_records_under_namespaced_id():

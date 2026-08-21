@@ -1,5 +1,68 @@
 # Changelog
 
+## [Unreleased] - 2026-08-21
+
+### Changed
+- **The A2A stream narrates the investigation instead of replaying it (#115).**
+  `agent.run()` awaited `run_agent.ainvoke(...)` and yielded exactly once, at
+  the end. Every `message/stream` subscriber therefore saw the same thing: a
+  `task` event, a long quiet stretch held open only by sse_starlette's
+  keepalive comments, the ENTIRE answer in one `working` frame, and then — after
+  the answer they informed — the tool calls. The connection streamed; the
+  content did not, which is the same experience as no streaming at all plus a
+  longer-lived socket.
+
+  `run()` now drives the same graph with LangGraph's `astream_events`, so the
+  model's text reaches the client as it is produced and each tool call is
+  published the moment it finishes, in the order it ran. **Nothing about what
+  the agent may run changed** — same tools, same permissions, same single graph
+  invocation per request (streaming a diagnosis must not turn it into several
+  billable ones).
+
+  Frames are cut at newline boundaries and the newline they were cut on is
+  dropped, because A2A has no "append without a separator" semantics and
+  consumers join consecutive `working` texts with a newline. The join therefore
+  reconstructs the model's output character for character, which is what let
+  this land without touching a single existing consumer.
+
+### Added
+- **A structured tool-call event, alongside the text that was the protocol
+  (#115).** Nothing emitted a typed tool-call event; the executor wrote
+  `🔧 Tool Call: name({json})` / `✅ Result:` / `❌ Error:` onto a `working`
+  status and that prose *was* the contract, so any consumer wanting to show
+  what the agent ran had to parse it, and a cosmetic change to those strings
+  silently broke all of them.
+
+  A `working` status carrying a tool call now also carries
+  `metadata["kubently/tool_call"]` — `{schema, id, tool, args, outcome, result,
+  error, startedAt, completedAt}` — on both the status update and its message.
+  `schema` is `kubently.tool_call/v1`; a consumer that does not recognise it
+  should fall back to the text.
+
+  **The text is unchanged, byte for byte, on the same frame.** This is additive,
+  not a replacement: kubently-cloud's `dashboard/lib/stream.ts` and
+  `test-automation/test_runner.py` keep parsing exactly what they parsed
+  before, and can adopt the typed fields whenever they like.
+
+  `outcome` is derived from whether the tool *reported an error*, never from a
+  `status` key inside the tool's own payload — that is the #113 bug, where an
+  absent status defaulted to SUCCESS and every denied command was reported as a
+  success.
+
+### Fixed
+- **A run that dies mid-stream now reaches a terminal `failed` status (#115).**
+  The A2A executor caught an exception from the agent loop, put "I encountered
+  an error…" in the artifact and then emitted `completed` — so a subscriber
+  could not tell a dead run from a real answer. Failures (an exception, or an
+  `error` chunk from the agent) now terminate as `failed` with the reason on
+  the terminal status message. The tool calls that *did* run are published
+  first, so a partial investigation still shows how far it got.
+- **The incident-history trace looked up tool calls under the wrong thread id.**
+  It queried the interceptor with `actual_thread_id`, which is a fresh UUID
+  when a turn arrives with no `contextId`, while tools record under
+  `thread_id`. The lookup silently returned `[]` and the incident was recorded
+  with no commands on it.
+
 ## [Unreleased] - 2026-08-19
 
 ### Added

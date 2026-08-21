@@ -564,10 +564,14 @@ class TestAgentExecutorEventSequence:
 
     @pytest.mark.asyncio
     async def test_agent_failure_still_closes_the_stream(self):
-        """An agent crash must still yield a final artifact + completed status.
+        """An agent crash must still yield a final artifact + a TERMINAL status.
 
         Without this the client sees a half-open stream and waits forever, which
         is a worse failure mode than an error message.
+
+        The terminal state is `failed`, not `completed` (#115): a crashed run
+        used to end with `completed` carrying "I encountered an error…" in the
+        artifact, which a subscriber cannot tell apart from a real answer.
         """
         from a2a.types import TaskArtifactUpdateEvent, TaskState, TaskStatusUpdateEvent
         from kubently.modules.a2a.protocol_bindings.a2a_server.agent_executor import (
@@ -594,8 +598,10 @@ class TestAgentExecutorEventSequence:
         assert "llm unreachable" in artifacts[0].artifact.parts[0].text
 
         assert isinstance(events[-1], TaskStatusUpdateEvent)
-        assert events[-1].status.state == TaskState.TASK_STATE_COMPLETED
+        assert events[-1].status.state == TaskState.TASK_STATE_FAILED
         assert events[-1].status.state in _stream_ending_states()
+        # The reason is on the terminal status, where a client looks for it.
+        assert "llm unreachable" in events[-1].status.message.parts[0].text
 
 
 # =============================================================================
