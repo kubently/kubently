@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import re
@@ -133,14 +132,12 @@ class KubentlyAgentExecutor(AgentExecutor):
 
         logger.info(f"Using contextId: {contextId}, cluster_id: {cluster_id}")
 
-        # Tool calls are recorded by the agent under the CALLER-NAMESPACED thread
-        # id (see agent._namespaced_thread_id), so the interceptor must be queried
-        # with the same value — matching is exact equality. Querying the raw
-        # contextId silently returns [] and the "🔧 Tool Call" stream events
-        # (which test-automation parses) vanish.
-        from .agent import _namespaced_thread_id
-
-        traceThreadId = _namespaced_thread_id(contextId)
+        # Tool-call events are no longer polled here. They are drained inside
+        # agent.run(), under the CALLER-NAMESPACED thread id it already holds
+        # (agent._namespaced_thread_id), and yielded as `tool_call` chunks.
+        # That is what makes them arrive BEFORE the answer they informed (#115),
+        # and it removes the split-brain that made #63's silent-empty-result
+        # possible: recording and querying now use one variable in one file.
 
         # Let the agent handle all queries including cluster discovery
         # The agent's memory and prompt will maintain context properly
@@ -176,12 +173,10 @@ class KubentlyAgentExecutor(AgentExecutor):
 
         # Stream results from the agent with error handling
         full_response = []
-        last_tool_check_time = None
-
-        # Import the interceptor
-        from .tool_call_interceptor import get_tool_call_interceptor
-
-        interceptor = get_tool_call_interceptor()
+        # Set when the agent reports a failure. A run that dies must reach a
+        # terminal `failed` status, not a `completed` one carrying an apology
+        # as if it were an answer — a subscriber cannot tell those apart.
+        failure: str | None = None
 
         try:
             logger.info(
@@ -190,102 +185,61 @@ class KubentlyAgentExecutor(AgentExecutor):
             chunk_count = 0
             async for chunk in self.agent.run(messages, thread_id=contextId, cluster_id=cluster_id):
                 chunk_count += 1
-                # Chunk is a dict, extract content for logging
-                chunk_str = str(chunk)[:100] if chunk else "EMPTY"
-                logger.info(f"Received chunk {chunk_count}: {chunk_str}")
-                # Extract content from chunk dict
-                chunk_content = chunk.get("content", "") if isinstance(chunk, dict) else str(chunk)
+                if not isinstance(chunk, dict):
+                    chunk = {"type": "message", "content": str(chunk)}
+                chunk_type = chunk.get("type") or "message"
+                chunk_content = chunk.get("content") or ""
+
+                if chunk_type == "token":
+                    # A fragment of the answer as the model produces it. It is
+                    # NOT accumulated into full_response: the agent sends the
+                    # whole answer once more as a `message` chunk, and that is
+                    # what the artifact is built from.
+                    await self._emit_working(
+                        event_queue, task, chunk_content, {"kubently/event": "token"}
+                    )
+                    continue
+
+                if chunk_type == "tool_call":
+                    # Two renderings of the same call: the legacy prose (which
+                    # is what every deployed consumer parses today) on the text
+                    # part, and the typed event in metadata for consumers that
+                    # would rather read fields than regexes (#115).
+                    logger.info(f"Tool call chunk {chunk_count}: {chunk_content[:120]}")
+                    await self._emit_working(
+                        event_queue,
+                        task,
+                        chunk_content,
+                        {
+                            "kubently/event": "tool_call",
+                            "kubently/tool_call": chunk.get("tool_call") or {},
+                        },
+                    )
+                    continue
+
+                logger.info(f"Received chunk {chunk_count} ({chunk_type}): {chunk_content[:100]}")
                 full_response.append(chunk_content)
+                if chunk_type == "error":
+                    failure = chunk_content
 
-                # Send streaming update
-                await event_queue.enqueue_event(
-                    TaskStatusUpdateEvent(
-                        status=TaskStatus(
-                            state=TaskState.TASK_STATE_WORKING,
-                            message=new_text_message(
-                                chunk_content,
-                                context_id=task.context_id,
-                                task_id=task.id,
-                            ),
-                        ),
-                        context_id=task.context_id,
-                        task_id=task.id,
+                # An answer already delivered as token frames is not repeated
+                # here — it goes out once more only as the final artifact.
+                if not (chunk.get("metadata") or {}).get("streamed"):
+                    await self._emit_working(
+                        event_queue, task, chunk_content, {"kubently/event": chunk_type}
                     )
-                )
-
-                # Check for new tool calls periodically
-                from datetime import datetime
-
-                current_time = datetime.now().isoformat()
-                if last_tool_check_time is None or last_tool_check_time < current_time:
-                    # Get tool calls since last check
-                    tool_calls = await interceptor.get_tool_calls_for_thread(
-                        traceThreadId, since_timestamp=last_tool_check_time
-                    )
-
-                    # Emit tool call events
-                    for tool_call in tool_calls:
-                        # Create a custom event for tool calls
-                        # Since A2A doesn't have a specific tool call event, we'll use TaskStatusUpdateEvent
-                        # with metadata in the message
-                        tool_message = f"🔧 Tool Call: {tool_call['tool_name']}({json.dumps(tool_call.get('args', {}), indent=2)})"
-                        if tool_call.get("status") == "completed" and tool_call.get("result"):
-                            tool_message += f"\n✅ Result: {tool_call['result'][:500]}..."
-                        elif tool_call.get("error"):
-                            tool_message += f"\n❌ Error: {tool_call['error']}"
-
-                        await event_queue.enqueue_event(
-                            TaskStatusUpdateEvent(
-                                status=TaskStatus(
-                                    state=TaskState.TASK_STATE_WORKING,
-                                    message=new_text_message(
-                                        tool_message,
-                                        context_id=task.context_id,
-                                        task_id=task.id,
-                                    ),
-                                ),
-                                context_id=task.context_id,
-                                task_id=task.id,
-                            )
-                        )
-
-                    last_tool_check_time = current_time
 
             # Send final result
             final_response = "\n".join(full_response)
             logger.info(
                 f"Agent execution completed. Chunks: {chunk_count}, Response: '{final_response[:200]}'"
             )
-
-            # Emit any remaining tool calls
-            final_tool_calls = await interceptor.get_tool_calls_for_thread(
-                traceThreadId, since_timestamp=last_tool_check_time
-            )
-            for tool_call in final_tool_calls:
-                tool_message = f"🔧 Tool Call: {tool_call['tool_name']}({json.dumps(tool_call.get('args', {}), indent=2)})"
-                if tool_call.get("status") == "completed" and tool_call.get("result"):
-                    tool_message += f"\n✅ Result: {tool_call['result'][:500]}..."
-                elif tool_call.get("error"):
-                    tool_message += f"\n❌ Error: {tool_call['error']}"
-
-                await event_queue.enqueue_event(
-                    TaskStatusUpdateEvent(
-                        status=TaskStatus(
-                            state=TaskState.TASK_STATE_WORKING,
-                            message=new_text_message(
-                                tool_message,
-                                context_id=task.context_id,
-                                task_id=task.id,
-                            ),
-                        ),
-                        context_id=task.context_id,
-                        task_id=task.id,
-                    )
-                )
         except Exception as e:
             error_msg = f"Agent execution failed: {e!s}\n{traceback.format_exc()}"
             logger.error(error_msg)
             final_response = f"I encountered an error while processing your request: {e!s}"
+            failure = final_response
+
         await event_queue.enqueue_event(
             TaskArtifactUpdateEvent(
                 append=False,
@@ -300,10 +254,27 @@ class KubentlyAgentExecutor(AgentExecutor):
             )
         )
 
-        # Mark task as complete. a2a-sdk 1.x dropped TaskStatusUpdateEvent.final:
-        # the stream ends when a terminal TaskState is emitted, and the v0.3
-        # compatibility layer re-derives `final: true` from that for old clients.
-        # So a terminal state here is the only thing keeping clients from hanging.
+        # Terminal state. a2a-sdk 1.x dropped TaskStatusUpdateEvent.final: the
+        # stream ends when a terminal TaskState is emitted, and the v0.3
+        # compatibility layer re-derives `final: true` from that for old
+        # clients. So a terminal state here is the only thing keeping clients
+        # from hanging — which is why the failure path emits one too, rather
+        # than reporting a dead run as `completed`.
+        if failure:
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    status=TaskStatus(
+                        state=TaskState.TASK_STATE_FAILED,
+                        message=new_text_message(
+                            failure, context_id=task.context_id, task_id=task.id
+                        ),
+                    ),
+                    context_id=task.context_id,
+                    task_id=task.id,
+                )
+            )
+            return
+
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
                 status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED),
@@ -311,6 +282,37 @@ class KubentlyAgentExecutor(AgentExecutor):
                 task_id=task.id,
             )
         )
+
+    async def _emit_working(
+        self,
+        event_queue: EventQueue,
+        task,
+        text: str,
+        metadata: dict | None = None,
+    ) -> None:
+        """One `working` status carrying text and, optionally, a typed event.
+
+        A2A has no tool-call event type, so structured events ride in the
+        `metadata` Struct on both the status update and its message (consumers
+        read one or the other depending on which layer they parse). The text
+        part is unchanged from what this executor always wrote, so nothing that
+        reads only text notices the addition.
+        """
+        if not text:
+            # An empty text part is a frame a consumer has to skip anyway, and
+            # one that a "\n"-joining consumer would turn into a stray newline.
+            return
+        message = new_text_message(text, context_id=task.context_id, task_id=task.id)
+        if metadata:
+            message.metadata.update(metadata)
+        event = TaskStatusUpdateEvent(
+            status=TaskStatus(state=TaskState.TASK_STATE_WORKING, message=message),
+            context_id=task.context_id,
+            task_id=task.id,
+        )
+        if metadata:
+            event.metadata.update(metadata)
+        await event_queue.enqueue_event(event)
 
     @override
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:

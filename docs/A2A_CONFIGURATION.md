@@ -154,6 +154,73 @@ curl -X POST http://localhost:8080/a2a/ \
 
 See `docs/TEST_QUERIES.md` for complete examples and message formats.
 
+### What `message/stream` emits
+
+The stream is SSE. A subscriber sees, in this order:
+
+```
+task                                    immediately
+status-update  working                  the model's text, as it is produced
+status-update  working  (tool call)     each tool call, when it finishes
+status-update  working                  more text ...
+artifact-update         debug_result    the whole answer, authoritative
+status-update  completed | failed       terminal; the stream ends here
+```
+
+Tool calls arrive **before** the answer they informed, in the order the agent
+ran them.
+
+**Text frames.** The answer is split across `working` statuses at newline
+boundaries, and the newline a frame was cut on is *not* included in the frame.
+Join consecutive `working` texts with `"\n"` and you have the model's output
+character for character. The final `artifact-update` carries the whole answer
+and is authoritative -- replace what you accumulated with it rather than
+appending to it.
+
+**Tool calls.** A `working` status for a tool call carries two renderings of
+the same facts. The text part is the original prose:
+
+```
+🔧 Tool Call: execute_kubectl({
+  "cluster_id": "prod-1",
+  "command": "get pods -n checkout"
+})
+✅ Result: checkout-7d9  0/1  CrashLoopBackOff  5  2m...
+```
+
+and `metadata` -- on the status update *and* on its message -- carries the same
+call as typed fields:
+
+```json
+"metadata": {
+  "kubently/event": "tool_call",
+  "kubently/tool_call": {
+    "schema": "kubently.tool_call/v1",
+    "id": "tc_1758...",
+    "tool": "execute_kubectl",
+    "args": {"cluster_id": "prod-1", "command": "get pods -n checkout"},
+    "outcome": "ok",
+    "result": "checkout-7d9  0/1  CrashLoopBackOff  5  2m",
+    "startedAt": "2026-08-21T10:14:07.921000",
+    "completedAt": "2026-08-21T10:14:09.104000"
+  }
+}
+```
+
+Prefer the metadata: it is typed, whereas the text is prose that a formatting
+change can break. `outcome` is `ok` or `error`, or **absent** when the call
+never reported one -- render that as unknown rather than guessing. Ignore a
+`kubently/tool_call` whose `schema` you do not recognise and fall back to the
+text, which is not going away.
+
+Other `working` statuses carry `"kubently/event": "token"` (a fragment of the
+answer), or `"message"` / `"error"`. Treat an unknown `kubently/event` as text.
+
+**Terminal states.** `completed` means the artifact is a whole answer. `failed`
+means the run died -- its status message is the reason, not an answer. A stream
+that ends without a terminal state was dropped in transit, and what you have is
+a fragment.
+
 ### Verifying A2A Configuration
 
 Check the agent card endpoint:

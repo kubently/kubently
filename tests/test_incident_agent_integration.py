@@ -36,15 +36,31 @@ RCA_ANSWER = (
 
 
 class FakeGraph:
-    """Stands in for the compiled deepagents graph."""
+    """Stands in for the compiled deepagents graph.
+
+    run() drives the graph with `astream_events` (#115), so the fake emits the
+    minimum event stream that carries a final state: the root chain's start and
+    its matching end. Everything incident history needs — the answer, and the
+    payload the model was handed — is in there.
+    """
 
     def __init__(self, answer: str):
         self.answer = answer
         self.invocations = []
 
-    async def ainvoke(self, payload, config=None):
+    def astream_events(self, payload, config=None, version=None):
         self.invocations.append(payload)
-        return {"messages": [AIMessage(content=self.answer)]}
+        answer = self.answer
+
+        async def events():
+            yield {"event": "on_chain_start", "run_id": "root", "data": {}}
+            yield {
+                "event": "on_chain_end",
+                "run_id": "root",
+                "data": {"output": {"messages": [AIMessage(content=answer)]}},
+            }
+
+        return events()
 
 
 def make_agent(redis, answer=RCA_ANSWER, incidents=True) -> KubentlyAgent:

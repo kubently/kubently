@@ -108,6 +108,140 @@ def _namespaced_thread_id(thread_id: str | None) -> str | None:
     return f"{caller}:{thread_id}"
 
 
+# --------------------------------------------------------------- streaming
+#
+# The agent's answer reaches A2A consumers as a run of `working` status
+# messages. A2A has no "append this fragment without a separator" semantics,
+# and consumers join consecutive status texts with a newline (kubently-cloud's
+# dashboard/lib/stream.ts does exactly that). So model deltas are buffered and
+# cut at newline boundaries, and the newline a frame was cut on is dropped from
+# the frame: the consumer's join puts it back, and the reconstruction is
+# character-for-character what the model produced. That is what lets token
+# streaming be added WITHOUT touching any existing consumer.
+#
+# TOKEN_FRAME_MAX_CHARS bounds how long a single unbroken line may buffer
+# before it is flushed anyway, so time-to-first-text never depends on the model
+# choosing to emit a newline.
+TOKEN_FRAME_MAX_CHARS = 400
+
+# Version tag on the structured tool-call event. Consumers should ignore an
+# event whose schema they do not recognise and fall back to the plain-text
+# rendering, which is emitted alongside it and is not going away.
+TOOL_EVENT_SCHEMA = "kubently.tool_call/v1"
+
+
+def _delta_text(chunk) -> str:
+    """The plain text of one `on_chat_model_stream` chunk.
+
+    langchain 1.x (and Anthropic in particular) hands back a list of content
+    blocks mid-stream: text deltas interleaved with tool-call argument deltas
+    and, on reasoning models, thinking. Only the text is the answer — the rest
+    is machinery and must never reach the user as prose.
+    """
+    content = getattr(chunk, "content", None)
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    out = []
+    for block in content:
+        if isinstance(block, str):
+            out.append(block)
+        elif isinstance(block, dict) and block.get("type") in (None, "text", "text_delta"):
+            text = block.get("text")
+            if isinstance(text, str):
+                out.append(text)
+    return "".join(out)
+
+
+def _token_frames(buffer: str, force: bool = False) -> tuple[list[str], str]:
+    """Cut a buffer of model deltas into wire frames.
+
+    Returns the frames ready to send and whatever is left buffered. See the
+    TOKEN_FRAME_MAX_CHARS comment above for why frames are newline-aligned and
+    why the newline itself is dropped.
+    """
+    frames: list[str] = []
+    while buffer:
+        newline = buffer.rfind("\n")
+        if newline > 0:
+            frames.append(buffer[:newline])
+            buffer = buffer[newline + 1 :]
+            continue
+        if len(buffer) > TOKEN_FRAME_MAX_CHARS:
+            cut = buffer.rfind(" ", 1, TOKEN_FRAME_MAX_CHARS)
+            cut = cut + 1 if cut > 0 else TOKEN_FRAME_MAX_CHARS
+            frames.append(buffer[:cut])
+            buffer = buffer[cut:]
+            continue
+        break
+    if force and buffer:
+        frames.append(buffer)
+        buffer = ""
+    return frames, buffer
+
+
+def _jsonable(value):
+    """A value protobuf's Struct will accept (A2A metadata is a Struct)."""
+    try:
+        return json.loads(json.dumps(value, default=str))
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _tool_event(record: dict) -> dict:
+    """One interceptor record as the structured tool-call event (#115).
+
+    Consumers have had to parse the "🔧 Tool Call: name({json})" prose because
+    it was the only tool-call protocol there was. These are the same facts as
+    typed fields, carried in A2A metadata alongside that text rather than
+    instead of it.
+
+    `outcome` is derived from whether the tool REPORTED an error — never from a
+    `status` key inside the tool's own payload. That distinction is #113: on
+    /debug/execute an absent `status` defaulted to SUCCESS and every denied
+    command was reported as having succeeded.
+    """
+    outcome = {"completed": "ok", "error": "error"}.get(record.get("status"))
+    args = record.get("args")
+    event = {
+        "schema": TOOL_EVENT_SCHEMA,
+        "id": record.get("id") or "",
+        "tool": record.get("tool_name") or "tool",
+        "args": _jsonable(args) if isinstance(args, dict) else {},
+    }
+    if record.get("timestamp"):
+        event["startedAt"] = record["timestamp"]
+    # Absent outcome means the call never reported one; a consumer must render
+    # that as "unknown", not guess a tick or a cross.
+    if outcome:
+        event["outcome"] = outcome
+    if record.get("result"):
+        event["result"] = str(record["result"])
+    if record.get("error"):
+        event["error"] = str(record["error"])
+    if record.get("completed_at"):
+        event["completedAt"] = record["completed_at"]
+    return event
+
+
+def _tool_event_text(record: dict) -> str:
+    """The legacy plain-text rendering of a tool call.
+
+    Byte-for-byte what the A2A executor used to write onto a `working` status.
+    It stays because it is the tool-call protocol every deployed consumer has
+    (kubently-cloud's stream.ts, test-automation's analyzer); the structured
+    event above is additive, so an old client keeps working unchanged.
+    """
+    args = record.get("args") if isinstance(record.get("args"), dict) else {}
+    text = f"🔧 Tool Call: {record.get('tool_name')}({json.dumps(args, indent=2, default=str)})"
+    if record.get("status") == "completed" and record.get("result"):
+        text += f"\n✅ Result: {str(record['result'])[:500]}..."
+    elif record.get("error"):
+        text += f"\n❌ Error: {record['error']}"
+    return text
+
+
 def _posthog_llm_callbacks():
     """PostHog LLM observability, opt-in via POSTHOG_API_KEY.
 
@@ -450,8 +584,8 @@ class KubentlyAgent:
         # Build a deep agent (deepagents 0.6.x). Beyond a plain ReAct loop this gives
         # the model a built-in planning tool (write_todos via TodoListMiddleware), a
         # virtual filesystem, and sub-agent support — better suited to multi-step
-        # Kubernetes debugging. Returns a CompiledStateGraph, so the existing
-        # `self.agent.ainvoke({"messages": ...}, config)` call in run() is unchanged.
+        # Kubernetes debugging. Returns a CompiledStateGraph, so run() can drive
+        # it with `astream_events` and get token/tool events for free.
         # Only attach the Redis checkpointer if we have a connection for shared state.
         self.agent = create_deep_agent(
             self.llm,
@@ -1578,7 +1712,24 @@ class KubentlyAgent:
         cluster_id: str | None = None,
         mcp_servers: list | None = None,
     ) -> AsyncIterable[dict]:
-        """Run the agent and stream responses.
+        """Run the agent, streaming what it is doing as it does it.
+
+        Yields dicts, in the order the events actually happened:
+
+            {"type": "token",     "content": <fragment of the answer>}
+            {"type": "tool_call", "content": <legacy "🔧 Tool Call:" text>,
+                                  "tool_call": {schema, id, tool, args,
+                                                outcome, result, error, ...}}
+            {"type": "message",   "content": <the whole answer>,
+                                  "metadata": {"streamed": bool, ...}}
+            {"type": "error",     "content": <what went wrong>}
+
+        Before #115 this awaited `ainvoke` and yielded exactly once at the end,
+        so every consumer saw a long silence, then the whole answer in one
+        frame, then the tool calls AFTER the answer they informed. `token` and
+        `tool_call` are new; `message` and `error` are unchanged, and the
+        legacy text on `tool_call` is byte-for-byte what the A2A executor used
+        to write, so a consumer that ignores the new types still works.
 
         Args:
             messages: User messages to process
@@ -1787,9 +1938,123 @@ class KubentlyAgent:
             }
         )
 
+        # Tool-call events are drained from the interceptor as the graph runs.
+        # The interceptor — not LangGraph's own on_tool_* events — stays the
+        # source of truth for WHICH calls are user-visible: a tool is visible
+        # precisely when it calls record_tool_call, which is the existing
+        # contract and is what keeps deepagents' internal bookkeeping (planning
+        # todos, the virtual filesystem) out of the user's transcript. What
+        # changes here is WHEN: a call is streamed the moment it finishes, so
+        # it reaches the client BEFORE the answer it informed instead of after.
+        #
+        # Queried with `thread_id`, the same variable current_thread_id was set
+        # from above, so the recording side and the query side cannot drift
+        # (they used to live in different files — see tests/
+        # test_tool_trace_thread_match.py).
+        interceptor = get_tool_call_interceptor()
+        emitted_tool_calls: set[str] = set()
+
+        async def pending_tool_events(include_unfinished: bool = False) -> list[dict]:
+            """Interceptor records for this turn not yet streamed to the client."""
+            fresh = []
+            for record in await interceptor.get_tool_calls_for_thread(thread_id):
+                call_id = record.get("id")
+                if call_id in emitted_tool_calls:
+                    continue
+                if not include_unfinished and record.get("status") == "started":
+                    continue
+                emitted_tool_calls.add(call_id)
+                fresh.append(dict(record))
+            return fresh
+
+        def tool_chunk(record: dict) -> dict:
+            return {
+                "type": "tool_call",
+                # Legacy prose, unchanged, so existing consumers keep parsing.
+                "content": _tool_event_text(record),
+                # The same facts as typed fields (#115).
+                "tool_call": _tool_event(record),
+                "metadata": {"thread_id": actual_thread_id},
+            }
+
         try:
-            # Run the single agent (per-request variant when MCP servers were injected)
-            result = await run_agent.ainvoke({"messages": lc_messages}, config=config)
+            # astream_events instead of ainvoke (#115): the SAME graph, the same
+            # tools, the same single LLM run — the only difference is that its
+            # token and tool events surface while the investigation happens
+            # rather than after it. Nothing here re-invokes the graph, so one
+            # A2A request is still exactly one diagnosis (billing parity with
+            # message/send is a hard constraint downstream).
+            result: dict | None = None
+            root_run_id = None
+            answer_stream = ""  # text of the LAST model turn: the answer itself
+            buffer = ""
+
+            async for event in run_agent.astream_events(
+                {"messages": lc_messages}, config=config, version="v2"
+            ):
+                kind = event.get("event")
+                if root_run_id is None and kind == "on_chain_start":
+                    # First event of the stream is the root graph's start; its
+                    # matching on_chain_end carries the final state, which is
+                    # exactly what ainvoke() used to return.
+                    root_run_id = event.get("run_id")
+
+                if kind == "on_chat_model_stream":
+                    delta = _delta_text((event.get("data") or {}).get("chunk"))
+                    if delta:
+                        answer_stream += delta
+                        buffer += delta
+                        frames, buffer = _token_frames(buffer)
+                        for frame in frames:
+                            yield {
+                                "type": "token",
+                                "content": frame,
+                                "metadata": {"thread_id": actual_thread_id},
+                            }
+                elif kind == "on_chat_model_start":
+                    # A new model turn begins. Flush the previous turn's tail
+                    # and any tool calls it triggered, then reset the answer
+                    # accumulator so it ends up holding the FINAL turn's text
+                    # rather than every intermediate narration concatenated.
+                    frames, buffer = _token_frames(buffer, force=True)
+                    for frame in frames:
+                        yield {
+                            "type": "token",
+                            "content": frame,
+                            "metadata": {"thread_id": actual_thread_id},
+                        }
+                    for record in await pending_tool_events():
+                        yield tool_chunk(record)
+                    answer_stream = ""
+                elif kind in ("on_tool_end", "on_tool_error"):
+                    for record in await pending_tool_events():
+                        yield tool_chunk(record)
+                elif kind == "on_chain_end" and event.get("run_id") == root_run_id:
+                    output = (event.get("data") or {}).get("output")
+                    if isinstance(output, dict):
+                        result = output
+
+            frames, buffer = _token_frames(buffer, force=True)
+            for frame in frames:
+                yield {
+                    "type": "token",
+                    "content": frame,
+                    "metadata": {"thread_id": actual_thread_id},
+                }
+            # include_unfinished: a tool that never recorded a result is still
+            # worth showing (with no outcome) rather than vanishing.
+            for record in await pending_tool_events(include_unfinished=True):
+                yield tool_chunk(record)
+
+            if result is None:
+                # The root chain's end event never arrived (an SDK change, or a
+                # graph that streamed without one). The streamed text is still a
+                # real answer; use it rather than losing the turn.
+                logger.warning(
+                    "astream_events produced no final graph state; "
+                    "falling back to the streamed answer text"
+                )
+                result = {"messages": [AIMessage(content=answer_stream)] if answer_stream else []}
 
             # Extract the final message
             final_messages = result.get("messages", [])
@@ -1845,9 +2110,13 @@ class KubentlyAgent:
                                 extract_incident,
                             )
 
-                            trace = await get_tool_call_interceptor().get_tool_calls_for_thread(
-                                actual_thread_id
-                            )
+                            # `thread_id`, not `actual_thread_id`: tools record
+                            # under whatever current_thread_id was set to, and
+                            # that is `thread_id`. For a one-shot turn with no
+                            # contextId the two differ (actual_thread_id is a
+                            # fresh uuid) and this lookup silently returned []
+                            # — an incident recorded with no commands on it.
+                            trace = await interceptor.get_tool_calls_for_thread(thread_id)
                             incident = extract_incident(
                                 response_text,
                                 user_text=query_text,
@@ -1865,10 +2134,22 @@ class KubentlyAgent:
                         except Exception as e:
                             logger.warning(f"Incident recording failed (response unaffected): {e}")
 
+                    # `streamed` tells the A2A executor this text already went
+                    # out as token frames, so it publishes it once (as the
+                    # artifact) instead of repeating the whole answer as one
+                    # more `working` status. False when the answer was
+                    # substituted above, or when the model never streamed.
                     yield {
                         "type": "message",
                         "content": response_text,
-                        "metadata": {"thread_id": actual_thread_id},
+                        "metadata": {
+                            "thread_id": actual_thread_id,
+                            "streamed": (
+                                isinstance(response_text, str)
+                                and bool(answer_stream.strip())
+                                and response_text.strip() == answer_stream.strip()
+                            ),
+                        },
                     }
                 else:
                     # Fallback response
@@ -1887,6 +2168,15 @@ class KubentlyAgent:
 
         except Exception as e:
             logger.error(f"Error in agent.run: {e}", exc_info=True)
+            # A run that dies part-way still ran real commands. Publish them
+            # before the error so the transcript shows how far it got — and so
+            # a mid-stream failure ends the stream rather than leaving the
+            # subscription open on a half-told story.
+            try:
+                for record in await pending_tool_events(include_unfinished=True):
+                    yield tool_chunk(record)
+            except Exception:  # pragma: no cover - draining must never mask `e`
+                logger.warning("Could not drain tool calls after a failed run", exc_info=True)
             yield {
                 "type": "error",
                 "content": f"I encountered an error while processing your request: {e!s}",
