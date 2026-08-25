@@ -9,7 +9,6 @@ import os
 import sys
 import tempfile
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 import yaml
@@ -20,9 +19,8 @@ from kubently.modules.executor.command_analyzer import CommandAnalyzer, CommandC
 from kubently.modules.executor.dynamic_whitelist import (
     DynamicCommandWhitelist,
     SecurityMode,
-    WhitelistConfig,
 )
-from kubently.modules.executor.learning_engine import LearningEngine, LearningSuggestion, Pattern
+from kubently.modules.executor.learning_engine import LearningEngine, Pattern
 
 
 class TestDynamicCommandWhitelist:
@@ -194,9 +192,7 @@ class TestDynamicCommandWhitelist:
         """Flags fail closed: anything not explicitly allowlisted is rejected."""
         whitelist = DynamicCommandWhitelist(config_path="/nonexistent/path")
 
-        is_valid, reason = whitelist.validate_command(
-            ["get", "pods", "--as=system:masters"]
-        )
+        is_valid, reason = whitelist.validate_command(["get", "pods", "--as=system:masters"])
         assert is_valid is False
         assert "not allowed" in reason
 
