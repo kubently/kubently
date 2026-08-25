@@ -1,6 +1,25 @@
 # Changelog
 
-## [Unreleased] - 2026-08-21
+## [Unreleased] - 2026-08-25
+
+### Security
+- **Closed a whitelist bypass that let `kubectl get --raw` read restricted
+  Secrets/ConfigMaps.** `DynamicCommandWhitelist.validate_command` only checked
+  `args[1]` for restricted resources and had no reject branch for flags that
+  were neither allowlisted nor forbidden, so
+  `get --raw /api/v1/namespaces/<ns>/secrets/<name>` passed validation and the
+  executor returned the Secret — the exact control the Helm chart cites to
+  justify the `changeCorrelation.helmHistory` RBAC widening. Three fixes, all
+  in `kubently/modules/executor/dynamic_whitelist.py`:
+  - `--raw` is now in `IMMUTABLE_FORBIDDEN_PATTERNS` (it inherently bypasses
+    verb/resource restriction, in every mode).
+  - Restricted-resource names are matched against every argument, not just
+    `args[1]` (catches `-n ns secrets`, `secrets/name`, API paths).
+  - The flag check fails closed: any flag not explicitly allowlisted is
+    rejected (previously e.g. `--as=system:masters` sailed through). The
+    per-mode default allowlists were expanded to cover the flags real callers
+    send (`-n`, `-A`, `-l`, `-o`, `-c`, `--tail`, `--sort-by`, `--revision`,
+    …), which only ever worked because of the missing reject branch.
 
 ### Changed
 - **The A2A stream narrates the investigation instead of replaying it (#115).**

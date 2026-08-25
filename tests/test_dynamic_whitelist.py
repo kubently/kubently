@@ -167,6 +167,53 @@ class TestDynamicCommandWhitelist:
         assert ok_secret is False
         assert "restricted" in reason
 
+    def test_raw_api_access_blocked(self):
+        """`get --raw` bypasses verb/resource restriction entirely; always blocked."""
+        whitelist = DynamicCommandWhitelist(config_path="/nonexistent/path")
+
+        is_valid, reason = whitelist.validate_command(
+            ["get", "--raw", "/api/v1/namespaces/ns/secrets/name"]
+        )
+        assert is_valid is False
+        assert "--raw" in reason
+
+    def test_restricted_resource_in_any_position(self):
+        """Restricted resources are caught anywhere in the args, not just args[1]."""
+        whitelist = DynamicCommandWhitelist(config_path="/nonexistent/path")
+
+        for args in (
+            ["get", "-n", "kube-system", "secrets"],
+            ["get", "secrets/db-creds", "-n", "prod"],
+            ["describe", "-n", "prod", "secrets", "db-creds"],
+        ):
+            is_valid, reason = whitelist.validate_command(args)
+            assert is_valid is False, args
+            assert "restricted" in reason
+
+    def test_unlisted_flag_rejected(self):
+        """Flags fail closed: anything not explicitly allowlisted is rejected."""
+        whitelist = DynamicCommandWhitelist(config_path="/nonexistent/path")
+
+        is_valid, reason = whitelist.validate_command(
+            ["get", "pods", "--as=system:masters"]
+        )
+        assert is_valid is False
+        assert "not allowed" in reason
+
+    def test_common_diagnostic_flags_allowed(self):
+        """The flags real callers send survive the fail-closed flag check."""
+        whitelist = DynamicCommandWhitelist(config_path="/nonexistent/path")
+
+        for args in (
+            ["get", "pods", "-n", "default", "-o", "json"],
+            ["get", "deploy,sts,ds", "-A", "-l", "app=x", "-o", "jsonpath={.items}"],
+            ["logs", "my-pod", "-c", "app", "--tail=50", "--previous"],
+            ["get", "events", "--sort-by=.lastTimestamp", "--field-selector", "type=Warning"],
+            ["rollout", "history", "deployment/api", "--revision=2"],
+        ):
+            is_valid, reason = whitelist.validate_command(args)
+            assert is_valid is True, (args, reason)
+
     def test_security_modes(self):
         """Test different security modes have correct defaults."""
         # Test READ_ONLY mode
