@@ -98,6 +98,44 @@ class DynamicCommandWhitelist:
         "--kubeconfig=",
         "--token-file",
         "/etc/kubernetes",
+        # Raw API-server access bypasses verb/resource restriction entirely
+        # (e.g. `get --raw /api/v1/namespaces/ns/secrets/name`)
+        "--raw",
+    }
+
+    # Flags legitimate read-only diagnostics need; shared by every mode's
+    # defaults. Operators extend per-deployment via commands.allowedFlags.
+    BASE_READ_FLAGS: ClassVar[set[str]] = {
+        "-n",
+        "--namespace",
+        "-A",
+        "--all-namespaces",
+        "-l",
+        "--selector",
+        "-o",
+        "--output",
+        "-c",
+        "--container",
+        "--all-containers",
+        "-f",
+        "--follow",
+        "-p",
+        "--previous",
+        "--tail",
+        "--since",
+        "--since-time",
+        "--timestamps",
+        "--prefix",
+        "-w",
+        "--watch",
+        "--show-labels",
+        "--field-selector",
+        "--sort-by",
+        "--no-headers",
+        "--limit",
+        "--revision",
+        "--recursive",
+        "--containers",
     }
 
     # kubectl verbs that are only partially read-only: allowed only with a
@@ -126,15 +164,7 @@ class DynamicCommandWhitelist:
             # configmaps are allowed (RBAC permits them and they're core to troubleshooting);
             # secrets stay restricted as defense-in-depth alongside RBAC.
             "restrictedResources": {"secrets"},
-            "allowedFlags": {
-                "--namespace",
-                "--all-namespaces",
-                "--selector",
-                "--show-labels",
-                "--watch",
-                "--follow",
-                "--previous",
-            },
+            "allowedFlags": BASE_READ_FLAGS,
         },
         SecurityMode.EXTENDED_READ_ONLY: {
             "allowedVerbs": {
@@ -152,18 +182,13 @@ class DynamicCommandWhitelist:
                 "exec",
             },
             "restrictedResources": {"secrets"},
-            "allowedFlags": {
-                "--namespace",
-                "--all-namespaces",
-                "--selector",
-                "--show-labels",
-                "--watch",
-                "--follow",
-                "--previous",
+            "allowedFlags": BASE_READ_FLAGS
+            | {
                 "--port",
+                "-i",
                 "--stdin",
+                "-t",
                 "--tty",
-                "--container",
             },
         },
         SecurityMode.FULL_ACCESS: {
@@ -186,18 +211,14 @@ class DynamicCommandWhitelist:
                 "run",
             },
             "restrictedResources": set(),
-            "allowedFlags": {
-                "--namespace",
-                "--all-namespaces",
-                "--selector",
-                "--show-labels",
-                "--watch",
-                "--follow",
-                "--previous",
+            "allowedFlags": BASE_READ_FLAGS
+            | {
                 "--port",
+                "-i",
                 "--stdin",
+                "-t",
                 "--tty",
-                "--container",
+                "--image",
                 "--server-print",
                 "--server-version",
             },
@@ -501,21 +522,28 @@ class DynamicCommandWhitelist:
                 if pattern in arg_lower:
                     return False, f"Forbidden pattern '{pattern}' detected"
 
-        # Check resource restrictions
-        if config.restricted_resources and len(args) > 1:
-            for resource in config.restricted_resources:
-                if resource in args[1].lower():
-                    return False, f"Access to resource '{resource}' is restricted"
+        # Check resource restrictions across every argument, not just args[1] —
+        # restricted resource names can appear anywhere (API paths, slash
+        # syntax like secrets/name, flag values).
+        if config.restricted_resources:
+            for arg in args[1:]:
+                arg_lower = arg.lower()
+                for resource in config.restricted_resources:
+                    if resource in arg_lower:
+                        return False, f"Access to resource '{resource}' is restricted"
 
-        # Check flags
+        # Check flags — fail closed: any flag not explicitly allowlisted is
+        # rejected, so new kubectl flags can't silently bypass restrictions.
         for arg in args[1:]:
+            if arg == "--":
+                # kubectl passthrough separator (e.g. exec pod -- ls -la);
+                # what follows isn't kubectl flags. Forbidden-pattern and
+                # restricted-resource scans above already covered those args.
+                break
             if arg.startswith("-"):
                 flag_base = arg.split("=")[0]
                 if flag_base not in config.allowed_flags:
-                    # Check if it's a forbidden flag
-                    for forbidden in self.IMMUTABLE_FORBIDDEN_PATTERNS:
-                        if forbidden in flag_base:
-                            return False, f"Forbidden flag '{flag_base}' detected"
+                    return False, f"Flag '{flag_base}' is not allowed"
 
         return True, None
 
